@@ -18,7 +18,11 @@
     "@types/jquery": "^3.5.33",
     "@types/jqueryui": "^1.12.24",
     "@types/lodash": "^4.17.23",
+<<<<<<< HEAD
     "@types/react": "^19.2.10",
+=======
+    "@types/react": "^19.2.13",
+>>>>>>> 0ec95e792bbd1451e45badc1c5b13888d2f7f007
     "@types/react-dom": "^19.2.3",
     "@types/showdown": "^2.0.6",
     "@types/toastr": "^2.1.43",
@@ -54,7 +58,11 @@
     "remark-html": "^16.0.1",
     "remark-loader": "^6.0.0",
     "sass": "^1.97.3",
+<<<<<<< HEAD
     "sass-loader": "^16.0.6",
+=======
+    "sass-loader": "^16.0.7",
+>>>>>>> 0ec95e792bbd1451e45badc1c5b13888d2f7f007
     "socket.io": "^4.8.3",
     "style-loader": "^4.0.0",
     "tailwindcss": "^4.1.18",
