@@ -121,6 +121,7 @@ export function parseString(content: string): any {
   }
   return parsed;
 }
+<<<<<<< HEAD
 
 export async function checkAndUpdateCharacter(name: string, latest_version: string, png_url: string): Promise<void> {
   const current_version = (await getCharacter(name)).version.trim() || '0.0.0';
@@ -134,3 +135,5 @@ export async function checkAndUpdateCharacter(name: string, latest_version: stri
     name,
   );
 }
+=======
+>>>>>>> 8ff6bdca565e1a9dbd2d942472c26419a7132006
