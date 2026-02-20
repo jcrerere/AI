@@ -1,0 +1,2220 @@
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import CyberPanel from './components/ui/CyberPanel';
+import PlayerStatePanel from './components/left/PlayerStatePanel';
+import ChipPanel from './components/left/ChipPanel';
+import SpiritNexus from './components/right/SpiritNexus';
+import NPCProfile from './components/right/NPCProfile';
+import ContactList from './components/right/ContactList';
+import NodeMapEditor from './components/right/NodeMapEditor';
+import NarrativeFeed from './components/center/NarrativeFeed';
+import ItemDetailView from './components/ui/ItemDetailView';
+import InventoryModal from './components/ui/InventoryModal';
+import BetaInhibitionOverlay from './components/ui/BetaInhibitionOverlay';
+import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
+import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
+import ActionMenu from './components/center/ActionMenu';
+import StartScreen from './components/flow/StartScreen';
+import SplashScreen from './components/flow/SplashScreen';
+import GameSetup from './components/flow/GameSetup';
+import { Message, NPC, Item, GameConfig, PlayerStats, Chip, PlayerFaction, Rank, Skill, PlayerCivilianStatus, BetaTask, CareerTrack, WorldNodeMapData, MapRuntimeData } from './types';
+import { buildPseudoLayer, hasPseudoLayer, parsePseudoLayer, replaceMaintext } from './utils/pseudoLayer';
+import {
+  MOCK_MESSAGES,
+  MOCK_CHIPS,
+  MOCK_INVENTORY,
+  MOCK_NPCS,
+  MOCK_PLAYER_STATS,
+  MOCK_PLAYER_STATUS,
+  MOCK_PLAYER_FACTION,
+  MOCK_STORAGE_CHIPS,
+  RANK_CONFIG,
+} from './constants';
+import { mergeWorldNodeMap, normalizeWorldNodeMap, tryParseMapFromText, tryParseMapPatchFromText } from './utils/mapData';
+import { createEmptyWorldMap, isWorldMapEmpty, loadDefaultQilingMap } from './utils/mapLoader';
+import { Users, Map as MapIcon, Send, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen } from 'lucide-react';
+
+type GameStage = 'start' | 'splash' | 'setup' | 'game';
+const LN_ARCHIVES_KEY = 'ln_archives_v1';
+const LN_LAST_ARCHIVE_ID_KEY = 'ln_last_archive_id_v1';
+const LN_API_CONFIG_KEY = 'ln_api_config_v1';
+const LN_SUMMARY_CONFIG_KEY = 'ln_summary_config_v1';
+const MAX_ARCHIVE_SLOTS = 20;
+
+const getBetaTierTitle = (level: number) => {
+  if (level >= 5) return '秩序代行体';
+  if (level === 4) return '监管协从体';
+  if (level === 3) return '执行劳服体';
+  if (level === 2) return '陈列顺从体';
+  return '清除候验体';
+};
+
+interface BetaTaskTemplate {
+  title: string;
+  detail: string;
+  scoreReward: number;
+  creditReward: number;
+}
+
+interface BetaProfession {
+  id: string;
+  name: string;
+  description: string;
+  minLevel: number;
+  maxLevel: number;
+  taskTemplates: BetaTaskTemplate[];
+}
+
+const BETA_PROFESSIONS: BetaProfession[] = [
+  {
+    id: 'clearance_test',
+    name: '清除候验员',
+    description: '执行高风险底层勤务，接受严格行为评估。',
+    minLevel: 1,
+    maxLevel: 1,
+    taskTemplates: [
+      { title: '夜间危险区清扫', detail: '完成一轮危险区清扫并上传轨迹。', scoreReward: 8, creditReward: 420 },
+      { title: '违规物回收', detail: '按清单回收违规物资并登记封存。', scoreReward: 9, creditReward: 460 },
+    ],
+  },
+  {
+    id: 'display_order',
+    name: '秩序陈列员',
+    description: '负责公共秩序示范岗位，维持区域规范表现。',
+    minLevel: 2,
+    maxLevel: 2,
+    taskTemplates: [
+      { title: '秩序示范巡站', detail: '在指定站点完成示范巡站并打卡。', scoreReward: 10, creditReward: 520 },
+      { title: '公共引导勤务', detail: '协助完成人流引导与秩序维持。', scoreReward: 11, creditReward: 560 },
+    ],
+  },
+  {
+    id: 'labor_exec',
+    name: '执行劳服员',
+    description: '承担标准化劳动任务，完成配额与效率考核。',
+    minLevel: 3,
+    maxLevel: 3,
+    taskTemplates: [
+      { title: '配额搬运工单', detail: '完成当日货运配额，不得延误。', scoreReward: 12, creditReward: 620 },
+      { title: '物资分拣流程', detail: '完成指定物资分拣与封签流程。', scoreReward: 12, creditReward: 600 },
+    ],
+  },
+  {
+    id: 'oversight_aide',
+    name: '监管协从官',
+    description: '辅助维护区域管理秩序，执行监督与报告任务。',
+    minLevel: 4,
+    maxLevel: 4,
+    taskTemplates: [
+      { title: '区域监管巡检', detail: '完成一次区域监管巡检并提交异常报告。', scoreReward: 14, creditReward: 720 },
+      { title: '税务窗口协从', detail: '协助税务窗口完成票据核验与归档。', scoreReward: 13, creditReward: 680 },
+    ],
+  },
+  {
+    id: 'order_proxy',
+    name: '秩序代行官',
+    description: '执行高等级指令，负责跨模块协调与审查。',
+    minLevel: 5,
+    maxLevel: 5,
+    taskTemplates: [
+      { title: '跨区秩序审查', detail: '完成跨区秩序审查并提交总览报告。', scoreReward: 16, creditReward: 860 },
+      { title: '高压规则执行', detail: '执行高压规则整顿并记录处理结果。', scoreReward: 15, creditReward: 820 },
+    ],
+  },
+];
+
+const DEFAULT_CAREER_TRACKS: CareerTrack[] = [
+  {
+    id: 'career_track_core',
+    name: '基础劳服线',
+    entryRequirement: '开局完成身份鉴定',
+    description: '默认线路，用于搭建事件节点模板。',
+    nodes: [
+      {
+        id: 'career_node_core_root',
+        name: '鉴定登记',
+        unlockRequirement: '无',
+        eventTask: '在登记处完成资质鉴定并领取身份标签。',
+        eventReward: '开启职业线路编辑权限。',
+        lineType: 'main',
+        x: 0,
+        y: 0,
+        links: {},
+      },
+    ],
+    rootNodeId: 'career_node_core_root',
+  },
+];
+
+interface FloatingText {
+  id: number;
+  text: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
+interface LnSaveData {
+  version: 1;
+  messages: Message[];
+  playerStats: PlayerStats;
+  playerGender: 'male' | 'female';
+  playerSkills: Skill[];
+  npcs: NPC[];
+  contactGroups: string[];
+  playerChips: Chip[];
+  storageChips: Chip[];
+  playerInventory: Item[];
+  playerLingshu: GameConfig['selectedLingshu'];
+  playerFaction: PlayerFaction;
+  leftModuleTab: 'chips' | 'lingshu' | 'inventory';
+  playerNeuralProtocol: 'none' | 'beta';
+  careerTracks: CareerTrack[];
+  betaStatus: PlayerCivilianStatus;
+  betaTasks: BetaTask[];
+  acceptedBetaTaskIds: string[];
+  claimableBetaTaskIds: string[];
+  taskDeadlines: Record<string, number>;
+  pendingUpgradeEvaluation: boolean;
+  selectedBetaProfessionId: string | null;
+  focusedLayerId: string | null;
+  summaryConfig?: SummaryConfig;
+  worldNodeMap?: WorldNodeMapData;
+  mapRuntime?: MapRuntimeData;
+}
+
+interface ArchiveSlot {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  data: LnSaveData;
+}
+
+interface LnApiConfig {
+  enabled: boolean;
+  useTavernApi: boolean;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+}
+
+interface SummaryConfig {
+  enabled: boolean;
+  keepRawLayers: number;
+  smallSummaryEvery: number;
+  largeSummaryEvery: number;
+  smallSummaryPrompt: string;
+  largeSummaryPrompt: string;
+}
+
+interface LayerSummary {
+  id: string;
+  type: 'small' | 'large';
+  no: number;
+  start: number;
+  end: number;
+  content: string;
+}
+
+const App: React.FC = () => {
+  type LeftModuleTab = 'chips' | 'lingshu' | 'inventory';
+  const [gameStage, setGameStage] = useState<GameStage>('start');
+  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
+  const [inputText, setInputText] = useState('');
+  const [selectedNPC, setSelectedNPC] = useState<NPC | null>(null);
+  const [activeTab, setActiveTab] = useState<'contacts' | 'map' | 'settings'>('contacts');
+  const [leftOpen, setLeftOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(true);
+  const [isInventoryOpen, setIsInventoryOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<Item | null>(null);
+  const [worldNodeMap, setWorldNodeMap] = useState<WorldNodeMapData>(() => createEmptyWorldMap());
+  const [mapRuntime, setMapRuntime] = useState<MapRuntimeData>({
+    viewed: null,
+    playerPosition: null,
+    elapsedMinutes: 0,
+    logs: [],
+  });
+
+  const [playerStats, setPlayerStats] = useState<PlayerStats>(MOCK_PLAYER_STATS);
+  const [playerGender, setPlayerGender] = useState<'male' | 'female'>('male');
+  const [playerSkills, setPlayerSkills] = useState<Skill[]>([
+    { id: 'ps1', name: '灵弦：野性直觉', level: 1, description: '被动增强感知能力。' },
+  ]);
+  const [isSpiritCoreModalOpen, setIsSpiritCoreModalOpen] = useState(false);
+
+  const [npcs, setNpcs] = useState<NPC[]>(MOCK_NPCS);
+  const [contactGroups, setContactGroups] = useState<string[]>(Array.from(new Set(MOCK_NPCS.filter(n => n.group).map(n => n.group))));
+
+  const [playerChips, setPlayerChips] = useState<Chip[]>(MOCK_CHIPS);
+  const [storageChips, setStorageChips] = useState<Chip[]>(MOCK_STORAGE_CHIPS);
+
+  const [playerInventory, setPlayerInventory] = useState<Item[]>(MOCK_INVENTORY);
+  const [playerLingshu, setPlayerLingshu] = useState<GameConfig['selectedLingshu']>([]);
+  const [playerFaction, setPlayerFaction] = useState<PlayerFaction>(MOCK_PLAYER_FACTION);
+  const [leftModuleTab, setLeftModuleTab] = useState<LeftModuleTab>('chips');
+  const [playerNeuralProtocol, setPlayerNeuralProtocol] = useState<'none' | 'beta'>('none');
+  const [careerTracks, setCareerTracks] = useState<CareerTrack[]>(DEFAULT_CAREER_TRACKS);
+  const [isCareerEditorOpen, setIsCareerEditorOpen] = useState(false);
+  const [focusedLayerId, setFocusedLayerId] = useState<string | null>(null);
+  const [isEditLayerOpen, setIsEditLayerOpen] = useState(false);
+  const [editMaintextDraft, setEditMaintextDraft] = useState('');
+  const [layerMenu, setLayerMenu] = useState<{ x: number; y: number; layerId: string } | null>(null);
+  const [isLayerPickerOpen, setIsLayerPickerOpen] = useState(false);
+  const [archiveSlots, setArchiveSlots] = useState<ArchiveSlot[]>([]);
+  const [selectedArchiveId, setSelectedArchiveId] = useState<string>('');
+  const [archiveNameInput, setArchiveNameInput] = useState('');
+  const [apiConfig, setApiConfig] = useState<LnApiConfig>({
+    enabled: false,
+    useTavernApi: true,
+    endpoint: '',
+    apiKey: '',
+    model: 'gpt-4o-mini',
+  });
+  const [isApiSending, setIsApiSending] = useState(false);
+  const [apiError, setApiError] = useState('');
+  const [summaryConfig, setSummaryConfig] = useState<SummaryConfig>({
+    enabled: true,
+    keepRawLayers: 20,
+    smallSummaryEvery: 5,
+    largeSummaryEvery: 20,
+    smallSummaryPrompt: '请总结这几层的关键事件、变量变化、关系变化和未决问题，保持客观简洁。',
+    largeSummaryPrompt: '请将这一阶段整合为主线进度摘要，突出冲突演化、阶段结果和后续风险。',
+  });
+  const [selectedSmallSummaryId, setSelectedSmallSummaryId] = useState<string | null>(null);
+  const [selectedLargeSummaryId, setSelectedLargeSummaryId] = useState<string | null>(null);
+
+  const [betaStatus, setBetaStatus] = useState<PlayerCivilianStatus>({
+    ...MOCK_PLAYER_STATUS,
+    betaLevel: 1,
+    betaTierName: getBetaTierTitle(1),
+    taxOfficerName: '第7区税务官·柳映荷',
+    taxOfficeAddress: '第7区税务征收处·D入口',
+  });
+  const [betaTasks, setBetaTasks] = useState<BetaTask[]>([]);
+  const [acceptedBetaTaskIds, setAcceptedBetaTaskIds] = useState<string[]>([]);
+  const [claimableBetaTaskIds, setClaimableBetaTaskIds] = useState<string[]>([]);
+  const [taskDeadlines, setTaskDeadlines] = useState<Record<string, number>>({});
+  const [pendingUpgradeEvaluation, setPendingUpgradeEvaluation] = useState(false);
+  const [selectedBetaProfessionId, setSelectedBetaProfessionId] = useState<string | null>(null);
+
+  const [isBetaOverlayActive, setIsBetaOverlayActive] = useState(false);
+  const [betaOverlayMode] = useState<'violation' | 'shame'>('violation');
+  const [betaOverlayWarnings, setBetaOverlayWarnings] = useState<string[]>([]);
+
+  const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
+  const floatIdCounter = useRef(0);
+  const hasTriedLoadDefaultMapRef = useRef(false);
+  const lastAutoMapSyncMessageIdRef = useRef('');
+  const [autoMapSyncEnabled] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const syncFullscreen = () => {
+      setIsFullscreen(!!document.fullscreenElement || !!(document as any).webkitFullscreenElement);
+    };
+    syncFullscreen();
+    document.addEventListener('fullscreenchange', syncFullscreen);
+    document.addEventListener('webkitfullscreenchange', syncFullscreen as EventListener);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    setLeftModuleTab(prev => (prev === 'chips' || prev === 'lingshu' || prev === 'inventory' ? prev : 'chips'));
+  }, [playerGender]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LN_ARCHIVES_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as ArchiveSlot[];
+      if (!Array.isArray(parsed)) return;
+      const valid = parsed.filter(slot => slot?.id && slot?.name && slot?.data?.version === 1);
+      setArchiveSlots(valid);
+      const lastId = window.localStorage.getItem(LN_LAST_ARCHIVE_ID_KEY);
+      if (lastId && valid.some(slot => slot.id === lastId)) {
+        setSelectedArchiveId(lastId);
+      } else if (valid[0]) {
+        setSelectedArchiveId(valid[0].id);
+      }
+    } catch (error) {
+      console.warn('读取档案列表失败:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (hasTriedLoadDefaultMapRef.current) return;
+    if (!isWorldMapEmpty(worldNodeMap)) return;
+    hasTriedLoadDefaultMapRef.current = true;
+    let cancelled = false;
+    loadDefaultQilingMap().then(map => {
+      if (cancelled) return;
+      setWorldNodeMap(prev => (isWorldMapEmpty(prev) ? map : prev));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [worldNodeMap]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LN_API_CONFIG_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<LnApiConfig>;
+      setApiConfig(prev => ({
+        ...prev,
+        ...parsed,
+        enabled: !!parsed.enabled,
+      }));
+    } catch (error) {
+      console.warn('读取 API 配置失败:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LN_API_CONFIG_KEY, JSON.stringify(apiConfig));
+    } catch (error) {
+      console.warn('保存 API 配置失败:', error);
+    }
+  }, [apiConfig]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LN_SUMMARY_CONFIG_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Partial<SummaryConfig>;
+      setSummaryConfig(prev => ({
+        ...prev,
+        ...parsed,
+        enabled: parsed.enabled ?? prev.enabled,
+        keepRawLayers: Math.max(1, Math.floor(parsed.keepRawLayers || prev.keepRawLayers || 20)),
+        smallSummaryEvery: Math.max(1, Math.floor(parsed.smallSummaryEvery || prev.smallSummaryEvery || 5)),
+        largeSummaryEvery: Math.max(1, Math.floor(parsed.largeSummaryEvery || prev.largeSummaryEvery || 20)),
+      }));
+    } catch (error) {
+      console.warn('读取总结配置失败:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LN_SUMMARY_CONFIG_KEY, JSON.stringify(summaryConfig));
+    } catch (error) {
+      console.warn('保存总结配置失败:', error);
+    }
+  }, [summaryConfig]);
+
+  const hasBetaChip = playerChips.some(c => c.type === 'beta');
+  const betaLevelNow = betaStatus.betaLevel || 1;
+  const availableBetaProfessions = useMemo(
+    () => BETA_PROFESSIONS.filter(p => betaLevelNow >= p.minLevel && betaLevelNow <= p.maxLevel),
+    [betaLevelNow],
+  );
+  const selectedBetaProfession = useMemo(
+    () => BETA_PROFESSIONS.find(p => p.id === selectedBetaProfessionId) || null,
+    [selectedBetaProfessionId],
+  );
+  const layerMessages = useMemo(() => messages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)), [messages]);
+  const turnLayerMessages = useMemo(
+    () =>
+      layerMessages.filter(layer => {
+        const idx = messages.findIndex(msg => msg.id === layer.id);
+        if (idx <= 0) return false;
+        return messages[idx - 1]?.sender === 'Player';
+      }),
+    [layerMessages, messages],
+  );
+  const activeLayerMessage = useMemo(
+    () => (focusedLayerId ? layerMessages.find(layer => layer.id === focusedLayerId) : undefined) || layerMessages[layerMessages.length - 1],
+    [focusedLayerId, layerMessages],
+  );
+  const layerMaintexts = useMemo(
+    () =>
+      turnLayerMessages.map((layer, idx) => ({
+        layerNo: idx + 1,
+        text: parsePseudoLayer(layer.content).maintext.trim(),
+      })),
+    [turnLayerMessages],
+  );
+  const layerSummaries = useMemo<LayerSummary[]>(() => {
+    if (!summaryConfig.enabled || layerMaintexts.length === 0) return [];
+    const smallEvery = Math.max(1, Math.floor(summaryConfig.smallSummaryEvery || 1));
+    const largeEvery = Math.max(smallEvery, Math.floor(summaryConfig.largeSummaryEvery || smallEvery));
+    const next: LayerSummary[] = [];
+
+    let smallNo = 0;
+    for (let i = 0; i < layerMaintexts.length; i += smallEvery) {
+      const chunk = layerMaintexts.slice(i, Math.min(i + smallEvery, layerMaintexts.length));
+      if (chunk.length < smallEvery) continue;
+      smallNo += 1;
+      const start = chunk[0].layerNo;
+      const end = chunk[chunk.length - 1].layerNo;
+      const content = chunk
+        .map(item => `R${item.layerNo}: ${(item.text || '（空）').slice(0, 80)}`)
+        .join(' | ');
+      next.push({ id: `sum_s_${smallNo}_${start}_${end}`, type: 'small', no: smallNo, start, end, content });
+    }
+
+    let largeNo = 0;
+    for (let i = 0; i < layerMaintexts.length; i += largeEvery) {
+      const start = i + 1;
+      const end = Math.min(i + largeEvery, layerMaintexts.length);
+      if (end - start + 1 < largeEvery) continue;
+      const sourceSmalls = next.filter(item => item.type === 'small' && item.start >= start && item.end <= end);
+      const largeText = sourceSmalls.length
+        ? sourceSmalls.map(item => `S${item.no}[${item.start}-${item.end}]: ${item.content.slice(0, 60)}`).join(' || ')
+        : layerMaintexts
+            .slice(i, end)
+            .map(item => `R${item.layerNo}: ${(item.text || '（空）').slice(0, 60)}`)
+            .join(' | ');
+      largeNo += 1;
+      next.push({ id: `sum_l_${largeNo}_${start}_${end}`, type: 'large', no: largeNo, start, end, content: largeText });
+    }
+
+    return next;
+  }, [summaryConfig.enabled, summaryConfig.largeSummaryEvery, summaryConfig.smallSummaryEvery, layerMaintexts]);
+  const smallSummaries = useMemo(() => layerSummaries.filter(item => item.type === 'small'), [layerSummaries]);
+  const largeSummaries = useMemo(() => layerSummaries.filter(item => item.type === 'large'), [layerSummaries]);
+  const visibleMessages = useMemo(() => {
+    if (!summaryConfig.enabled) return messages;
+    const keepRaw = Math.max(1, Math.floor(summaryConfig.keepRawLayers || 1));
+    if (turnLayerMessages.length <= keepRaw) return messages;
+
+    const firstVisibleLayer = turnLayerMessages[turnLayerMessages.length - keepRaw];
+    if (!firstVisibleLayer) return messages;
+    const layerIdx = messages.findIndex(msg => msg.id === firstVisibleLayer.id);
+    if (layerIdx <= 0) return messages;
+    const startIdx = messages[layerIdx - 1]?.sender === 'Player' ? layerIdx - 1 : layerIdx;
+    return messages.slice(startIdx);
+  }, [messages, turnLayerMessages, summaryConfig.enabled, summaryConfig.keepRawLayers]);
+  const visibleLayerMessages = useMemo(
+    () => visibleMessages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)),
+    [visibleMessages],
+  );
+
+  const spawnFloatingText = (text: string, color: string = 'text-white') => {
+    const id = floatIdCounter.current++;
+    const x = 50 + (Math.random() * 10 - 5);
+    const y = 50 + (Math.random() * 10 - 5);
+    setFloatingTexts(prev => [...prev, { id, text, x, y, color }]);
+    setTimeout(() => setFloatingTexts(prev => prev.filter(ft => ft.id !== id)), 1000);
+  };
+
+  const persistArchives = (slots: ArchiveSlot[]) => {
+    try {
+      window.localStorage.setItem(LN_ARCHIVES_KEY, JSON.stringify(slots));
+    } catch (error) {
+      console.warn('写入档案列表失败:', error);
+    }
+  };
+
+  const buildSavePayload = (): LnSaveData => ({
+    version: 1,
+    messages,
+    playerStats,
+    playerGender,
+    playerSkills,
+    npcs,
+    contactGroups,
+    playerChips,
+    storageChips,
+    playerInventory,
+    playerLingshu,
+    playerFaction,
+    leftModuleTab,
+    playerNeuralProtocol,
+    careerTracks,
+    betaStatus,
+    betaTasks,
+    acceptedBetaTaskIds,
+    claimableBetaTaskIds,
+    taskDeadlines,
+    pendingUpgradeEvaluation,
+    selectedBetaProfessionId,
+    focusedLayerId,
+    summaryConfig,
+    worldNodeMap,
+    mapRuntime,
+  });
+
+  const applySavePayload = (payload: LnSaveData) => {
+    setMessages(payload.messages || MOCK_MESSAGES);
+    setPlayerStats(payload.playerStats || MOCK_PLAYER_STATS);
+    setPlayerGender(payload.playerGender || 'male');
+    setPlayerSkills(payload.playerSkills || []);
+    setNpcs(payload.npcs || MOCK_NPCS);
+    setContactGroups(payload.contactGroups || []);
+    setPlayerChips(payload.playerChips || MOCK_CHIPS);
+    setStorageChips(payload.storageChips || MOCK_STORAGE_CHIPS);
+    setPlayerInventory(payload.playerInventory || MOCK_INVENTORY);
+    setPlayerLingshu(payload.playerLingshu || []);
+    setPlayerFaction(payload.playerFaction || MOCK_PLAYER_FACTION);
+    setLeftModuleTab(payload.leftModuleTab || 'chips');
+    setPlayerNeuralProtocol(payload.playerNeuralProtocol === 'beta' ? 'beta' : 'none');
+    setCareerTracks(payload.careerTracks?.length ? payload.careerTracks : DEFAULT_CAREER_TRACKS);
+    setBetaStatus(payload.betaStatus || MOCK_PLAYER_STATUS);
+    setBetaTasks(payload.betaTasks || []);
+    setAcceptedBetaTaskIds(payload.acceptedBetaTaskIds || []);
+    setClaimableBetaTaskIds(payload.claimableBetaTaskIds || []);
+    setTaskDeadlines(payload.taskDeadlines || {});
+    setPendingUpgradeEvaluation(!!payload.pendingUpgradeEvaluation);
+    setSelectedBetaProfessionId(payload.selectedBetaProfessionId || null);
+    setFocusedLayerId(payload.focusedLayerId || null);
+    setSummaryConfig(prev => ({
+      ...prev,
+      ...(payload.summaryConfig || {}),
+      keepRawLayers: Math.max(1, Math.floor(payload.summaryConfig?.keepRawLayers || prev.keepRawLayers || 20)),
+      smallSummaryEvery: Math.max(1, Math.floor(payload.summaryConfig?.smallSummaryEvery || prev.smallSummaryEvery || 5)),
+      largeSummaryEvery: Math.max(1, Math.floor(payload.summaryConfig?.largeSummaryEvery || prev.largeSummaryEvery || 20)),
+    }));
+    setWorldNodeMap(normalizeWorldNodeMap(payload.worldNodeMap) || createEmptyWorldMap());
+    setMapRuntime(
+      payload.mapRuntime || {
+        viewed: null,
+        playerPosition: null,
+        elapsedMinutes: 0,
+        logs: [],
+      },
+    );
+    setSelectedNPC(null);
+    setGameStage('game');
+  };
+
+  const saveCurrentArchive = () => {
+    if (gameStage !== 'game') return;
+    const payload = buildSavePayload();
+    const now = Date.now();
+    const trimmedName = archiveNameInput.trim();
+    const fallbackName = new Date(now).toLocaleString('zh-CN');
+    const targetId = selectedArchiveId || `archive_${now}_${Math.random().toString(36).slice(2, 8)}`;
+    const nextName = trimmedName || archiveSlots.find(slot => slot.id === targetId)?.name || `档案 ${fallbackName}`;
+    const existing = archiveSlots.find(slot => slot.id === targetId);
+    const nextSlot: ArchiveSlot = {
+      id: targetId,
+      name: nextName,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      data: payload,
+    };
+    const merged = [nextSlot, ...archiveSlots.filter(slot => slot.id !== targetId)]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, MAX_ARCHIVE_SLOTS);
+    setArchiveSlots(merged);
+    setSelectedArchiveId(targetId);
+    setArchiveNameInput(nextName);
+    window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, targetId);
+    persistArchives(merged);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `sys_archive_saved_${now}`,
+        sender: 'System',
+        content: `档案已保存：${nextName}`,
+        timestamp: new Date(now).toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const loadArchiveById = (archiveId: string) => {
+    const slot = archiveSlots.find(item => item.id === archiveId);
+    if (!slot) return;
+    applySavePayload(slot.data);
+    setSelectedArchiveId(slot.id);
+    setArchiveNameInput(slot.name);
+    window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, slot.id);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `sys_archive_loaded_${Date.now()}`,
+        sender: 'System',
+        content: `已读取档案：${slot.name}`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const deleteSelectedArchive = () => {
+    if (!selectedArchiveId) return;
+    const target = archiveSlots.find(slot => slot.id === selectedArchiveId);
+    const next = archiveSlots.filter(slot => slot.id !== selectedArchiveId);
+    setArchiveSlots(next);
+    persistArchives(next);
+    const nextSelected = next[0]?.id || '';
+    setSelectedArchiveId(nextSelected);
+    if (nextSelected) {
+      const selected = next.find(slot => slot.id === nextSelected);
+      setArchiveNameInput(selected?.name || '');
+      window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, nextSelected);
+    } else {
+      setArchiveNameInput('');
+      window.localStorage.removeItem(LN_LAST_ARCHIVE_ID_KEY);
+    }
+    if (gameStage === 'game') {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `sys_archive_deleted_${Date.now()}`,
+          sender: 'System',
+          content: `档案已删除：${target?.name || '未命名档案'}`,
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          type: 'narrative',
+        },
+      ]);
+    }
+  };
+
+  const resolveApiEndpoint = (raw: string) => {
+    const trimmed = raw.trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+    if (trimmed.endsWith('/chat/completions')) return trimmed;
+    if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`;
+    return `${trimmed}/v1/chat/completions`;
+  };
+
+  const requestApiMaintext = async (input: string): Promise<string | null> => {
+    if (!apiConfig.enabled) return null;
+    if (apiConfig.useTavernApi) {
+      const tavernGenerate = (globalThis as { generate?: (args: { user_input: string; should_silence?: boolean }) => Promise<string> }).generate;
+      if (typeof tavernGenerate !== 'function') return null;
+      const text = await tavernGenerate({
+        user_input: input,
+        should_silence: true,
+      });
+      return typeof text === 'string' && text.trim() ? text.trim() : null;
+    }
+
+    const endpoint = resolveApiEndpoint(apiConfig.endpoint);
+    if (!endpoint || !apiConfig.model.trim()) return null;
+
+    const requestMessages = [{ role: 'user', content: input }];
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (apiConfig.apiKey.trim()) {
+      headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
+    }
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: apiConfig.model.trim(),
+        messages: requestMessages,
+        temperature: 0.85,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const json = await response.json();
+    const text = json?.choices?.[0]?.message?.content;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
+  };
+
+  const handleUpdateNpc = (npcId: string, updates: Partial<NPC>) => {
+    setNpcs(prev => prev.map(n => (n.id === npcId ? { ...n, ...updates } : n)));
+  };
+
+  const handleRemoveGroup = (groupName: string) => {
+    setContactGroups(prev => prev.filter(g => g !== groupName));
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.group === groupName && npc.isContact) {
+          return { ...npc, isContact: false, group: '', temporaryStatus: '近期删除' };
+        }
+        return npc;
+      }),
+    );
+  };
+
+  const handleAddPlayerSkill = () => {
+    const newSkill: Skill = {
+      id: `ps_${Date.now()}`,
+      name: `灵弦：随机突变${Math.floor(Math.random() * 100)}`,
+      level: 1,
+      description: '通过冥想与战斗产生的新回路。',
+    };
+    setPlayerSkills(prev => [...prev, newSkill]);
+  };
+
+  const handleRemovePlayerSkill = (id: string) => {
+    setPlayerSkills(prev => prev.filter(s => s.id !== id));
+  };
+
+  const handleEquipChip = (chip: Chip) => {
+    if (chip.type === 'board') {
+      setPlayerChips(prev => {
+        const nonBoard = prev.filter(c => c.type !== 'board');
+        return [...nonBoard, chip];
+      });
+      setStorageChips(prev => {
+        const oldBoard = playerChips.find(c => c.type === 'board');
+        const withoutNew = prev.filter(c => c.id !== chip.id);
+        return oldBoard ? [...withoutNew, oldBoard] : withoutNew;
+      });
+      return;
+    }
+    setPlayerChips(prev => [...prev, chip]);
+    setStorageChips(prev => prev.filter(c => c.id !== chip.id));
+  };
+
+  const handleUnequipChip = (chip: Chip) => {
+    setPlayerChips(prev => prev.filter(c => c.id !== chip.id));
+    setStorageChips(prev => [...prev, chip]);
+  };
+
+  const handleConversion = (type: 'xp' | 'coin' | 'mp', amount: number) => {
+    if (type === 'xp') {
+      if (playerStats.mp.current < amount) return;
+      const xpGained = Math.floor(amount * (playerStats.psionic.conversionRate / 100));
+      setPlayerStats(prev => ({
+        ...prev,
+        mp: { ...prev.mp, current: prev.mp.current - amount },
+        psionic: { ...prev.psionic, xp: prev.psionic.xp + xpGained },
+      }));
+      spawnFloatingText(`+${xpGained} 经验`, 'text-purple-400');
+      return;
+    }
+
+    if (type === 'coin') {
+      if (playerStats.mp.current < amount) return;
+      setPlayerStats(prev => ({ ...prev, mp: { ...prev.mp, current: prev.mp.current - amount }, credits: prev.credits + amount }));
+      return;
+    }
+
+    const cost = Math.ceil(amount * 1.2);
+    if (playerStats.credits < cost) return;
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: prev.credits - cost,
+      mp: { ...prev.mp, current: Math.min(prev.mp.max, prev.mp.current + amount) },
+    }));
+  };
+
+  const handleUseItem = (item: Item) => {
+    const sysMsg: Message = {
+      id: Date.now().toString(),
+      sender: 'System',
+      content: `你使用了 [${item.name}]。`,
+      timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+      type: 'narrative',
+    };
+    setMessages(prev => [...prev, sysMsg]);
+    if (item.quantity > 1) {
+      setPlayerInventory(prev => prev.map(i => (i.id === item.id ? { ...i, quantity: i.quantity - 1 } : i)));
+    } else {
+      setPlayerInventory(prev => prev.filter(i => i.id !== item.id));
+      setSelectedItem(null);
+    }
+  };
+
+  const processCommand = async (input: string) => {
+    const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const playerMsg: Message = {
+      id: `user_${Date.now()}`,
+      sender: 'Player',
+      content: input,
+      timestamp: now,
+      type: 'action',
+    };
+    let layerContent = buildPseudoLayer({
+      playerInput: input,
+      location: playerFaction.headquarters || '未知区域',
+      credits: playerStats.credits,
+      reputation: betaStatus.creditScore,
+    });
+
+    if (apiConfig.enabled) {
+      setIsApiSending(true);
+      setApiError('');
+      try {
+        const apiText = await requestApiMaintext(input);
+        if (apiText) {
+          layerContent = replaceMaintext(layerContent, apiText);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        setApiError(`API 调用失败: ${message}`);
+      } finally {
+        setIsApiSending(false);
+      }
+    }
+
+    const systemLayerMsg: Message = {
+      id: `layer_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      sender: 'System',
+      content: layerContent,
+      timestamp: now,
+      type: 'narrative',
+    };
+
+    setMessages(prev => {
+      let base = prev;
+      if (focusedLayerId) {
+        const focusIndex = prev.findIndex(msg => msg.id === focusedLayerId);
+        if (focusIndex >= 0) base = prev.slice(0, focusIndex + 1);
+      }
+      return [...base, playerMsg, systemLayerMsg];
+    });
+    setFocusedLayerId(systemLayerMsg.id);
+  };
+
+  const rerollActiveLayer = (targetLayerId?: string) => {
+    const targetLayer = targetLayerId
+      ? layerMessages.find(layer => layer.id === targetLayerId) || activeLayerMessage
+      : activeLayerMessage;
+    if (!targetLayer) return;
+    const layerIdx = messages.findIndex(msg => msg.id === targetLayer.id);
+    if (layerIdx < 0) return;
+    const latestPlayerInput =
+      [...messages]
+        .slice(0, layerIdx)
+        .reverse()
+        .find(msg => msg.sender === 'Player')?.content || '继续推进当前局势';
+    const nextLayer = buildPseudoLayer({
+      playerInput: latestPlayerInput,
+      location: playerFaction.headquarters || '未知区域',
+      credits: playerStats.credits,
+      reputation: betaStatus.creditScore,
+    });
+    setMessages(prev => prev.map(msg => (msg.id === targetLayer.id ? { ...msg, content: nextLayer } : msg)));
+    setFocusedLayerId(targetLayer.id);
+  };
+
+  const openEditActiveLayer = (targetLayerId?: string) => {
+    const targetLayer = targetLayerId
+      ? layerMessages.find(layer => layer.id === targetLayerId) || activeLayerMessage
+      : activeLayerMessage;
+    if (!targetLayer) return;
+    const parsed = parsePseudoLayer(targetLayer.content);
+    setEditMaintextDraft(parsed.maintext);
+    setFocusedLayerId(targetLayer.id);
+    setIsEditLayerOpen(true);
+  };
+
+  const saveEditActiveLayer = () => {
+    if (!activeLayerMessage) return;
+    const nextContent = replaceMaintext(activeLayerMessage.content, editMaintextDraft);
+    setMessages(prev => prev.map(msg => (msg.id === activeLayerMessage.id ? { ...msg, content: nextContent } : msg)));
+    setIsEditLayerOpen(false);
+  };
+
+  const rollbackToLayer = (layerId: string) => {
+    setMessages(prev => {
+      const idx = prev.findIndex(msg => msg.id === layerId);
+      if (idx < 0) return prev;
+      return prev.slice(0, idx + 1);
+    });
+    setFocusedLayerId(layerId);
+  };
+
+  const deleteLayerById = (layerId: string) => {
+    const nextMessages = messages.filter(msg => msg.id !== layerId);
+    setMessages(nextMessages);
+    const nextLayers = nextMessages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content));
+    if (nextLayers.length === 0) {
+      setFocusedLayerId(null);
+      return;
+    }
+    if (focusedLayerId === layerId) {
+      setFocusedLayerId(nextLayers[nextLayers.length - 1].id);
+    }
+  };
+
+  const appendMapDescriptionToChat = (title: string, description: string, images: string[] = []) => {
+    const now = Date.now();
+    const summary = description?.trim() || '该节点暂无描述。';
+    const imageBlock =
+      images.length > 0
+        ? `\n\n图片:\n${images
+            .slice(0, 3)
+            .map((url, index) => `![${title}-${index + 1}](${url})`)
+            .join('\n')}`
+        : '';
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `map_desc_${now}_${Math.random().toString(36).slice(2, 7)}`,
+        sender: 'System',
+        name: '地图情报',
+        content: `【${title}】\n${summary}${imageBlock}`,
+        timestamp: new Date(now).toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const importMapFromRecentChat = (mode: 'replace' | 'merge'): { ok: boolean; message: string } => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const msg = messages[i];
+      if (msg.sender === 'Player') continue;
+      const patch = tryParseMapPatchFromText(msg.content || '');
+      const parsed = patch?.map || tryParseMapFromText(msg.content || '');
+      if (!parsed) continue;
+
+      const finalMode = patch?.mode || mode;
+      setWorldNodeMap(prev => (finalMode === 'replace' ? parsed : mergeWorldNodeMap(prev, parsed)));
+
+      const now = Date.now();
+      const action = finalMode === 'replace' ? '替换' : '合并';
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `map_import_${now}_${Math.random().toString(36).slice(2, 7)}`,
+          sender: 'System',
+          name: '地图同步',
+          content: `已从最近聊天中提取地图 JSON，并完成${action}。`,
+          timestamp: new Date(now).toLocaleTimeString('zh-CN', { hour12: false }),
+          type: 'narrative',
+        },
+      ]);
+      return { ok: true, message: `已从最近聊天${action}地图` };
+    }
+    return { ok: false, message: '最近聊天未发现有效地图 JSON' };
+  };
+
+  const handleSend = async () => {
+    const command = inputText.trim();
+    if (!command) return;
+
+    if (command === '/reroll' || command === '/重掷') {
+      rerollActiveLayer();
+      setInputText('');
+      return;
+    }
+
+    if (command === '/clearsave' || command === '/清档') {
+      try {
+        window.localStorage.removeItem(LN_ARCHIVES_KEY);
+        window.localStorage.removeItem(LN_LAST_ARCHIVE_ID_KEY);
+      } catch (error) {
+        console.warn('清理本地存档失败:', error);
+      }
+      setArchiveSlots([]);
+      setSelectedArchiveId('');
+      setArchiveNameInput('');
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `sys_clear_save_${Date.now()}`,
+          sender: 'System',
+          content: '本地档案已清空。',
+          timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+          type: 'narrative',
+        },
+      ]);
+      setInputText('');
+      return;
+    }
+
+    await processCommand(command);
+    setInputText('');
+  };
+
+  const handleSetupComplete = (config: GameConfig) => {
+    const startRankConfig = RANK_CONFIG[config.startPsionicRank];
+    const newStats: PlayerStats = {
+      ...MOCK_PLAYER_STATS,
+      credits: config.startCredits,
+      mp: { current: startRankConfig.maxMp, max: startRankConfig.maxMp },
+      psionic: {
+        ...MOCK_PLAYER_STATS.psionic,
+        level: config.startPsionicRank,
+        maxXp: startRankConfig.maxXp,
+        conversionRate: config.startConversionRate,
+        recoveryRate: config.startRecoveryRate,
+      },
+      sanity: { ...MOCK_PLAYER_STATS.sanity, current: config.startPsionicRank === Rank.Lv5 ? 30 : 60 },
+      charisma: config.gender === 'female' ? { current: 65, max: 100 } : { current: 40, max: 100 },
+    };
+    setPlayerStats(newStats);
+    setPlayerGender(config.gender);
+    setPlayerNeuralProtocol(config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none'));
+
+    const baseBoard = config.selectedBoard || MOCK_CHIPS.find(c => c.type === 'board');
+    const beta = config.installBetaChip ? MOCK_CHIPS.find(c => c.type === 'beta') : undefined;
+    const equippedChips = [...(baseBoard ? [baseBoard] : []), ...(beta ? [beta] : []), ...config.selectedChips];
+    setPlayerChips(equippedChips);
+    const equippedChipIds = new Set(equippedChips.map(chip => chip.id));
+    setStorageChips(MOCK_STORAGE_CHIPS.filter(chip => !equippedChipIds.has(chip.id)));
+    setPlayerInventory([...config.selectedItems]);
+    setPlayerLingshu(config.selectedLingshu || []);
+    if (config.careerTracks && config.careerTracks.length > 0) {
+      setCareerTracks(config.careerTracks);
+    }
+    setPlayerFaction({ ...MOCK_PLAYER_FACTION, name: config.factionName, headquarters: config.startingLocation });
+    setSelectedBetaProfessionId(null);
+    setBetaTasks([]);
+    setAcceptedBetaTaskIds([]);
+    setClaimableBetaTaskIds([]);
+    setTaskDeadlines({});
+    setBetaStatus(prev => ({
+      ...prev,
+      taxOfficeAddress: `${config.startingLocation} · 税务征收机构`,
+      taxDeadline: prev.taxDeadline?.replaceAll('-', '.'),
+    }));
+
+    if (config.gender === 'male' && config.hasRedString) {
+      setPlayerSkills(prev => [
+        {
+          id: 'ps_special_1',
+          name: '灵弦：【本命】皇权回响',
+          level: 5,
+          description: '领袖级特质，转化效率锁定为 300%。',
+          rankColor: 'red',
+        },
+        ...prev,
+      ]);
+    }
+
+    const welcomeMsg: Message = {
+      id: 'sys_init',
+      sender: 'System',
+      content: `公民身份确认：[${config.name}]。正在接入第7区局域网。欢迎来到夜之城。`,
+      timestamp: new Date().toLocaleTimeString('zh-CN'),
+      type: 'narrative',
+    };
+    const openingLayer: Message = {
+      id: `layer_opening_${Date.now()}`,
+      sender: 'System',
+      content: buildPseudoLayer({
+        playerInput: '完成开局并观察周边环境',
+        location: config.startingLocation,
+        credits: config.startCredits,
+        reputation: betaStatus.creditScore,
+      }),
+      timestamp: new Date().toLocaleTimeString('zh-CN'),
+      type: 'narrative',
+    };
+    setMessages([welcomeMsg, openingLayer]);
+    setFocusedLayerId(openingLayer.id);
+    setSelectedNPC(null);
+    setIsLayerPickerOpen(false);
+    setGameStage('game');
+  };
+
+  const triggerBetaViolation = (rawReason: string) => {
+    const humiliatingReason = `检测到违规行为：${rawReason}`;
+    const humiliatingRule = `禁止事项：未经许可越区、逃税、抗命、非法接入。请立即停止。`;
+    setBetaOverlayWarnings([humiliatingReason, humiliatingRule]);
+    setIsBetaOverlayActive(true);
+  };
+
+  const completeBetaTaskReward = (taskId: string) => {
+    const task = betaTasks.find(t => t.id === taskId);
+    if (!task || task.done) return;
+
+    setBetaTasks(prev => prev.map(t => (t.id === taskId ? { ...t, done: true } : t)));
+    setPlayerStats(prev => ({ ...prev, credits: prev.credits + task.creditReward }));
+    setBetaStatus(prev => ({
+      ...prev,
+      creditScore: Math.min(120, prev.creditScore + task.scoreReward),
+      deductionHistory: [
+        {
+          id: `beta_log_reward_${Date.now()}`,
+          reason: `完成任务：${task.title}`,
+          amount: task.scoreReward,
+          timestamp: new Date().toLocaleString('zh-CN'),
+          type: 'fine',
+        },
+        ...prev.deductionHistory,
+      ],
+    }));
+    setBetaTasks(prev => prev.filter(t => t.id !== taskId));
+    setAcceptedBetaTaskIds(prev => prev.filter(id => id !== taskId));
+    setClaimableBetaTaskIds(prev => prev.filter(id => id !== taskId));
+    setTaskDeadlines(prev => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+  };
+
+  const handleApplyBetaUpgrade = () => {
+    if (betaStatus.creditScore < 100) return;
+    const nextLevel = (betaStatus.betaLevel || 1) + 1;
+    const nextTier = getBetaTierTitle(nextLevel);
+    setBetaStatus(prev => ({
+      ...prev,
+      betaLevel: nextLevel,
+      betaTierName: nextTier,
+      creditScore: Math.max(0, prev.creditScore - 100),
+      deductionHistory: [
+        {
+          id: `beta_upgrade_${Date.now()}`,
+          reason: `通过升等申请：Beta Lv.${nextLevel}`,
+          amount: -100,
+          timestamp: new Date().toLocaleString('zh-CN'),
+          type: 'fine',
+        },
+        ...prev.deductionHistory,
+      ],
+    }));
+  };
+
+  const applyTaskPenaltyAndRemove = (taskId: string, reason: string) => {
+    const task = betaTasks.find(t => t.id === taskId);
+    if (!task) return;
+    setPlayerStats(prev => ({ ...prev, credits: Math.max(0, prev.credits - task.creditReward) }));
+    setBetaStatus(prev => ({
+      ...prev,
+      creditScore: Math.max(0, prev.creditScore - task.scoreReward),
+      deductionHistory: [
+        {
+          id: `beta_penalty_${Date.now()}_${taskId}`,
+          reason,
+          amount: -task.scoreReward,
+          timestamp: new Date().toLocaleString('zh-CN'),
+          type: 'fine',
+        },
+        ...prev.deductionHistory,
+      ],
+    }));
+    setBetaTasks(prev => prev.filter(t => t.id !== taskId));
+    setAcceptedBetaTaskIds(prev => prev.filter(id => id !== taskId));
+    setClaimableBetaTaskIds(prev => prev.filter(id => id !== taskId));
+    setTaskDeadlines(prev => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+  };
+
+  const handleSelectBetaProfession = (professionId: string) => {
+    if (selectedBetaProfessionId) return;
+    const profession = availableBetaProfessions.find(p => p.id === professionId);
+    if (!profession) return;
+    setSelectedBetaProfessionId(professionId);
+    setBetaTasks([]);
+    setAcceptedBetaTaskIds([]);
+    setClaimableBetaTaskIds([]);
+    setTaskDeadlines({});
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `beta_profession_${Date.now()}`,
+        sender: 'System',
+        content: `身份职业已锁定为「${profession.name}」。后续任务将按该职业分配。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const handleAcceptBetaTask = (taskId: string) => {
+    const task = betaTasks.find(t => t.id === taskId);
+    if (!task || task.done) return;
+    if (acceptedBetaTaskIds.includes(taskId)) return;
+    setAcceptedBetaTaskIds(prev => [...prev, taskId]);
+    setTaskDeadlines(prev => ({ ...prev, [taskId]: Date.now() + 15 * 60 * 1000 }));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `beta_accept_${Date.now()}`,
+        sender: 'System',
+        content: `已接取 Beta 任务：「${task.title}」。请在 15 分钟内完成，AI 将判定任务状态。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const handleIgnoreBetaTask = (taskId: string) => {
+    const task = betaTasks.find(t => t.id === taskId);
+    if (!task || task.done) return;
+    applyTaskPenaltyAndRemove(taskId, `忽略任务处罚：${task.title}`);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `beta_ignore_${Date.now()}`,
+        sender: 'System',
+        content: `已忽略任务「${task.title}」，扣除 ${task.creditReward} 灵能币与 ${task.scoreReward} 信誉。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  const handleGenerateBetaTask = () => {
+    if (!selectedBetaProfession) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `beta_task_gen_denied_${Date.now()}`,
+          sender: 'System',
+          content: '请先在“芯片模组 > 管制协议 > 身份”中选择职业后再获取任务。',
+          timestamp: new Date().toLocaleTimeString('zh-CN'),
+          type: 'narrative',
+        },
+      ]);
+      return;
+    }
+    const pool = selectedBetaProfession.taskTemplates;
+    const template = pool[Math.floor(Math.random() * pool.length)];
+    const newTask: BetaTask = {
+      id: `beta_task_${Date.now()}`,
+      title: `${selectedBetaProfession.name}·${template.title}`,
+      detail: template.detail,
+      scoreReward: template.scoreReward,
+      creditReward: template.creditReward,
+      done: false,
+    };
+    setBetaTasks(prev => [newTask, ...prev.slice(0, 7)]);
+  };
+
+  const handleBeginUpgradeTest = () => {
+    if (playerNeuralProtocol === 'none') return;
+    setPendingUpgradeEvaluation(true);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `beta_upgrade_start_${Date.now()}`,
+        sender: 'System',
+        content: `升等测试已发起。AI 回复包含“通过/合格/晋升”且信誉值≥100时，将自动执行 Beta 升级。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      },
+    ]);
+  };
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.sender === 'Player') return;
+    if (playerNeuralProtocol !== 'beta') return;
+    const dangerKeywords = ['逃税', '越区', '抗命', '袭警', '未授权接入', '违禁'];
+    const hit = dangerKeywords.find(keyword => last.content.includes(keyword));
+    if (hit) triggerBetaViolation(hit);
+  }, [messages, playerNeuralProtocol]);
+
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (!last || last.sender === 'Player') return;
+    const text = last.content;
+
+    if (pendingUpgradeEvaluation) {
+      const upgradePassKeywords = ['通过', '合格', '晋升', '达标'];
+      const passed = upgradePassKeywords.some(k => text.includes(k));
+      if (passed) {
+        handleApplyBetaUpgrade();
+        setPendingUpgradeEvaluation(false);
+      }
+    }
+
+    const taskPassKeywords = ['完成', '已执行', '通过', '达标', '合格'];
+    const passSignal = taskPassKeywords.some(k => text.includes(k));
+    if (passSignal) {
+      const accepted = betaTasks.filter(t => acceptedBetaTaskIds.includes(t.id) && !claimableBetaTaskIds.includes(t.id));
+      if (accepted.length > 0) {
+        const matched =
+          accepted.find(t => text.includes(t.title) || text.includes(t.title.slice(0, 3))) ||
+          accepted[0];
+        setClaimableBetaTaskIds(prev => (prev.includes(matched.id) ? prev : [...prev, matched.id]));
+      }
+    }
+  }, [messages, pendingUpgradeEvaluation, betaTasks, acceptedBetaTaskIds, claimableBetaTaskIds]);
+
+  useEffect(() => {
+    if (!autoMapSyncEnabled) return;
+    const last = messages[messages.length - 1];
+    if (!last || last.sender === 'Player') return;
+    if (lastAutoMapSyncMessageIdRef.current === last.id) return;
+
+    const patch = tryParseMapPatchFromText(last.content || '');
+    if (!patch) return;
+
+    lastAutoMapSyncMessageIdRef.current = last.id;
+    setWorldNodeMap(prev => (patch.mode === 'replace' ? patch.map : mergeWorldNodeMap(prev, patch.map)));
+
+    const now = Date.now();
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `map_auto_sync_${now}_${Math.random().toString(36).slice(2, 7)}`,
+        sender: 'System',
+        name: '地图同步',
+        content: `已自动应用地图补丁（${patch.mode === 'replace' ? '替换' : '合并'}）。`,
+        timestamp: new Date(now).toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+  }, [messages, autoMapSyncEnabled]);
+
+  useEffect(() => {
+    const sweepExpiredTasks = () => {
+      const now = Date.now();
+      const expired = acceptedBetaTaskIds.filter(id => {
+        const deadline = taskDeadlines[id];
+        return typeof deadline === 'number' && now > deadline && !claimableBetaTaskIds.includes(id);
+      });
+      if (expired.length === 0) return;
+      expired.forEach(id => {
+        const task = betaTasks.find(t => t.id === id);
+        if (task) {
+          applyTaskPenaltyAndRemove(id, `任务超时处罚：${task.title}`);
+        }
+      });
+    };
+    sweepExpiredTasks();
+    const timer = setInterval(sweepExpiredTasks, 30000);
+    return () => clearInterval(timer);
+  }, [acceptedBetaTaskIds, taskDeadlines, claimableBetaTaskIds, betaTasks]);
+
+  useEffect(() => {
+    if (!layerMenu) return;
+    const close = () => setLayerMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [layerMenu]);
+
+  const handleContinueGame = () => {
+    const lastId = window.localStorage.getItem(LN_LAST_ARCHIVE_ID_KEY) || selectedArchiveId;
+    const target = archiveSlots.find(slot => slot.id === lastId) || archiveSlots[0];
+    if (!target) {
+      setGameStage('setup');
+      return;
+    }
+    loadArchiveById(target.id);
+  };
+
+  const handleNewGame = () => {
+    setSelectedNPC(null);
+    setFocusedLayerId(null);
+    setLayerMenu(null);
+    setIsLayerPickerOpen(false);
+    setGameStage('setup');
+  };
+
+  const handleNavToTax = () => {
+    const navMsg: Message = {
+      id: `nav_tax_${Date.now()}`,
+      sender: 'System',
+      content: '导航已设定：第一区税务征收处。',
+      timestamp: new Date().toLocaleTimeString('zh-CN'),
+      type: 'narrative',
+    };
+    setMessages(prev => [...prev, navMsg]);
+  };
+
+  const handleAddTaxOfficerContact = () => {
+    const officerName = betaStatus.taxOfficerName || '第7区税务官·柳映荷';
+    const officerId = `tax_officer_${officerName}`;
+    const exists = npcs.some(npc => npc.id === officerId || npc.name === officerName);
+    if (exists) {
+      const msg: Message = {
+        id: `tax_officer_exists_${Date.now()}`,
+        sender: 'System',
+        content: `缴税官「${officerName}」已在标记人物中。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      };
+      setMessages(prev => [...prev, msg]);
+      return;
+    }
+
+    const officerNpc: NPC = {
+      id: officerId,
+      name: officerName,
+      gender: 'female',
+      group: '税务关系',
+      position: '区域缴税官',
+      affiliation: '第7区税务总署',
+      location: betaStatus.taxOfficeAddress || `${playerFaction.headquarters} · 税务征收机构`,
+      isContact: true,
+      stats: MOCK_PLAYER_STATS,
+      affection: 5,
+      avatarUrl: 'https://via.placeholder.com/64',
+      status: 'online',
+      inventory: [],
+      socialFeed: [],
+    };
+    setNpcs(prev => [officerNpc, ...prev]);
+    setContactGroups(prev => (prev.includes('税务关系') ? prev : ['税务关系', ...prev]));
+    const msg: Message = {
+      id: `tax_officer_added_${Date.now()}`,
+      sender: 'System',
+      content: `已将缴税官「${officerName}」加入标记人物。`,
+      timestamp: new Date().toLocaleTimeString('zh-CN'),
+      type: 'narrative',
+    };
+    setMessages(prev => [...prev, msg]);
+  };
+
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (document.documentElement.requestFullscreen) {
+          await document.documentElement.requestFullscreen();
+        } else if ((document.documentElement as any).webkitRequestFullscreen) {
+          await (document.documentElement as any).webkitRequestFullscreen();
+        }
+      } else if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        await (document as any).webkitExitFullscreen();
+      }
+    } catch (e) {
+      console.error('Fullscreen error:', e);
+    }
+  };
+
+  const playerSpiritNpc: NPC = useMemo(() => {
+    const bodyParts = (playerLingshu || []).map(part => ({
+      id: part.id,
+      name: part.name,
+      key: part.key || part.id,
+      rank: part.rank,
+      description: part.description,
+      skills: part.spiritSkills || (part.spiritSkill ? [part.spiritSkill] : []),
+      equippedItems: part.equippedItem ? [part.equippedItem] : [],
+      capturedSouls: part.key === 'core' ? [] : undefined,
+      maxSkillSlots: part.key === 'core' ? 3 : undefined,
+      reserveMp: part.key === 'core' ? { current: 0, max: 3000 } : undefined,
+    }));
+
+    return {
+      id: 'player_female_nexus',
+      name: '玩家灵枢',
+      gender: playerGender,
+      group: '',
+      position: '灵枢操作者',
+      affiliation: playerFaction.name,
+      location: playerFaction.headquarters,
+      isContact: false,
+      stats: playerStats,
+      affection: 0,
+      bodyParts,
+      chips: [],
+      avatarUrl: 'https://via.placeholder.com/64',
+      status: 'online',
+      inventory: playerInventory,
+      socialFeed: [],
+    };
+  }, [playerGender, playerLingshu, playerFaction.headquarters, playerFaction.name, playerInventory, playerStats]);
+
+  const moduleTabs: { id: LeftModuleTab; label: string }[] = [
+    { id: 'chips', label: '芯片模组' },
+    { id: 'lingshu', label: '灵枢' },
+    { id: 'inventory', label: '物品栏' },
+  ];
+
+  const renderContent = () => {
+    if (gameStage === 'start') return <StartScreen onStart={() => setGameStage('splash')} />;
+    if (gameStage === 'splash') return <SplashScreen onNewGame={handleNewGame} onContinue={handleContinueGame} canContinue={archiveSlots.length > 0} />;
+    if (gameStage === 'setup') return <GameSetup onComplete={handleSetupComplete} />;
+
+    return (
+      <>
+        {floatingTexts.map(ft => (
+          <div key={ft.id} className={`fixed pointer-events-none z-[100] animate-float-up text-lg font-bold ${ft.color}`} style={{ left: `${ft.x}%`, top: `${ft.y}%` }}>
+            {ft.text}
+          </div>
+        ))}
+
+        <BetaInhibitionOverlay
+          warnings={betaOverlayWarnings}
+          isActive={isBetaOverlayActive}
+          onDismiss={() => setIsBetaOverlayActive(false)}
+          mode={betaOverlayMode}
+        />
+        <CareerLineEditorModal
+          open={isCareerEditorOpen}
+          onClose={() => setIsCareerEditorOpen(false)}
+          tracks={careerTracks}
+          onChangeTracks={setCareerTracks}
+        />
+
+        {isSpiritCoreModalOpen && (
+          <PlayerSpiritCoreModal
+            skills={playerSkills}
+            rank={playerStats.psionic.level}
+            gender={playerGender}
+            onClose={() => setIsSpiritCoreModalOpen(false)}
+            onAddSkill={handleAddPlayerSkill}
+            onRemoveSkill={handleRemovePlayerSkill}
+          />
+        )}
+
+        <aside
+          className={`border-r border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 md:h-full transition-all duration-300 absolute md:relative h-full overflow-y-auto custom-scrollbar scrollbar-hidden ${
+            leftOpen ? 'w-full md:w-80 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
+          }`}
+        >
+          <button onClick={() => setLeftOpen(false)} className="md:hidden absolute top-2 right-2 p-2 text-slate-500 z-50">
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex-1 space-y-3 min-w-[320px] pb-4 px-4 pt-4">
+            <CyberPanel title="生理监测" className="mb-2" noPadding variant="gold">
+              <PlayerStatePanel stats={playerStats} hasBetaChip={hasBetaChip} onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)} gender={playerGender} />
+            </CyberPanel>
+
+            <CyberPanel title="功能面板" className="mb-2" noPadding>
+              <div className="p-3 bg-black/40 space-y-3">
+                <div className={`grid gap-2 ${moduleTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                  {moduleTabs.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setLeftModuleTab(tab.id)}
+                      className={`border px-2 py-1.5 text-xs font-bold transition-colors ${
+                        leftModuleTab === tab.id
+                          ? 'border-fuchsia-500 bg-fuchsia-900/20 text-fuchsia-300'
+                          : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CyberPanel>
+
+            {leftModuleTab === 'chips' && (
+              <ChipPanel
+                chips={playerChips}
+                storageChips={storageChips}
+                status={betaStatus}
+                neuralProtocol={playerNeuralProtocol}
+                onNavigateToTax={handleNavToTax}
+                onEquip={handleEquipChip}
+                onUnequip={handleUnequipChip}
+                onAddTaxOfficerContact={handleAddTaxOfficerContact}
+                onOpenCareerIdentity={() => setIsCareerEditorOpen(true)}
+              />
+            )}
+
+            {leftModuleTab === 'lingshu' && (
+              <CyberPanel title="灵枢系统" className="flex-1 min-h-[220px]" noPadding allowExpand collapsible>
+                <div className="p-3 bg-black/50 min-h-full">
+                  <SpiritNexus npc={playerSpiritNpc} />
+                </div>
+              </CyberPanel>
+            )}
+
+            {leftModuleTab === 'inventory' && (
+              <CyberPanel title="物品栏" className="flex-1 min-h-[150px] border-t-0" allowExpand collapsible>
+                {selectedItem && <ItemDetailView item={selectedItem} onClose={() => setSelectedItem(null)} onUse={handleUseItem} />}
+                <div className="p-3 bg-black/50 min-h-full">
+                  <div className="grid grid-cols-4 gap-2">
+                    {playerInventory.slice(0, 8).map(item => (
+                      <div
+                        key={item.id}
+                        onClick={() => setSelectedItem(item)}
+                        className="aspect-square border border-slate-800/50 bg-[#1a0b1a]/50 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:bg-fuchsia-900/30 hover:border-fuchsia-500/50 transition-colors"
+                      >
+                        <span className="text-xl">{item.icon}</span>
+                        <span className="text-[9px] text-slate-400 mt-1">x{item.quantity}</span>
+                      </div>
+                    ))}
+                    {Array.from({ length: Math.max(0, 8 - playerInventory.length) }).map((_, i) => (
+                      <div key={i} className="aspect-square border border-slate-800/30 border-dashed rounded-lg bg-white/5 opacity-30" />
+                    ))}
+                  </div>
+                  <div
+                    onClick={() => setIsInventoryOpen(true)}
+                    className="flex items-center justify-center text-[10px] text-slate-500 mt-3 cursor-pointer hover:text-fuchsia-400 border border-dashed border-slate-800 rounded-lg p-2 hover:border-fuchsia-500/30 transition-colors"
+                  >
+                    <Package className="w-3 h-3 mr-1" /> 打开物品库
+                  </div>
+                </div>
+              </CyberPanel>
+            )}
+
+          </div>
+        </aside>
+
+        <main className="flex-1 min-w-0 flex flex-col relative z-0 h-full w-full bg-[#080408]">
+          <div className="h-12 border-b border-white/5 flex items-center px-4 justify-between bg-black/40 shrink-0 backdrop-blur-sm">
+            <div className="md:hidden">
+              <button onClick={() => setLeftOpen(true)} className="p-2 text-fuchsia-500">
+                <Menu className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
+              <MapIcon className="w-4 h-4 text-fuchsia-500" />
+              <span>区域：</span>
+              <span className="text-white font-bold">{playerFaction.headquarters || '未知区域'}</span>
+            </div>
+            <div className="md:hidden">
+              <button onClick={() => setRightOpen(true)} className="p-2 text-fuchsia-500">
+                <Users className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <NarrativeFeed
+            messages={visibleMessages}
+            pseudoLayerMode
+            focusLayerId={focusedLayerId}
+            onLayerContextMenu={payload => {
+              setFocusedLayerId(payload.layerId);
+              setLayerMenu(payload);
+            }}
+          />
+
+          <ActionMenu stats={playerStats} onConvert={handleConversion} />
+
+          <div className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md">
+            <div className="flex gap-2">
+              <span className="px-2 py-3 text-fuchsia-500 font-mono text-lg">{'>'}</span>
+              <input
+                type="text"
+                value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSend()}
+                placeholder="输入行动指令..."
+                className="flex-1 bg-transparent border-b border-slate-800 text-fuchsia-100 px-2 py-3 focus:outline-none focus:border-fuchsia-500 font-mono text-sm placeholder:text-slate-700"
+              />
+              <button onClick={handleSend} className="text-fuchsia-500 px-4 hover:text-white transition-colors">
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+            {apiError && <div className="mt-2 text-[11px] text-red-400">{apiError}</div>}
+          </div>
+        </main>
+
+        <aside
+          className={`border-l border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 h-full transition-all duration-300 absolute md:relative right-0 ${
+            rightOpen ? 'w-full md:w-[450px] translate-x-0' : 'w-0 translate-x-full md:w-0 overflow-hidden border-none'
+          }`}
+        >
+          <div className="flex border-b border-white/10 min-w-[380px]">
+            {[
+              { id: 'contacts', icon: <Users className="w-4 h-4" />, label: '标记人物' },
+              { id: 'map', icon: <MapIcon className="w-4 h-4" />, label: '地图' },
+              { id: 'settings', icon: <Settings className="w-4 h-4" />, label: '设置' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as 'contacts' | 'map' | 'settings')}
+                className={`flex-1 py-3 text-xs font-bold uppercase flex flex-col items-center gap-1 transition-all ${
+                  activeTab === tab.id ? 'text-fuchsia-400 bg-fuchsia-950/20 border-b-2 border-fuchsia-400' : 'text-slate-500 hover:text-slate-300'
+                }`}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+            <button onClick={() => setRightOpen(false)} className="md:hidden px-4 text-slate-500 border-l border-white/10">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 pr-6 ln-carbon min-w-[380px] custom-scrollbar scrollbar-hidden">
+            {activeTab === 'contacts' && (
+              <div className="space-y-6 h-full flex flex-col">
+                {!selectedNPC ? (
+                  <ContactList
+                    npcs={npcs}
+                    onSelect={setSelectedNPC}
+                    onUpdateNpc={handleUpdateNpc}
+                    groups={contactGroups}
+                    onUpdateGroups={setContactGroups}
+                    onDeleteGroup={handleRemoveGroup}
+                    currentLocation="第7区 - 下层贫民窟"
+                  />
+                ) : (
+                  <NPCProfile npc={selectedNPC} onBack={() => setSelectedNPC(null)} />
+                )}
+              </div>
+            )}
+            {activeTab === 'settings' && (
+              <div className="space-y-4">
+                <CyberPanel title="档案" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40 space-y-3">
+                    <div className="text-xs text-slate-400">刷新后默认回到开局界面，继续游戏会读取最近档案。</div>
+                    <input
+                      type="text"
+                      value={archiveNameInput}
+                      onChange={e => setArchiveNameInput(e.target.value)}
+                      placeholder="档案名称（可选）"
+                      className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                    />
+                    <select
+                      value={selectedArchiveId}
+                      onChange={e => {
+                        const nextId = e.target.value;
+                        setSelectedArchiveId(nextId);
+                        const found = archiveSlots.find(slot => slot.id === nextId);
+                        setArchiveNameInput(found?.name || '');
+                      }}
+                      className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                    >
+                      <option value="">未选择档案</option>
+                      {archiveSlots
+                        .slice()
+                        .sort((a, b) => b.updatedAt - a.updatedAt)
+                        .map(slot => (
+                          <option key={slot.id} value={slot.id}>
+                            {slot.name} · {new Date(slot.updatedAt).toLocaleString('zh-CN')}
+                          </option>
+                        ))}
+                    </select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={saveCurrentArchive}
+                        disabled={gameStage !== 'game'}
+                        className="border border-cyan-700 text-cyan-300 hover:text-white hover:border-cyan-500 px-2 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                      >
+                        <Save className="w-3.5 h-3.5" /> 保存档案
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectedArchiveId && loadArchiveById(selectedArchiveId)}
+                        disabled={!selectedArchiveId}
+                        className="border border-fuchsia-700 text-fuchsia-300 hover:text-white hover:border-fuchsia-500 px-2 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                      >
+                        <FolderOpen className="w-3.5 h-3.5" /> 读取档案
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={deleteSelectedArchive}
+                      disabled={!selectedArchiveId}
+                      className="w-full border border-red-800 text-red-300 hover:text-white hover:border-red-600 px-2 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> 删除选中档案
+                    </button>
+                  </div>
+                </CyberPanel>
+
+                <CyberPanel title="API 配置" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40 space-y-3">
+                    <label className="flex items-center justify-between text-xs text-slate-300">
+                      <span>启用 API 回复</span>
+                      <input
+                        type="checkbox"
+                        checked={apiConfig.enabled}
+                        onChange={e => setApiConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      />
+                    </label>
+                    <label className="flex items-center justify-between text-xs text-slate-300">
+                      <span>使用酒馆当前 API</span>
+                      <input
+                        type="checkbox"
+                        checked={apiConfig.useTavernApi}
+                        onChange={e => setApiConfig(prev => ({ ...prev, useTavernApi: e.target.checked }))}
+                      />
+                    </label>
+                    {!apiConfig.useTavernApi && (
+                      <>
+                        <input
+                          type="text"
+                          value={apiConfig.endpoint}
+                          onChange={e => setApiConfig(prev => ({ ...prev, endpoint: e.target.value }))}
+                          placeholder="自定义端点（基础 URL，如 https://api.xxx.dev/v1）"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="password"
+                          value={apiConfig.apiKey}
+                          onChange={e => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                          placeholder="API Key（可留空）"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="text"
+                          value={apiConfig.model}
+                          onChange={e => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
+                          placeholder="输入模型名（如 gemini-3-pro-preview）"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                      </>
+                    )}
+                    <div className="text-[11px] text-slate-500">
+                      当前状态：
+                      {apiConfig.enabled
+                        ? apiConfig.useTavernApi
+                          ? '已启用（跟随酒馆当前 API）'
+                          : '已启用（使用自定义 API）'
+                        : '未启用'}
+                    </div>
+                  </div>
+                </CyberPanel>
+
+                <CyberPanel title="总结配置" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40 space-y-3">
+                    <label className="flex items-center justify-between text-xs text-slate-300">
+                      <span>启用分段总结与原文裁剪</span>
+                      <input
+                        type="checkbox"
+                        checked={summaryConfig.enabled}
+                        onChange={e => setSummaryConfig(prev => ({ ...prev, enabled: e.target.checked }))}
+                      />
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <label className="text-[11px] text-slate-400 space-y-1">
+                        <div>原文可见层数</div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={summaryConfig.keepRawLayers}
+                          onChange={e =>
+                            setSummaryConfig(prev => ({
+                              ...prev,
+                              keepRawLayers: Math.max(1, Number(e.target.value) || 1),
+                            }))
+                          }
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-1.5 text-xs text-white"
+                        />
+                      </label>
+                      <label className="text-[11px] text-slate-400 space-y-1">
+                        <div>小总结 X 层</div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={summaryConfig.smallSummaryEvery}
+                          onChange={e =>
+                            setSummaryConfig(prev => ({
+                              ...prev,
+                              smallSummaryEvery: Math.max(1, Number(e.target.value) || 1),
+                            }))
+                          }
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-1.5 text-xs text-white"
+                        />
+                      </label>
+                      <label className="text-[11px] text-slate-400 space-y-1">
+                        <div>大总结 Y 层</div>
+                        <input
+                          type="number"
+                          min={1}
+                          value={summaryConfig.largeSummaryEvery}
+                          onChange={e =>
+                            setSummaryConfig(prev => ({
+                              ...prev,
+                              largeSummaryEvery: Math.max(1, Number(e.target.value) || 1),
+                            }))
+                          }
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-1.5 text-xs text-white"
+                        />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSummaryConfig(prev => ({ ...prev, keepRawLayers: 20 }))}
+                        className="border border-slate-700 text-slate-300 hover:text-white hover:border-fuchsia-500 px-2 py-1 text-xs"
+                      >
+                        切到 20 层原文
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSummaryConfig(prev => ({ ...prev, keepRawLayers: 40 }))}
+                        className="border border-slate-700 text-slate-300 hover:text-white hover:border-fuchsia-500 px-2 py-1 text-xs"
+                      >
+                        切到 40 层原文
+                      </button>
+                    </div>
+                    <textarea
+                      rows={3}
+                      value={summaryConfig.smallSummaryPrompt}
+                      onChange={e => setSummaryConfig(prev => ({ ...prev, smallSummaryPrompt: e.target.value }))}
+                      placeholder="小总结提示词"
+                      className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                    />
+                    <textarea
+                      rows={3}
+                      value={summaryConfig.largeSummaryPrompt}
+                      onChange={e => setSummaryConfig(prev => ({ ...prev, largeSummaryPrompt: e.target.value }))}
+                      placeholder="大总结提示词"
+                      className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                    />
+                    <div className="text-[11px] text-slate-500">
+                      裁剪策略：仅隐藏，不删除原文；回档/reroll 后会基于当前楼层重新计算编号。
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="border border-slate-800 bg-black/30 max-h-56 overflow-auto custom-scrollbar scrollbar-hidden">
+                        <div className="px-3 py-2 text-xs text-cyan-300 border-b border-slate-800">小总结（按有效轮次）</div>
+                        {smallSummaries.length === 0 ? (
+                          <div className="text-xs text-slate-500 p-3">暂无小总结（满 X 轮后生成）。</div>
+                        ) : (
+                          smallSummaries.map(item => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setSelectedSmallSummaryId(prev => (prev === item.id ? null : item.id))}
+                              className={`w-full text-left px-3 py-2 border-b border-slate-800 last:border-b-0 text-xs ${
+                                selectedSmallSummaryId === item.id
+                                  ? 'bg-fuchsia-900/20 text-fuchsia-200'
+                                  : 'text-slate-300 hover:bg-slate-900/40'
+                              }`}
+                            >
+                              小总结 #{item.no} · R{item.start}-R{item.end}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                      <div className="border border-slate-800 bg-black/30 max-h-56 overflow-auto custom-scrollbar scrollbar-hidden">
+                        <div className="px-3 py-2 text-xs text-amber-300 border-b border-slate-800">大总结（按有效轮次）</div>
+                        {largeSummaries.length === 0 ? (
+                          <div className="text-xs text-slate-500 p-3">暂无大总结（满 Y 轮后生成）。</div>
+                        ) : (
+                          largeSummaries.map(item => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setSelectedLargeSummaryId(prev => (prev === item.id ? null : item.id))}
+                              className={`w-full text-left px-3 py-2 border-b border-slate-800 last:border-b-0 text-xs ${
+                                selectedLargeSummaryId === item.id
+                                  ? 'bg-amber-900/20 text-amber-200'
+                                  : 'text-slate-300 hover:bg-slate-900/40'
+                              }`}
+                            >
+                              大总结 #{item.no} · R{item.start}-R{item.end}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {!!selectedSmallSummaryId && (
+                      <div className="border border-fuchsia-900/40 bg-black/30 p-3">
+                        {(() => {
+                          const item = smallSummaries.find(x => x.id === selectedSmallSummaryId);
+                          if (!item) return <div className="text-xs text-slate-500">该小总结不存在。</div>;
+                          return (
+                            <>
+                              <div className="text-xs text-fuchsia-300 font-mono">
+                                小总结 #{item.no} · R{item.start}-R{item.end}
+                              </div>
+                              <div className="text-[11px] text-slate-300 mt-2 break-words">{item.content}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {!!selectedLargeSummaryId && (
+                      <div className="border border-amber-900/40 bg-black/30 p-3">
+                        {(() => {
+                          const item = largeSummaries.find(x => x.id === selectedLargeSummaryId);
+                          if (!item) return <div className="text-xs text-slate-500">该大总结不存在。</div>;
+                          return (
+                            <>
+                              <div className="text-xs text-amber-300 font-mono">
+                                大总结 #{item.no} · R{item.start}-R{item.end}
+                              </div>
+                              <div className="text-[11px] text-slate-300 mt-2 break-words">{item.content}</div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                </CyberPanel>
+
+                <div className="text-[11px] text-slate-500 px-1">
+                  当前档案：{selectedArchiveId ? archiveSlots.find(slot => slot.id === selectedArchiveId)?.name || '未命名' : '未选择'}
+                </div>
+              </div>
+            )}
+            {activeTab === 'map' && (
+              <NodeMapEditor
+                data={worldNodeMap}
+                onChange={setWorldNodeMap}
+                runtime={mapRuntime}
+                onRuntimeChange={setMapRuntime}
+                onDescribe={appendMapDescriptionToChat}
+                onImportFromChat={importMapFromRecentChat}
+              />
+            )}
+          </div>
+        </aside>
+
+        {layerMenu && (
+          <div
+            className="fixed inset-0 z-[130]"
+            onClick={() => setLayerMenu(null)}
+            onContextMenu={e => {
+              e.preventDefault();
+              setLayerMenu(null);
+            }}
+          >
+            <div
+              className="absolute min-w-[180px] border border-fuchsia-900/60 bg-[#0a0410]/95 shadow-xl"
+              style={{ left: layerMenu.x, top: layerMenu.y }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusedLayerId(layerMenu.layerId);
+                  setIsLayerPickerOpen(true);
+                  setLayerMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-fuchsia-900/30"
+              >
+                读档楼层
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openEditActiveLayer(layerMenu.layerId);
+                  setLayerMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-fuchsia-900/30 border-t border-slate-800"
+              >
+                修改对话
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  rerollActiveLayer(layerMenu.layerId);
+                  setLayerMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-fuchsia-900/30 border-t border-slate-800"
+              >
+                reroll 当前层
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteLayerById(layerMenu.layerId);
+                  setLayerMenu(null);
+                }}
+                className="w-full text-left px-3 py-2 text-xs text-red-300 hover:bg-red-900/30 border-t border-slate-800"
+              >
+                删除对话
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isLayerPickerOpen && (
+          <div
+            className="fixed inset-0 z-[131] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setIsLayerPickerOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl border border-fuchsia-900/60 rounded bg-[#07030b] p-3"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div className="text-sm font-bold text-fuchsia-300">读档楼层</div>
+                <button
+                  type="button"
+                  onClick={() => setIsLayerPickerOpen(false)}
+                  className="text-xs px-2 py-1 border border-slate-700 text-slate-300 hover:text-white"
+                >
+                  关闭
+                </button>
+              </div>
+              <div className="text-xs text-slate-400 mt-2 mb-3">点击任意楼层会立即回退到该楼层，后续楼层会被清除。</div>
+              <div className="max-h-[55vh] overflow-auto border border-slate-800 bg-black/30 custom-scrollbar scrollbar-hidden">
+                {visibleLayerMessages.length === 0 ? (
+                  <div className="text-xs text-slate-500 p-3">暂无楼层可读档。</div>
+                ) : (
+                  visibleLayerMessages.map((layer, idx) => {
+                    const parsed = parsePseudoLayer(layer.content);
+                    return (
+                      <button
+                        key={layer.id}
+                        type="button"
+                        onClick={() => {
+                          rollbackToLayer(layer.id);
+                          setIsLayerPickerOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 border-b border-slate-800 last:border-b-0 ${
+                          focusedLayerId === layer.id ? 'bg-fuchsia-900/20 text-fuchsia-200' : 'text-slate-300 hover:bg-slate-900/50'
+                        }`}
+                      >
+                        <div className="text-xs font-mono">第 {idx + 1} 层 · {layer.id}</div>
+                        <div className="text-[11px] text-slate-500 truncate">{parsed.sum || '无小结'}</div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isInventoryOpen && (
+          <InventoryModal title="物品库" items={playerInventory} onClose={() => setIsInventoryOpen(false)} isOwner={true} />
+        )}
+
+        {isEditLayerOpen && (
+          <div className="fixed inset-0 z-[140] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="w-full max-w-3xl border border-cyan-900/60 rounded bg-[#06060a] p-4 space-y-3">
+              <div className="text-sm font-bold text-cyan-300">编辑当前层正文（仅 maintext）</div>
+              <textarea
+                value={editMaintextDraft}
+                onChange={e => setEditMaintextDraft(e.target.value)}
+                rows={14}
+                className="w-full bg-black/50 border border-slate-700 text-slate-200 px-3 py-2 text-sm"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditLayerOpen(false)}
+                  className="px-3 py-1.5 text-xs border border-slate-700 text-slate-300 hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEditActiveLayer}
+                  className="px-3 py-1.5 text-xs border border-cyan-700 text-cyan-300 hover:text-white hover:border-cyan-500"
+                >
+                  保存正文
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="ln-root flex flex-col md:flex-row bg-[#030005] text-slate-200 font-sans selection:bg-fuchsia-500/30 relative">
+      {renderContent()}
+      <button
+        onClick={toggleFullscreen}
+        className="absolute top-2 right-2 z-[60] bg-[#0f0510] border border-fuchsia-900/50 text-fuchsia-500 hover:text-white hover:bg-fuchsia-900 transition-all flex items-center justify-center w-8 h-8 rounded-md shadow-[0_0_10px_rgba(219,39,119,0.2)] animate-in fade-in slide-in-from-right-2"
+        title={isFullscreen ? '退出全屏' : '进入全屏'}
+      >
+        {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+      </button>
+      {gameStage === 'game' && (
+        <>
+          <button
+            onClick={() => setLeftOpen(v => !v)}
+            className={`hidden md:flex absolute top-1/2 -translate-y-1/2 z-[58] w-7 h-20 items-center justify-center rounded-r-xl border border-fuchsia-900/50 bg-[#0b040f]/90 text-fuchsia-500 hover:text-white hover:bg-fuchsia-900/30 transition-all ${
+              leftOpen ? 'left-[320px]' : 'left-0'
+            }`}
+            title={leftOpen ? '收起左侧栏' : '展开左侧栏'}
+          >
+            {leftOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+          </button>
+
+          <button
+            onClick={() => setRightOpen(v => !v)}
+            className={`hidden md:flex absolute top-1/2 -translate-y-1/2 z-[58] w-7 h-20 items-center justify-center rounded-l-xl border border-fuchsia-900/50 bg-[#0b040f]/90 text-fuchsia-500 hover:text-white hover:bg-fuchsia-900/30 transition-all ${
+              rightOpen ? 'right-[450px]' : 'right-0'
+            }`}
+            title={rightOpen ? '收起右侧栏' : '展开右侧栏'}
+          >
+            {rightOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+          </button>
+        </>
+      )}
+    </div>
+  );
+};
+
+export default App;

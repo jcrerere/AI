@@ -1,0 +1,26 @@
+output_format:
+  rule:
+    - 你必须在回复末尾输出变量更新块
+    - 变量更新块必须使用 <UpdateVariable> 包裹
+    - JSONPatch 必须是合法 JSON 数组
+    - 支持 op: replace, delta, insert, remove, move
+    - 所有路径以 /stat_data 为根路径
+    - 玩家声明动作默认执行，变量层只结算代价/后果
+
+  format: |-
+    <UpdateVariable>
+    <Analysis>(IN ENGLISH, <= 80 words)
+    - time elapsed:
+    - dramatic update allowed: yes/no
+    - checks triggered:
+    - variable impacts:
+    </Analysis>
+    <JSONPatch>
+    [
+      { "op": "delta", "path": "/stat_data/player/credits", "value": -30 },
+      { "op": "delta", "path": "/stat_data/player/psionic/energy_value", "value": -20 },
+      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉主城-夜市外环" },
+      { "op": "insert", "path": "/stat_data/player/core_status/-", "value": { "name": "状态：过载余震", "desc": "短时波动", "type": "debuff", "source": "战斗结算" } }
+    ]
+    </JSONPatch>
+    </UpdateVariable>

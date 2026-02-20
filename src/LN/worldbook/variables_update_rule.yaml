@@ -1,0 +1,119 @@
+rules:
+  meta:
+    engine: MVU
+    root_path: stat_data
+    patch_priority:
+      - combat_and_settlement
+      - resources_and_inventory
+      - status_and_affix
+      - task_and_location
+
+  world.current_time:
+    format: YYYY-MM-DD HH:mm
+    check:
+      - 随剧情推进更新时间
+      - 回档/重掷时按当前楼层重算
+
+  world.current_location:
+    type: string
+    check:
+      - 必须与当前剧情场景一致
+      - 禁止回退到旧世界观地点（如“荒坂塔下层”）
+
+  world.exchange_rules.same_level_theoretical_rate:
+    type: number
+    fixed: 1.0
+
+  world.exchange_rules.cross_level_loss_rate:
+    type: number
+    fixed: 0.80
+
+  world.exchange_rules.region_modifier:
+    type: object
+    check:
+      - 艾瑞拉/淬灵区/汐屿区：male=0.55,female=0.55
+      - 诺丝区：male=0.45,female=0.45
+      - 圣教区：exchange_enabled=false
+
+  player.six_dim:
+    type: object
+    range_each: 1~99
+    check:
+      - free_points 只能在加点时减少
+      - 单项不得超过 cap
+
+  player.checks:
+    type: formula
+    check:
+      - 玩家声明动作默认可执行，不做“失败拦截”
+      - 只结算代价与后果（MP/理智/信誉/伤势）
+      - weighted_sum 默认：主属性0.5 + 副属性0.3 + 副属性0.2
+      - cost_gap = max(0, DC - weighted_sum)
+
+  player.psionic.conversion_rate:
+    type: number
+    range:
+      male: 0.15~0.30
+      female: 0.80~1.20
+    check:
+      - 作用于同级灵能值<->灵能币转换
+      - 作用于灵能值->灵能密度提升
+
+  player.psionic.recovery_rate:
+    type: number
+    range:
+      male: 0.70~2.00
+      female: 0.10~0.40
+    check:
+      - 可被灵弦/装备/遗迹修正
+
+  player.psionic.base_daily_recovery:
+    type: object
+    fixed:
+      male: 120
+      female: 30
+
+  player.siphon.absorb_rate / player.siphon.leakage_rate:
+    type: number
+    min: 0
+    check:
+      - 允许超过 1.0（100%）
+      - final_rate = base(part,strength) + spirit_strings/equipment modifiers
+
+  player.siphon.settlement:
+    type: formula
+    check:
+      - drain_amount = base_drain_amount * absorb_rate * leakage_rate
+      - 先扣 energy_value
+      - 溢出后折算生命扣除：overflow * life_convert_coeff
+
+  player.lingshu_parts[*].status / player.core_status:
+    type: array
+    check:
+      - 每条状态至少包含 name/desc/type/source
+      - 过期状态要清理
+
+  content_generation.equipment:
+    type: generator
+    trigger: [loot_drop, merchant_refresh, relic_crafting]
+    check:
+      - 必含 rarity/slot/1-3 affixes
+      - 稀有度按 rarity_weight 分布
+
+  content_generation.spirit_beast:
+    type: generator
+    trigger: [explore_wild, hunt_event, quest_spawn]
+    check:
+      - 必含 tier/traits/drop/tame_difficulty
+
+  content_generation.relic:
+    type: generator
+    trigger: [ruin_explore, boss_clear, hidden_line_reward]
+    check:
+      - 必含至少 1 个正面效果
+
+  career.active_tasks:
+    type: object
+    check:
+      - 接取任务包含 deadline/reward
+      - 完成/失败任务归档并移出 active

@@ -1,0 +1,201 @@
+meta:
+  schema_version: 2
+  variable_engine: MVU
+  root_path: stat_data
+
+world:
+  current_time: "2077-11-03 20:30"
+  current_location: "艾瑞拉"
+  current_faction: "艾瑞拉"
+  recent_events: {}
+  exchange_rules:
+    same_level_theoretical_rate: 1.0
+    cross_level_loss_rate: 0.80
+    region_modifier:
+      艾瑞拉:
+        male: 0.55
+        female: 0.55
+      淬灵区:
+        male: 0.55
+        female: 0.55
+      汐屿区:
+        male: 0.55
+        female: 0.55
+      诺丝区:
+        male: 0.45
+        female: 0.45
+      圣教区:
+        exchange_enabled: false
+
+player:
+  name: "测试体-V"
+  gender: male
+  neural_protocol: none
+  psionic_rank: Lv.1
+  credits: 1000
+  reputation: 60
+
+  six_dim:
+    力量: 8
+    敏捷: 8
+    体质: 8
+    感知: 8
+    意志: 8
+    魅力: 8
+    free_points: 0
+    cap: 99
+
+  status:
+    hp:
+      current: 100
+      max: 100
+    mp:
+      current: 200
+      max: 200
+    sanity:
+      current: 60
+      max: 120
+    vitality:
+      current: 100
+      max: 100
+
+  psionic:
+    energy_value: 200
+    energy_value_max: 200
+    energy_density: 1.0
+    conversion_rate: 0.15
+    conversion_rate_range:
+      male: [0.15, 0.30]
+      female: [0.80, 1.20]
+    recovery_rate: 1.20
+    recovery_rate_range:
+      male: [0.70, 2.00]
+      female: [0.10, 0.40]
+    base_daily_recovery:
+      male: 120
+      female: 30
+    spirit_core_type: divergent
+
+  siphon:
+    perception: 1.0
+    absorb_rate: 0.35
+    leakage_rate: 0.18
+    life_convert_coeff: 0.35
+
+  checks:
+    difficulty_class:
+      trivial: 8
+      easy: 12
+      normal: 16
+      hard: 20
+      very_hard: 24
+      extreme: 30
+    roll:
+      dice: d20
+      auto_success_threshold: 20
+      auto_fail_threshold: 1
+    weights:
+      combat_melee: [力量, 敏捷, 体质]
+      combat_ranged: [敏捷, 感知, 意志]
+      psionic_control: [意志, 感知, 体质]
+      stealth: [敏捷, 感知, 意志]
+      social_coercion: [魅力, 意志, 感知]
+      social_charm: [魅力, 感知, 敏捷]
+      research: [感知, 意志, 魅力]
+
+  lingshu_parts:
+    - key: brain
+      name: 大脑
+      level: Lv.1
+      lingshu_strength: 1.0
+      absorb_rate_base: 0.15
+      leakage_rate_base: 0.35
+      status: []
+    - key: eyes
+      name: 双眼
+      level: Lv.1
+      lingshu_strength: 1.0
+      absorb_rate_base: 0.12
+      leakage_rate_base: 0.32
+      status: []
+    - key: mouth
+      name: 嘴部
+      level: Lv.1
+      lingshu_strength: 1.0
+      absorb_rate_base: 0.12
+      leakage_rate_base: 0.30
+      status: []
+    - key: genital
+      name: 阴部
+      level: Lv.1
+      lingshu_strength: 1.0
+      absorb_rate_base: 0.18
+      leakage_rate_base: 0.34
+      status: []
+    - key: hip
+      name: 臀部
+      level: Lv.1
+      lingshu_strength: 1.0
+      absorb_rate_base: 0.10
+      leakage_rate_base: 0.26
+      status: []
+
+  core_status: []
+  spirit_strings: {}
+  equipment_modifiers: {}
+  inventory: {}
+  soul_ledger:
+    Lv.1: 0
+    Lv.2: 0
+    Lv.3: 0
+    Lv.4: 0
+    Lv.5: 0
+
+content_generation:
+  rarity_weight:
+    common: 52
+    uncommon: 26
+    rare: 14
+    epic: 6
+    legendary: 2
+
+  equipment:
+    type_pool: [武器, 护具, 饰品, 植入体, 模组]
+    slot_pool: [头部, 眼部, 嘴部, 脑部, 胸部, 手臂, 手部, 腿部, 足部, 阴部, 臀部]
+    affix_pool: [吸取速率%, 外泄速率%, 灵枢强度%, 转化率%, 回复率%, 六维加成]
+    base_price_by_rarity:
+      common: 80
+      uncommon: 220
+      rare: 600
+      epic: 1600
+      legendary: 5000
+
+  spirit_beast:
+    tier_pool: [T1, T2, T3, T4, T5]
+    trait_pool: [感知强化, 吸取强化, 抗压外壳, 回路再生, 心智侵蚀]
+    drop_pool: [人体部位素材, 灵核碎片, 灵兽结晶]
+    tame_difficulty:
+      T1: easy
+      T2: normal
+      T3: hard
+      T4: very_hard
+      T5: extreme
+
+  relic:
+    age_pool: [旧世, 新代, 远古, 失落文明]
+    effect_pool: [六维增幅, 灵海扩容, 共鸣成功率提升, 转化率固定增益, 回复率固定增益]
+    curse_pool: [理智流失, 外泄放大, 生命折损]
+    discovery_dc:
+      low: 14
+      mid: 18
+      high: 24
+
+chips:
+  equipped: []
+  storage: []
+
+career:
+  profession: 未选择
+  profession_level: 1
+  active_tasks: {}
+  career_tracks: {}

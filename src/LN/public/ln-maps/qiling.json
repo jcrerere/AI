@@ -1,0 +1,486 @@
+﻿{
+  "map": {
+    "regions": [
+      {
+        "id": "R_west_tide",
+        "name": "西潮区",
+        "summary": "临海商业与夜间娱乐密集区",
+        "entryStreetId": "S_coral_bay",
+        "links": { "up": null, "down": "R_moon_fall", "left": null, "right": "R_central_court" },
+        "streets": [
+          {
+            "id": "S_coral_bay",
+            "name": "珊瑚湾街",
+            "summary": "海湾观光与日间交易主轴",
+            "entryLocationId": "L_wave_platform",
+            "links": { "up": null, "down": "S_night_chant", "left": "S_foam_dock", "right": null },
+            "locations": [
+              {
+                "id": "L_wave_platform",
+                "name": "碎浪观景台",
+                "type": "公共空间",
+                "summary": "海湾观景与露天市集",
+                "links": { "up": null, "down": "L_salt_warehouse", "left": null, "right": null }
+              },
+              {
+                "id": "L_salt_warehouse",
+                "name": "盐风货栈",
+                "type": "仓储物流",
+                "summary": "海产与盐货批发中转",
+                "links": { "up": "L_wave_platform", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_foam_dock",
+            "name": "沫痕码头街",
+            "summary": "深水泊位与海运装卸带",
+            "entryLocationId": "L_abyss_anchor",
+            "links": { "up": null, "down": null, "left": null, "right": "S_coral_bay" },
+            "locations": [
+              {
+                "id": "L_abyss_anchor",
+                "name": "深渊锚地",
+                "type": "码头设施",
+                "summary": "塞壬经营深水码头与活体水箱",
+                "links": { "up": null, "down": "L_black_water", "left": null, "right": null }
+              },
+              {
+                "id": "L_black_water",
+                "name": "黑水提纯坊",
+                "type": "塞壬产业",
+                "summary": "灵盐结晶加工与包装",
+                "links": { "up": "L_abyss_anchor", "down": "L_foam_shipyard", "left": null, "right": null }
+              },
+              {
+                "id": "L_foam_shipyard",
+                "name": "沫痕船坞",
+                "type": "维修工坊",
+                "summary": "小型船只维修与改装",
+                "links": { "up": "L_black_water", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_night_chant",
+            "name": "夜吟巷",
+            "summary": "夜间娱乐与高消费服务业集中带",
+            "entryLocationId": "L_red_tail",
+            "links": { "up": "S_coral_bay", "down": null, "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_red_tail",
+                "name": "红尾销金窟",
+                "type": "狐魅产业",
+                "summary": "高端会所与男性调教服务",
+                "links": { "up": null, "down": "L_abyss_echo", "left": null, "right": null }
+              },
+              {
+                "id": "L_abyss_echo",
+                "name": "深渊回音馆",
+                "type": "魅魔产业",
+                "summary": "酒吧与致幻毒品直播",
+                "links": { "up": "L_red_tail", "down": "L_silk_curtain", "left": null, "right": null }
+              },
+              {
+                "id": "L_silk_curtain",
+                "name": "丝缎幕布阁",
+                "type": "狐魅产业",
+                "summary": "小剧场与提线木偶表演",
+                "links": { "up": "L_abyss_echo", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "R_central_court",
+        "name": "中庭区",
+        "summary": "跨线通行与管控枢纽",
+        "entryStreetId": "S_gate_avenue",
+        "links": { "up": null, "down": null, "left": "R_west_tide", "right": "R_riverbank" },
+        "streets": [
+          {
+            "id": "S_silver_market",
+            "name": "银鳞市井街",
+            "summary": "日常消费与灰色商品流通主街",
+            "entryLocationId": "L_scale_fresh",
+            "links": { "up": null, "down": "S_stone_shadow", "left": null, "right": "S_gate_avenue" },
+            "locations": [
+              {
+                "id": "L_scale_fresh",
+                "name": "鳞光鲜货铺",
+                "type": "零售市场",
+                "summary": "海产河产混合零售摊位",
+                "links": { "up": null, "down": "L_crimson_beauty", "left": null, "right": null }
+              },
+              {
+                "id": "L_crimson_beauty",
+                "name": "绯泪美容坊",
+                "type": "魅魔产业",
+                "summary": "体液制品零售与美容针剂",
+                "links": { "up": "L_scale_fresh", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_gate_avenue",
+            "name": "闸口通衢",
+            "summary": "跨线通行主干道与管控查验枢纽",
+            "entryLocationId": "L_court_hall",
+            "links": { "up": null, "down": null, "left": "S_silver_market", "right": null },
+            "locations": [
+              {
+                "id": "L_court_hall",
+                "name": "中庭查验大厅",
+                "type": "管控设施",
+                "summary": "三层跨线通行查验设施",
+                "links": { "up": null, "down": "L_ceasefire_plaza", "left": null, "right": null }
+              },
+              {
+                "id": "L_ceasefire_plaza",
+                "name": "停火广场",
+                "type": "公共空间",
+                "summary": "冲突期临时停火执行点",
+                "links": { "up": "L_court_hall", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_stone_shadow",
+            "name": "石影巷",
+            "summary": "艺术品展示与私人订制服务带",
+            "entryLocationId": "L_silent_corridor",
+            "links": { "up": "S_silver_market", "down": null, "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_silent_corridor",
+                "name": "静默回廊",
+                "type": "戈尔贡产业",
+                "summary": "雕塑馆与石化艺术品展示",
+                "links": { "up": null, "down": "L_snake_kiss", "left": null, "right": null }
+              },
+              {
+                "id": "L_snake_kiss",
+                "name": "蛇吻工坊",
+                "type": "戈尔贡产业",
+                "summary": "私人订制毒液生产室",
+                "links": { "up": "L_silent_corridor", "down": "L_eternal_gallery", "left": null, "right": null }
+              },
+              {
+                "id": "L_eternal_gallery",
+                "name": "永恒陈列室",
+                "type": "戈尔贡产业",
+                "summary": "活体雕塑储藏与封存空间",
+                "links": { "up": "L_snake_kiss", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "R_riverbank",
+        "name": "河岸区",
+        "summary": "河运转运与修造工贸集中区",
+        "entryStreetId": "S_iron_pier",
+        "links": { "up": null, "down": "R_iron_anchor", "left": "R_central_court", "right": null },
+        "streets": [
+          {
+            "id": "S_iron_pier",
+            "name": "铁桩横街",
+            "summary": "河运装卸与短驳转运主轴",
+            "entryLocationId": "L_backwater_wharf",
+            "links": { "up": null, "down": "S_lamp_commerce", "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_backwater_wharf",
+                "name": "回水堤埠",
+                "type": "码头设施",
+                "summary": "河运装卸与露天堆场",
+                "links": { "up": null, "down": "L_iron_machine", "left": null, "right": null }
+              },
+              {
+                "id": "L_iron_machine",
+                "name": "铁锚船机行",
+                "type": "维修工坊",
+                "summary": "船只与车辆改装维修",
+                "links": { "up": "L_backwater_wharf", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_lamp_commerce",
+            "name": "灯火商街",
+            "summary": "高密度商业与现金业态主街",
+            "entryLocationId": "L_bone_crusher",
+            "links": { "up": "S_iron_pier", "down": null, "left": null, "right": "S_banyan_assembly" },
+            "locations": [
+              {
+                "id": "L_bone_crusher",
+                "name": "碎骨改装铺",
+                "type": "维修工坊",
+                "summary": "车辆与机械非法改造",
+                "links": { "up": null, "down": "L_night_gambling", "left": null, "right": null }
+              },
+              {
+                "id": "L_night_gambling",
+                "name": "夜灯赌档",
+                "type": "地下场所",
+                "summary": "赌博与现金交易暗点",
+                "links": { "up": "L_bone_crusher", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_banyan_assembly",
+            "name": "榕冠集会道",
+            "summary": "公共集会与节庆仪式主轴",
+            "entryLocationId": "L_banyan_plaza",
+            "links": { "up": null, "down": null, "left": "S_lamp_commerce", "right": null },
+            "locations": [
+              {
+                "id": "L_banyan_plaza",
+                "name": "榕冠大树广场",
+                "type": "公共空间",
+                "summary": "中央榕树与公开集会核心",
+                "links": { "up": null, "down": "L_oath_platform", "left": null, "right": null }
+              },
+              {
+                "id": "L_oath_platform",
+                "name": "誓约石台",
+                "type": "仪式场地",
+                "summary": "契约公证与公开誓约仪式",
+                "links": { "up": "L_banyan_plaza", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "R_moon_fall",
+        "name": "月落郊",
+        "summary": "西南外围农业生产与温室种植带",
+        "entryStreetId": "S_greenhouse_corridor",
+        "links": { "up": "R_west_tide", "down": null, "left": null, "right": "R_tidal_shore" },
+        "streets": [
+          {
+            "id": "S_greenhouse_corridor",
+            "name": "温室廊道",
+            "summary": "大型温室与耕地主干道",
+            "entryLocationId": "L_moonlight_twelve",
+            "links": { "up": null, "down": "S_green_trade", "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_moonlight_twelve",
+                "name": "月光十二室",
+                "type": "月光精灵产业",
+                "summary": "12座大型温室群蔬菜种植",
+                "links": { "up": null, "down": "L_human_swine", "left": null, "right": null }
+              },
+              {
+                "id": "L_human_swine",
+                "name": "人彘劳作区",
+                "type": "月光精灵产业",
+                "summary": "露天耕地与脑睾改造劳工管理",
+                "links": { "up": "L_moonlight_twelve", "down": "L_spirit_well", "left": null, "right": null }
+              },
+              {
+                "id": "L_spirit_well",
+                "name": "灵能灌溉井",
+                "type": "基础设施",
+                "summary": "灵能场富集灌溉水源点",
+                "links": { "up": "L_human_swine", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_green_trade",
+            "name": "绿茵贸道",
+            "summary": "农产品运输与批发交易通道",
+            "entryLocationId": "L_fresh_depot",
+            "links": { "up": "S_greenhouse_corridor", "down": "S_arrow_wasteland", "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_fresh_depot",
+                "name": "鲜叶集散场",
+                "type": "物流节点",
+                "summary": "当日蔬果批发与装车点",
+                "links": { "up": null, "down": "L_herb_shed", "left": null, "right": null }
+              },
+              {
+                "id": "L_herb_shed",
+                "name": "药草晾晒棚",
+                "type": "加工设施",
+                "summary": "药用植物初加工与干燥",
+                "links": { "up": "L_fresh_depot", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_arrow_wasteland",
+            "name": "箭雨荒场",
+            "summary": "地下角斗与付费直播场地",
+            "entryLocationId": "L_baptism_arena",
+            "links": { "up": "S_green_trade", "down": null, "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_baptism_arena",
+                "name": "洗礼角斗场",
+                "type": "月光精灵产业",
+                "summary": "地下角斗场与箭术虐杀直播",
+                "links": { "up": null, "down": "L_nailing_stage", "left": null, "right": null }
+              },
+              {
+                "id": "L_nailing_stage",
+                "name": "钉地刑台",
+                "type": "月光精灵产业",
+                "summary": "活体靶标固定与射击表演",
+                "links": { "up": "L_baptism_arena", "down": "L_viewer_chamber", "left": null, "right": null }
+              },
+              {
+                "id": "L_viewer_chamber",
+                "name": "观众密室",
+                "type": "月光精灵产业",
+                "summary": "付费观看隔间与专属包厢",
+                "links": { "up": "L_nailing_stage", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "R_iron_anchor",
+        "name": "铁锚郊",
+        "summary": "东南外围仓储物流与货物集散带",
+        "entryStreetId": "S_yard_avenue",
+        "links": { "up": "R_riverbank", "down": null, "left": null, "right": null },
+        "streets": [
+          {
+            "id": "S_yard_avenue",
+            "name": "堆场大道",
+            "summary": "货物暂存与露天堆放主干道",
+            "entryLocationId": "L_iron_warehouse",
+            "links": { "up": null, "down": "S_south_gate", "left": null, "right": "S_chain_storage" },
+            "locations": [
+              {
+                "id": "L_iron_warehouse",
+                "name": "铁锚封闭库",
+                "type": "仓储设施",
+                "summary": "大型货物仓储与防盗设施",
+                "links": { "up": null, "down": "L_open_yard", "left": null, "right": null }
+              },
+              {
+                "id": "L_open_yard",
+                "name": "露天堆场",
+                "type": "物流节点",
+                "summary": "临时货物堆放与分拣区",
+                "links": { "up": "L_iron_warehouse", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_south_gate",
+            "name": "南向通道口街",
+            "summary": "诺丝区陆路出入主通道",
+            "entryLocationId": "L_escort_point",
+            "links": { "up": "S_yard_avenue", "down": null, "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_escort_point",
+                "name": "南向护送集结点",
+                "type": "管控设施",
+                "summary": "护送队集结与装备准备",
+                "links": { "up": null, "down": "L_pass_booth", "left": null, "right": null }
+              },
+              {
+                "id": "L_pass_booth",
+                "name": "通行登记亭",
+                "type": "管控设施",
+                "summary": "出入境登记与节点收费",
+                "links": { "up": "L_escort_point", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_chain_storage",
+            "name": "锚链仓储街",
+            "summary": "封闭仓库与货物安全存放带",
+            "entryLocationId": "L_chain_three",
+            "links": { "up": null, "down": null, "left": "S_yard_avenue", "right": null },
+            "locations": [
+              {
+                "id": "L_chain_three",
+                "name": "锚链三号库",
+                "type": "仓储设施",
+                "summary": "高价值货物封闭仓储与武装看守",
+                "links": { "up": null, "down": "L_sorting_yard", "left": null, "right": null }
+              },
+              {
+                "id": "L_sorting_yard",
+                "name": "货物分拣场",
+                "type": "物流节点",
+                "summary": "河运陆运货物交接与打包",
+                "links": { "up": "L_chain_three", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "R_tidal_shore",
+        "name": "潮汐滩区",
+        "summary": "汐屿族临时聚居与海岸资源采集带",
+        "entryStreetId": "S_giant_strand",
+        "links": { "up": null, "down": null, "left": "R_moon_fall", "right": null },
+        "streets": [
+          {
+            "id": "S_giant_strand",
+            "name": "巨足滩道",
+            "summary": "汐屿族临时营地与海岸采集通道",
+            "entryLocationId": "L_giant_camp",
+            "links": { "up": null, "down": "S_tidal_harvest", "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_giant_camp",
+                "name": "巨人临时营地",
+                "type": "汐屿族聚居",
+                "summary": "汐屿族女性临时居住与物资交换点",
+                "links": { "up": null, "down": "L_breeding_pen", "left": null, "right": null }
+              },
+              {
+                "id": "L_breeding_pen",
+                "name": "畜栏区",
+                "type": "汐屿族产业",
+                "summary": "汐屿族男性集体饲养与管理区",
+                "links": { "up": "L_giant_camp", "down": null, "left": null, "right": null }
+              }
+            ]
+          },
+          {
+            "id": "S_tidal_harvest",
+            "name": "潮汐采集道",
+            "summary": "海岸资源采集与初加工带",
+            "entryLocationId": "L_shell_field",
+            "links": { "up": "S_giant_strand", "down": null, "left": null, "right": null },
+            "locations": [
+              {
+                "id": "L_shell_field",
+                "name": "贝壳采集场",
+                "type": "资源采集",
+                "summary": "潮间带贝类与海藻采集点",
+                "links": { "up": null, "down": "L_fusion_ground", "left": null, "right": null }
+              },
+              {
+                "id": "L_fusion_ground",
+                "name": "血肉融合场",
+                "type": "汐屿族产业",
+                "summary": "汐屿族繁衍仪式与男性改造空间",
+                "links": { "up": "L_shell_field", "down": null, "left": null, "right": null }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
