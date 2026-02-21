@@ -3289,54 +3289,6 @@ const App: React.FC = () => {
     }
   };
 
-  const openTavernPhone = useCallback(() => {
-    const clickPhone = () => {
-      const nodes = Array.from(document.querySelectorAll<HTMLElement>('button, .menu_button, .qr--button, [role="button"]'));
-      const target = nodes.find(el => {
-        const text = (el.textContent || '').replace(/\s+/g, '').trim();
-        const title = (el.getAttribute('title') || '').replace(/\s+/g, '').trim();
-        return text.includes('手机') || text.includes('灵网') || title.includes('手机') || title.includes('灵网');
-      });
-      if (!target) return false;
-      target.click();
-      return true;
-    };
-
-    if (clickPhone()) return;
-    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button, button[title="扩展"]');
-    if (extButton) extButton.click();
-    setTimeout(() => {
-      if (!clickPhone()) {
-        spawnFloatingText('未找到酒馆手机按钮', 'text-amber-300');
-      }
-    }, 250);
-  }, [spawnFloatingText]);
-
-  const openTavernRegexSettings = useCallback(() => {
-    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button, button[title="扩展"]');
-    if (extButton) extButton.click();
-    const tryOpen = (left: number) => {
-      const regexContainer =
-        document.querySelector<HTMLElement>('#regex_container') ||
-        document.querySelector<HTMLElement>('.regex_settings') ||
-        document.querySelector<HTMLElement>('[id*="regex" i]');
-      if (regexContainer) {
-        const regexToggle =
-          regexContainer.querySelector<HTMLElement>('.inline-drawer-toggle') ||
-          regexContainer.querySelector<HTMLElement>('.inline-drawer-header');
-        if (regexToggle) regexToggle.click();
-        regexContainer.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        return;
-      }
-      if (left <= 0) {
-        spawnFloatingText('未找到脚本/正则设置区', 'text-amber-300');
-        return;
-      }
-      setTimeout(() => tryOpen(left - 1), 250);
-    };
-    tryOpen(8);
-  }, [spawnFloatingText]);
-
   const availableLingshuEquipItems = useMemo(
     () => playerInventory.filter(item => isLingshuEquipableItem(item)),
     [playerInventory],
@@ -3602,7 +3554,6 @@ const App: React.FC = () => {
             onConvert={handleConversion}
             onCrossLevelConvert={handleCrossLevelExchange}
             nextRankCoin={nextRankCoin}
-            onOpenPhone={openTavernPhone}
           />
 
           <div className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md">
@@ -3729,19 +3680,6 @@ const App: React.FC = () => {
                       className="w-full border border-red-800 text-red-300 hover:text-white hover:border-red-600 px-2 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                     >
                       <Trash2 className="w-3.5 h-3.5" /> 删除选中档案
-                    </button>
-                  </div>
-                </CyberPanel>
-
-                <CyberPanel title="脚本与正则" noPadding allowExpand collapsible>
-                  <div className="p-3 bg-black/40 space-y-2">
-                    <div className="text-xs text-slate-400">打开酒馆扩展设置并定位到正则区域。</div>
-                    <button
-                      type="button"
-                      onClick={openTavernRegexSettings}
-                      className="w-full border border-amber-700 text-amber-300 hover:text-white hover:border-amber-500 px-2 py-1.5 text-xs"
-                    >
-                      打开脚本/正则
                     </button>
                   </div>
                 </CyberPanel>
