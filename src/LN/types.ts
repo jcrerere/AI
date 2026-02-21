@@ -64,6 +64,7 @@ export interface EquippedItem {
     description: string;
     imageUrl?: string;
     sourceItemId?: string;
+    sourceCategory?: ItemCategory;
     conversionRateBonus?: number;
     recoveryRateBonus?: number;
     rank?: Rank; // Optional override, otherwise inherits body part rank
@@ -121,6 +122,8 @@ export interface PlayerCivilianStatus {
   taxAmount: number;
   betaLevel?: number;
   betaTierName?: string;
+  taxOfficerUnlocked?: boolean;
+  taxOfficerBoundId?: string | null;
   taxOfficerName?: string;
   taxOfficeAddress?: string;
 }

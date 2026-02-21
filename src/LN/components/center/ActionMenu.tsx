@@ -7,9 +7,10 @@ interface Props {
   onConvert: (type: 'xp' | 'coin' | 'mp', amount: number) => void;
   onCrossLevelConvert?: (direction: 'up' | 'down', amount: number) => void;
   nextRankCoin?: number;
+  onOpenPhone?: () => void;
 }
 
-const ActionMenu: React.FC<Props> = ({ stats, onConvert, onCrossLevelConvert, nextRankCoin = 0 }) => {
+const ActionMenu: React.FC<Props> = ({ stats, onConvert, onCrossLevelConvert, nextRankCoin = 0, onOpenPhone }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [batchSize, setBatchSize] = useState<number>(10);
   const [activeSection, setActiveSection] = useState<'conversion' | 'reserved'>('conversion');
@@ -160,11 +161,15 @@ const ActionMenu: React.FC<Props> = ({ stats, onConvert, onCrossLevelConvert, ne
 
           {activeSection === 'reserved' && (
             <div className="mt-2 border border-slate-800 bg-black/30 p-3 space-y-2">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">预留操作位（后续扩展）</div>
+              <div className="text-[10px] text-slate-400 uppercase font-bold">系统联动</div>
               <div className="grid grid-cols-1 gap-2">
-                <div className="border border-slate-800 bg-slate-900/30 px-3 py-2 text-xs text-slate-400">灵枢注能（预留）</div>
-                <div className="border border-slate-800 bg-slate-900/30 px-3 py-2 text-xs text-slate-400">灵弦共鸣（预留）</div>
-                <div className="border border-slate-800 bg-slate-900/30 px-3 py-2 text-xs text-slate-400">装备校准（预留）</div>
+                <button
+                  type="button"
+                  onClick={() => onOpenPhone?.()}
+                  className="border border-cyan-800 bg-cyan-900/20 px-3 py-2 text-xs text-cyan-200 hover:text-white hover:border-cyan-500 text-left"
+                >
+                  打开灵网手机
+                </button>
               </div>
             </div>
           )}

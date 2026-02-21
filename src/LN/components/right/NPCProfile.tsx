@@ -33,12 +33,29 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
     setTimeout(() => setIsAvatarGenerating(false), 1500);
   };
 
+  const femaleCorePart = React.useMemo(() => {
+    const parts = npc.bodyParts || [];
+    return parts.find(p => p.key === 'brain') || parts.find(p => p.key === 'core') || null;
+  }, [npc.bodyParts]);
+
   const getSpiritSkills = (): Skill[] => {
-    if (npc.gender === 'female') {
-      return npc.bodyParts?.find(p => p.key === 'core')?.skills || [];
-    }
-    return npc.spiritSkills || [];
+    if (femaleCorePart?.skills?.length) return femaleCorePart.skills;
+    if ((npc.spiritSkills || []).length > 0) return npc.spiritSkills || [];
+    const merged = (npc.bodyParts || []).flatMap(part => part.skills || []);
+    return merged.slice(0, 8);
   };
+
+  const femaleSoulLedger = React.useMemo(() => {
+    const base: Partial<Record<Rank, number>> = { [Rank.Lv1]: 0, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 };
+    if (npc.gender !== 'female') return base;
+    const parts = npc.bodyParts || [];
+    parts.forEach(part => {
+      (part.capturedSouls || []).forEach(soul => {
+        base[soul.rank] = (base[soul.rank] || 0) + 1;
+      });
+    });
+    return base;
+  }, [npc.gender, npc.bodyParts]);
 
   return (
     <div className="h-full flex flex-col animate-in slide-in-from-right-4 duration-300 relative">
@@ -116,39 +133,36 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
           <User className="w-3 h-3" /> 个人资料
         </button>
 
-        {npc.gender === 'female' ? (
-          <button
-            onClick={() => setActiveSection('nexus')}
-            className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider border transition-all flex items-center justify-center gap-2 ${
-              activeSection === 'nexus'
-                ? 'bg-cyan-900/40 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                : 'bg-black/40 border-slate-800 text-slate-500 hover:text-cyan-400'
-            }`}
-          >
-            <Activity className="w-3 h-3" /> 灵枢
-          </button>
-        ) : (
-          <button
-            onClick={() => setActiveSection('chips')}
-            className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider border transition-all flex items-center justify-center gap-2 ${
-              activeSection === 'chips'
-                ? 'bg-cyan-900/40 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
-                : 'bg-black/40 border-slate-800 text-slate-500 hover:text-cyan-400'
-            }`}
-          >
-            <Cpu className="w-3 h-3" /> 芯片模组
-          </button>
-        )}
+        <button
+          onClick={() => setActiveSection('nexus')}
+          className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider border transition-all flex items-center justify-center gap-2 ${
+            activeSection === 'nexus'
+              ? 'bg-cyan-900/40 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+              : 'bg-black/40 border-slate-800 text-slate-500 hover:text-cyan-400'
+          }`}
+        >
+          <Activity className="w-3 h-3" /> 灵枢
+        </button>
+        <button
+          onClick={() => setActiveSection('chips')}
+          className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-wider border transition-all flex items-center justify-center gap-2 ${
+            activeSection === 'chips'
+              ? 'bg-cyan-900/40 border-cyan-400 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)]'
+              : 'bg-black/40 border-slate-800 text-slate-500 hover:text-cyan-400'
+          }`}
+        >
+          <Cpu className="w-3 h-3" /> 芯片模组
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto pr-1">
-        {activeSection === 'nexus' && npc.gender === 'female' && (
+        {activeSection === 'nexus' && (
           <CyberPanel title="灵枢系统" className="min-h-full">
             <SpiritNexus npc={npc} isReadOnly={true} />
           </CyberPanel>
         )}
 
-        {activeSection === 'chips' && npc.gender === 'male' && (
+        {activeSection === 'chips' && (
           <div className="h-full">
             <ChipPanel chips={npc.chips || []} isReadOnly={true} />
           </div>
@@ -231,7 +245,7 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
             }
             soulLedger={
               npc.gender === 'female'
-                ? { [Rank.Lv1]: 1, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 }
+                ? femaleSoulLedger
                 : {}
             }
             onClose={() => setShowSpiritModal(false)}

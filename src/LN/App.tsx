@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CyberPanel from './components/ui/CyberPanel';
 import PlayerStatePanel from './components/left/PlayerStatePanel';
 import ChipPanel from './components/left/ChipPanel';
@@ -8,14 +8,13 @@ import ContactList from './components/right/ContactList';
 import NarrativeFeed from './components/center/NarrativeFeed';
 import ItemDetailView from './components/ui/ItemDetailView';
 import InventoryModal from './components/ui/InventoryModal';
-import BetaInhibitionOverlay from './components/ui/BetaInhibitionOverlay';
 import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import ActionMenu from './components/center/ActionMenu';
 import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
 import GameSetup from './components/flow/GameSetup';
-import { Message, NPC, Item, GameConfig, PlayerStats, Chip, PlayerFaction, Rank, Skill, PlayerCivilianStatus, BetaTask, CareerTrack, WorldNodeMapData, MapRuntimeData, LingshuPart, RuntimeAffix } from './types';
+import { Message, NPC, Item, GameConfig, PlayerStats, Chip, PlayerFaction, Rank, Skill, PlayerCivilianStatus, BetaTask, CareerTrack, WorldNodeMapData, MapRuntimeData, LingshuPart, RuntimeAffix, BodyPart } from './types';
 import { buildPseudoLayer, hasPseudoLayer, parsePseudoLayer, replaceMaintext } from './utils/pseudoLayer';
 import {
   MOCK_MESSAGES,
@@ -181,6 +180,7 @@ interface LnSaveData {
   playerSoulLedger?: Partial<Record<Rank, number>>;
   coinVault?: Partial<Record<Rank, number>>;
   playerCoreAffixes?: RuntimeAffix[];
+  stateLock?: StateLockConfig;
 }
 
 interface ArchiveSlot {
@@ -198,6 +198,78 @@ interface LnApiConfig {
   apiKey: string;
   model: string;
 }
+
+interface StateLockConfig {
+  lockTime: boolean;
+  lockLocation: boolean;
+  lockIdentity: boolean;
+  lockedElapsedMinutes?: number;
+  lockedLocation?: string;
+  lockedIdentity?: string;
+}
+
+interface TaxOfficerCandidate {
+  id: string;
+  name: string;
+  affiliation: string;
+  location: string;
+  group: string;
+}
+
+interface AirelaTaxDistrict {
+  id: string;
+  name: string;
+  officeAddress: string;
+  officerName: string;
+  officerAffiliation: string;
+}
+
+const AIRELA_TAX_DISTRICTS: AirelaTaxDistrict[] = [
+  {
+    id: 'north_gate',
+    name: '艾瑞拉·北门分区',
+    officeAddress: '艾瑞拉·北门分区税务局',
+    officerName: '夜莺税务官·岚绯',
+    officerAffiliation: '夜莺驻艾瑞拉税务署',
+  },
+  {
+    id: 'central_ring',
+    name: '艾瑞拉·中环分区',
+    officeAddress: '艾瑞拉·中环税务局',
+    officerName: '夜莺税务官·绫织',
+    officerAffiliation: '夜莺驻艾瑞拉税务署',
+  },
+  {
+    id: 'south_dock',
+    name: '艾瑞拉·南港分区',
+    officeAddress: '艾瑞拉·南港税务局',
+    officerName: '夜莺税务官·璃棠',
+    officerAffiliation: '夜莺驻艾瑞拉税务署',
+  },
+];
+
+const hashText = (text: string): number => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+};
+
+const pickAirelaTaxDistrict = (citizenId: string): AirelaTaxDistrict => {
+  const list = AIRELA_TAX_DISTRICTS;
+  if (list.length === 0) {
+    return {
+      id: 'fallback',
+      name: '艾瑞拉·临时分区',
+      officeAddress: '艾瑞拉·临时税务局',
+      officerName: '夜莺税务官·临时代理',
+      officerAffiliation: '夜莺驻艾瑞拉税务署',
+    };
+  }
+  const index = hashText(citizenId || 'NO_ID') % list.length;
+  return list[index];
+};
 
 const ensurePseudoLayerOnLoad = (
   loadedMessages: Message[],
@@ -255,6 +327,26 @@ const levelToRank = (level: number): Rank => {
   if (lv === 4) return Rank.Lv4;
   return Rank.Lv5;
 };
+
+const LINGSHU_BODY_PART_TEMPLATE: Array<{ key: string; name: string; level: number; description: string; aliases?: string[] }> = [
+  { key: 'brain', name: '大脑', level: 3, description: '认知中枢与灵能感知核心。', aliases: ['core'] },
+  { key: 'eyes', name: '双眼', level: 3, description: '视觉神经与深度数据处理单元。' },
+  { key: 'face', name: '面部', level: 2, description: '感官伪装与表情模组接口。' },
+  { key: 'mouth', name: '嘴部', level: 2, description: '语音输出与能量摄入端口。' },
+  { key: 'body', name: '身躯', level: 2, description: '生命维持系统主躯干。' },
+  { key: 'chest', name: '胸部', level: 2, description: '循环增强与导压模块区域。' },
+  { key: 'genital', name: '阴部', level: 3, description: '高敏回路与外泄控制节点。', aliases: ['groin'] },
+  { key: 'hip', name: '臀部', level: 3, description: '核心承压与外泄缓冲区域。' },
+  { key: 'l_arm', name: '左臂', level: 2, description: '精密操控与传导辅助部位。', aliases: ['larm', 'left_arm'] },
+  { key: 'r_arm', name: '右臂', level: 3, description: '战术强化与武装挂载部位。', aliases: ['rarm', 'right_arm'] },
+  { key: 'l_hand', name: '左手', level: 2, description: '细粒度控制与接触感知。', aliases: ['lhand', 'left_hand'] },
+  { key: 'r_hand', name: '右手', level: 2, description: '输出稳定与抓握强化。', aliases: ['rhand', 'right_hand'] },
+  { key: 'l_leg', name: '左腿', level: 2, description: '位移稳定与压力承载。', aliases: ['lleg', 'left_leg'] },
+  { key: 'r_leg', name: '右腿', level: 2, description: '速度与爆发动作支撑。', aliases: ['rleg', 'right_leg'] },
+  { key: 'l_foot', name: '左脚', level: 1, description: '静音移动与姿态修正。', aliases: ['lfoot', 'left_foot'] },
+  { key: 'r_foot', name: '右脚', level: 1, description: '平衡与反冲缓解。', aliases: ['rfoot', 'right_foot'] },
+  { key: 'axilla', name: '腋下', level: 4, description: '敏感散热与腺体控制区域。' },
+];
 
 const nextRank = (rank: Rank): Rank | null => {
   if (rank === Rank.Lv1) return Rank.Lv2;
@@ -318,6 +410,39 @@ const getSceneHintByPhase = (phase: string): string => {
   return '公共区开放，常规交易与任务发放活跃。';
 };
 
+const OUT_OF_WORLD_TERMS = ['荒坂', '夜之城', 'NCPD', '赛博朋克', '荒坂塔', '军用义体公司'];
+const LOCAL_LOCATION_POOL = [
+  '艾瑞拉中环',
+  '艾瑞拉旧港',
+  '艾瑞拉北门',
+  '淬灵区内环',
+  '汐屿区灰堤',
+  '诺丝工业带',
+  '圣教区边境站',
+];
+
+const hashTextToIndex = (text: string, mod: number) => {
+  if (mod <= 0) return 0;
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  return hash % mod;
+};
+
+const softNormalizeOutOfWorldText = (text: string, fallbackLocation: string) => {
+  if (!text) return '';
+  const hit = OUT_OF_WORLD_TERMS.some(term => text.includes(term));
+  if (!hit) return text;
+  const safeLocation =
+    fallbackLocation && fallbackLocation.trim()
+      ? fallbackLocation.trim()
+      : LOCAL_LOCATION_POOL[hashTextToIndex(text, LOCAL_LOCATION_POOL.length)] || '艾瑞拉中环';
+  let next = text;
+  OUT_OF_WORLD_TERMS.forEach(term => {
+    next = next.split(term).join(safeLocation);
+  });
+  return next;
+};
+
 const estimateActionMinutes = (text: string): number => {
   if (/(战斗|击杀|斩杀|处决|追击|逃跑)/i.test(text)) return 25;
   if (/(移动|前往|赶往|导航|巡逻|探索)/i.test(text)) return 15;
@@ -337,6 +462,7 @@ const DEFAULT_SIX_DIM = {
   freePoints: 0,
   cap: 99,
 };
+const DEFAULT_LINGSHU_EQUIP_SLOTS = 8;
 
 const ensurePlayerStatsSixDim = (stats: PlayerStats): PlayerStats => ({
   ...stats,
@@ -349,6 +475,231 @@ const ensurePlayerStatsSixDim = (stats: PlayerStats): PlayerStats => ({
 const sanitizeAiMaintext = (raw: string): string => {
   if (!raw) return '';
   return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const isLingshuEquipableItem = (item: Item): boolean => {
+  if (!item || item.quantity <= 0) return false;
+  if (item.category === 'equipment') return true;
+  const text = `${item.name || ''} ${item.description || ''}`.toLowerCase();
+  if (/\[(?:灵枢可装配|可装配|equipable|lingshu_equip)\]/i.test(text)) return true;
+  if (/(纹身|手套|护具|衣|饰品|挂件|玩具|武器|模块|插件|tattoo|glove|armor|gear|wearable|implant|toy|weapon)/i.test(text)) {
+    return true;
+  }
+  return false;
+};
+
+const normalizeNpcForUi = (npc: NPC): NPC => {
+  const fallbackBoard = MOCK_CHIPS.find(chip => chip.type === 'board');
+  const fallbackNormals = MOCK_CHIPS.filter(chip => chip.type === 'active' || chip.type === 'passive' || chip.type === 'process');
+  const sourceChips = Array.isArray(npc.chips) ? npc.chips : [];
+  const normalizedChips =
+    sourceChips.length > 0
+      ? sourceChips
+      : [
+          ...(fallbackBoard ? [{ ...fallbackBoard }] : []),
+          ...(fallbackNormals.length > 0
+            ? [
+                { ...fallbackNormals[hashTextToIndex(`${npc.id}_c1`, fallbackNormals.length)] },
+                { ...fallbackNormals[hashTextToIndex(`${npc.id}_c2`, fallbackNormals.length)] },
+              ]
+            : []),
+        ];
+  const source = npc.bodyParts || [];
+  const used = new Set<number>();
+  const findPartIndex = (tpl: (typeof LINGSHU_BODY_PART_TEMPLATE)[number]) => {
+    const aliasSet = new Set([tpl.key, ...(tpl.aliases || [])].map(v => v.toLowerCase()));
+    for (let i = 0; i < source.length; i += 1) {
+      if (used.has(i)) continue;
+      const part = source[i];
+      const key = `${part.key || ''}`.toLowerCase();
+      if (aliasSet.has(key)) return i;
+    }
+    for (let i = 0; i < source.length; i += 1) {
+      if (used.has(i)) continue;
+      const part = source[i];
+      const text = `${part.name || ''} ${part.key || ''}`.toLowerCase();
+      if (tpl.key === 'brain' && (text.includes('脑') || text.includes('core'))) return i;
+      if (tpl.key === 'genital' && (text.includes('阴') || text.includes('裆') || text.includes('groin') || text.includes('genital'))) return i;
+      if (tpl.key === 'hip' && (text.includes('臀') || text.includes('hip'))) return i;
+      if (tpl.key === 'axilla' && (text.includes('腋') || text.includes('axilla'))) return i;
+    }
+    return -1;
+  };
+
+  const normalized = LINGSHU_BODY_PART_TEMPLATE.map((tpl, idx) => {
+    const matchIndex = findPartIndex(tpl);
+    const from = matchIndex >= 0 ? source[matchIndex] : null;
+    if (matchIndex >= 0) used.add(matchIndex);
+    return {
+      id: from?.id || `npc_${npc.id}_${tpl.key}_${idx + 1}`,
+      key: tpl.key,
+      name: tpl.name,
+      rank: from?.rank || levelToRank(tpl.level),
+      description: from?.description || tpl.description,
+      skills: from?.skills || [],
+      equippedItems: from?.equippedItems || [],
+      statusAffixes: from?.statusAffixes || [],
+      capturedSouls: from?.capturedSouls,
+      maxSkillSlots: from?.maxSkillSlots || 3,
+      maxEquipSlots: from?.maxEquipSlots || DEFAULT_LINGSHU_EQUIP_SLOTS,
+      reserveMp: from?.reserveMp,
+    } as BodyPart;
+  });
+
+  const extras = source
+    .filter((_, idx) => !used.has(idx))
+    .map((part, idx) => ({
+      ...part,
+      id: part.id || `npc_${npc.id}_extra_${idx + 1}`,
+      equippedItems: part.equippedItems || [],
+      skills: part.skills || [],
+      maxSkillSlots: part.maxSkillSlots || 3,
+      maxEquipSlots: part.maxEquipSlots || DEFAULT_LINGSHU_EQUIP_SLOTS,
+    }));
+
+  return { ...npc, bodyParts: [...normalized, ...extras], chips: normalizedChips };
+};
+
+const normalizeNpcListForUi = (list: NPC[]): NPC[] => list.map(normalizeNpcForUi);
+
+type ParsedRuntimeBonus = {
+  conversion: number;
+  recovery: number;
+  charisma: number;
+  sixDim: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>>;
+  canFly: boolean;
+};
+
+type RuntimeEffectCommand = {
+  op: 'add' | 'set' | 'flag';
+  target: string;
+  value: number | string | boolean;
+  source?: string;
+};
+
+const EMPTY_RUNTIME_BONUS: ParsedRuntimeBonus = {
+  conversion: 0,
+  recovery: 0,
+  charisma: 0,
+  sixDim: {},
+  canFly: false,
+};
+
+const parseRuntimeEffectCommands = (text: string): RuntimeEffectCommand[] => {
+  const commands: RuntimeEffectCommand[] = [];
+  if (!text) return commands;
+
+  const kvBlocks = [...text.matchAll(/\[EFFECT\|([^\]]+)\]/gi)];
+  kvBlocks.forEach(match => {
+    const body = match[1] || '';
+    const record: Record<string, string> = {};
+    body.split('|').forEach(seg => {
+      const [k, ...rest] = seg.split('=');
+      if (!k || rest.length === 0) return;
+      record[k.trim().toLowerCase()] = rest.join('=').trim();
+    });
+    const opRaw = (record.op || 'add').toLowerCase();
+    const target = record.target || '';
+    if (!target) return;
+    const valueRaw = record.value ?? '0';
+    const asNum = Number(valueRaw);
+    const value = Number.isFinite(asNum) ? asNum : valueRaw;
+    const op: RuntimeEffectCommand['op'] = opRaw === 'set' ? 'set' : opRaw === 'flag' ? 'flag' : 'add';
+    commands.push({ op, target, value, source: record.source || '' });
+  });
+
+  const jsonBlocks = [...text.matchAll(/<EFFECT>([\s\S]*?)<\/EFFECT>/gi)];
+  jsonBlocks.forEach(match => {
+    const raw = match[1]?.trim();
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      const list = Array.isArray(parsed) ? parsed : [parsed];
+      list.forEach((it: any) => {
+        const opRaw = `${it?.op || 'add'}`.toLowerCase();
+        const target = `${it?.target || ''}`.trim();
+        if (!target) return;
+        const op: RuntimeEffectCommand['op'] = opRaw === 'set' ? 'set' : opRaw === 'flag' ? 'flag' : 'add';
+        commands.push({ op, target, value: it?.value, source: `${it?.source || ''}`.trim() });
+      });
+    } catch {
+      // ignore invalid EFFECT json block
+    }
+  });
+  return commands;
+};
+
+const applyEffectCommandsToBonus = (base: ParsedRuntimeBonus, commands: RuntimeEffectCommand[]): ParsedRuntimeBonus => {
+  const next: ParsedRuntimeBonus = {
+    conversion: base.conversion,
+    recovery: base.recovery,
+    charisma: base.charisma,
+    sixDim: { ...(base.sixDim || {}) },
+    canFly: base.canFly,
+  };
+  commands.forEach(cmd => {
+    const value = typeof cmd.value === 'number' ? cmd.value : Number(cmd.value);
+    const num = Number.isFinite(value) ? value : 0;
+    const target = cmd.target.trim();
+    const setOrAdd = (current: number) => (cmd.op === 'set' ? num : current + num);
+
+    if (/^player\.psionic\.conversion(rate)?$/i.test(target)) {
+      next.conversion = setOrAdd(next.conversion);
+      return;
+    }
+    if (/^player\.psionic\.recovery(rate)?$/i.test(target)) {
+      next.recovery = setOrAdd(next.recovery);
+      return;
+    }
+    if (/^player\.charisma(\.current)?$/i.test(target)) {
+      next.charisma = setOrAdd(next.charisma);
+      return;
+    }
+    const dimMatch = target.match(/^player\.sixdim\.(力量|敏捷|体质|感知|意志|魅力)$/i);
+    if (dimMatch?.[1]) {
+      const key = dimMatch[1] as '力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力';
+      const old = next.sixDim[key] || 0;
+      next.sixDim[key] = setOrAdd(old);
+      return;
+    }
+    if (/^player\.flags\.flight$/i.test(target)) {
+      next.canFly = cmd.op === 'flag' ? !!cmd.value : num > 0;
+    }
+  });
+  return next;
+};
+
+const parseRuntimeBonusFromText = (text: string): ParsedRuntimeBonus => {
+  if (!text) return { ...EMPTY_RUNTIME_BONUS, sixDim: {} };
+  const raw = text.replace(/\s+/g, '');
+  const next: ParsedRuntimeBonus = { ...EMPTY_RUNTIME_BONUS, sixDim: {} };
+  const dims: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = ['力量', '敏捷', '体质', '感知', '意志', '魅力'];
+
+  const readBonus = (name: string) => {
+    const m1 = raw.match(new RegExp(`${name}[+＋](\\d{1,3})`, 'i'));
+    const m2 = raw.match(new RegExp(`[+＋](\\d{1,3})${name}`, 'i'));
+    const n = Number(m1?.[1] ?? m2?.[1]);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  dims.forEach(dim => {
+    const bonus = readBonus(dim);
+    if (bonus > 0) next.sixDim[dim] = bonus;
+  });
+  next.charisma = readBonus('魅力');
+
+  const conversion = raw.match(/(?:转化率|conversionrate)[+＋](\d{1,3}(?:\.\d+)?)/i)
+    || raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:转化率|conversionrate)/i);
+  const recovery = raw.match(/(?:回复率|恢复率|recoveryrate)[+＋](\d{1,3}(?:\.\d+)?)/i)
+    || raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:回复率|恢复率|recoveryrate)/i);
+  const conversionValue = Number(conversion?.[1]);
+  const recoveryValue = Number(recovery?.[1]);
+  if (Number.isFinite(conversionValue)) next.conversion = conversionValue;
+  if (Number.isFinite(recoveryValue)) next.recovery = recoveryValue;
+  next.canFly = /(飞行|悬浮|腾空|滑翔|浮空|喷射推进)/i.test(raw);
+  const commands = parseRuntimeEffectCommands(text);
+  if (!commands.length) return next;
+  return applyEffectCommandsToBonus(next, commands);
 };
 
 const extractMaintextFromApiOutput = (raw: string): string => {
@@ -406,8 +757,8 @@ const App: React.FC = () => {
   ]);
   const [isSpiritCoreModalOpen, setIsSpiritCoreModalOpen] = useState(false);
 
-  const [npcs, setNpcs] = useState<NPC[]>(MOCK_NPCS);
-  const [contactGroups, setContactGroups] = useState<string[]>(Array.from(new Set(MOCK_NPCS.filter(n => n.group).map(n => n.group))));
+  const [npcs, setNpcs] = useState<NPC[]>(() => normalizeNpcListForUi(MOCK_NPCS));
+  const [contactGroups, setContactGroups] = useState<string[]>(() => Array.from(new Set(normalizeNpcListForUi(MOCK_NPCS).filter(n => n.group).map(n => n.group))));
 
   const [playerChips, setPlayerChips] = useState<Chip[]>(MOCK_CHIPS);
   const [storageChips, setStorageChips] = useState<Chip[]>(MOCK_STORAGE_CHIPS);
@@ -463,8 +814,10 @@ const App: React.FC = () => {
     ...MOCK_PLAYER_STATUS,
     betaLevel: 1,
     betaTierName: getBetaTierTitle(1),
-    taxOfficerName: '第7区税务官·柳映荷',
-    taxOfficeAddress: '第7区税务征收处·D入口',
+    taxOfficerUnlocked: false,
+    taxOfficerBoundId: null,
+    taxOfficerName: '',
+    taxOfficeAddress: '',
   });
   const [betaTasks, setBetaTasks] = useState<BetaTask[]>([]);
   const [acceptedBetaTaskIds, setAcceptedBetaTaskIds] = useState<string[]>([]);
@@ -472,10 +825,12 @@ const App: React.FC = () => {
   const [taskDeadlines, setTaskDeadlines] = useState<Record<string, number>>({});
   const [pendingUpgradeEvaluation, setPendingUpgradeEvaluation] = useState(false);
   const [selectedBetaProfessionId, setSelectedBetaProfessionId] = useState<string | null>(null);
-
-  const [isBetaOverlayActive, setIsBetaOverlayActive] = useState(false);
-  const [betaOverlayMode] = useState<'violation' | 'shame'>('violation');
-  const [betaOverlayWarnings, setBetaOverlayWarnings] = useState<string[]>([]);
+  const [isTaxOfficerPickerOpen, setIsTaxOfficerPickerOpen] = useState(false);
+  const [stateLock, setStateLock] = useState<StateLockConfig>({
+    lockTime: false,
+    lockLocation: false,
+    lockIdentity: false,
+  });
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -484,6 +839,28 @@ const App: React.FC = () => {
   const prevMobileRef = useRef<boolean | null>(null);
   const [autoMapSyncEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const lastProtocolRef = useRef<'none' | 'beta' | null>(null);
+  const lastPulledSyncSignatureRef = useRef('');
+  const lastPushedSyncSignatureRef = useRef('');
+
+  const taxOfficerCandidates = useMemo<TaxOfficerCandidate[]>(() => {
+    const list = npcs
+      .filter(npc => !npc.temporaryStatus)
+      .map(npc => ({
+        id: npc.id,
+        name: npc.name,
+        affiliation: npc.affiliation || '未知组织',
+        location: npc.location || '未知区域',
+        group: npc.group || '未分组',
+        score:
+          (npc.isContact ? 100 : 0) +
+          (/夜莺/i.test(`${npc.affiliation}${npc.group}${npc.name}`) ? 80 : 0) +
+          (npc.gender === 'female' ? 10 : 0),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .map(({ score, ...rest }) => rest);
+    return list;
+  }, [npcs]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -582,7 +959,7 @@ const App: React.FC = () => {
         spiritSkill: null,
         spiritSkills: [],
         maxSkillSlots: 3,
-        maxEquipSlots: 3,
+        maxEquipSlots: DEFAULT_LINGSHU_EQUIP_SLOTS,
       })),
       ...prev,
     ]);
@@ -644,6 +1021,133 @@ const App: React.FC = () => {
     }
   }, [apiConfig]);
 
+  const syncStateFromTavernVariables = useCallback(() => {
+    if (typeof getVariables !== 'function') return;
+
+    let variables: Record<string, any>;
+    try {
+      variables = getVariables({ type: 'chat' });
+    } catch {
+      return;
+    }
+
+    const stat = variables?.stat_data;
+    if (!stat || typeof stat !== 'object') return;
+
+    const toNumber = (value: unknown): number | undefined => {
+      const next = Number(value);
+      return Number.isFinite(next) ? next : undefined;
+    };
+
+    const coreStatus = stat?.player?.core_status || {};
+    const psionic = stat?.player?.psionic || {};
+    const assets = stat?.player?.assets || {};
+    const lcoin = assets?.lcoin || {};
+    const lcoinTotal =
+      (toNumber(lcoin?.total) ?? 0) ||
+      ['lv1', 'lv2', 'lv3', 'lv4', 'lv5'].reduce((sum, key) => sum + (toNumber(lcoin?.[key]) ?? 0), 0);
+
+    const repCurrent =
+      toNumber(coreStatus?.reputation?.current) ??
+      toNumber(stat?.player?.reputation) ??
+      toNumber(stat?.player?.core_status?.credit_score);
+    const creditsFromStat = toNumber(assets?.credits) ?? toNumber(stat?.player?.credits) ?? lcoinTotal;
+    const syncSignature = JSON.stringify({
+      hpCurrent: toNumber(coreStatus?.hp?.current) ?? null,
+      hpMax: toNumber(coreStatus?.hp?.max) ?? null,
+      mpCurrent: toNumber(coreStatus?.mp?.current) ?? null,
+      mpMax: toNumber(coreStatus?.mp?.max) ?? null,
+      sanityCurrent: toNumber(coreStatus?.sanity?.current) ?? null,
+      sanityMax: toNumber(coreStatus?.sanity?.max) ?? null,
+      credits: creditsFromStat ?? null,
+      reputation: repCurrent ?? null,
+      conversionRate: toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate) ?? null,
+      recoveryRate: toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate) ?? null,
+      rank: `${stat?.player?.psionic_rank ?? psionic?.rank ?? ''}`.trim() || null,
+    });
+    lastPulledSyncSignatureRef.current = syncSignature;
+
+    setPlayerStats(prev => {
+      const next: PlayerStats = {
+        ...prev,
+        hp: { ...prev.hp },
+        mp: { ...prev.mp },
+        sanity: { ...prev.sanity },
+        psionic: { ...prev.psionic },
+      };
+      let changed = false;
+
+      const hpCurrent = toNumber(coreStatus?.hp?.current);
+      const hpMax = toNumber(coreStatus?.hp?.max);
+      const mpCurrent = toNumber(coreStatus?.mp?.current);
+      const mpMax = toNumber(coreStatus?.mp?.max);
+      const sanityCurrent = toNumber(coreStatus?.sanity?.current);
+      const sanityMax = toNumber(coreStatus?.sanity?.max);
+      const conversionRate = toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate);
+      const recoveryRate = toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate);
+
+      const rankRaw = `${stat?.player?.psionic_rank ?? psionic?.rank ?? ''}`.trim();
+      const rankMatch = rankRaw.match(/Lv\.?\s*(\d+)/i);
+      const rankValue = rankMatch?.[1] ? levelToRank(Number(rankMatch[1])) : undefined;
+
+      if (hpCurrent !== undefined && hpCurrent !== prev.hp.current) {
+        next.hp.current = Math.max(0, hpCurrent);
+        changed = true;
+      }
+      if (hpMax !== undefined && hpMax !== prev.hp.max) {
+        next.hp.max = Math.max(1, hpMax);
+        changed = true;
+      }
+      if (mpCurrent !== undefined && mpCurrent !== prev.mp.current) {
+        next.mp.current = Math.max(0, mpCurrent);
+        changed = true;
+      }
+      if (mpMax !== undefined && mpMax !== prev.mp.max) {
+        next.mp.max = Math.max(1, mpMax);
+        changed = true;
+      }
+      if (sanityCurrent !== undefined && sanityCurrent !== prev.sanity.current) {
+        next.sanity.current = Math.max(0, sanityCurrent);
+        changed = true;
+      }
+      if (sanityMax !== undefined && sanityMax !== prev.sanity.max) {
+        next.sanity.max = Math.max(1, sanityMax);
+        changed = true;
+      }
+      if (creditsFromStat !== undefined && creditsFromStat !== prev.credits) {
+        next.credits = Math.max(0, creditsFromStat);
+        changed = true;
+      }
+      if (conversionRate !== undefined && conversionRate !== prev.psionic.conversionRate) {
+        next.psionic.conversionRate = conversionRate;
+        changed = true;
+      }
+      if (recoveryRate !== undefined && recoveryRate !== prev.psionic.recoveryRate) {
+        next.psionic.recoveryRate = recoveryRate;
+        changed = true;
+      }
+      if (rankValue && rankValue !== prev.psionic.level) {
+        next.psionic.level = rankValue;
+        changed = true;
+      }
+
+      return changed ? ensurePlayerStatsSixDim(next) : prev;
+    });
+
+    if (repCurrent !== undefined) {
+      setBetaStatus(prev =>
+        repCurrent === prev.creditScore ? prev : { ...prev, creditScore: Math.max(0, Math.min(120, repCurrent)) },
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    syncStateFromTavernVariables();
+    const timer = window.setInterval(syncStateFromTavernVariables, 1200);
+    return () => window.clearInterval(timer);
+  }, [gameStage, syncStateFromTavernVariables]);
+
   useEffect(() => {
     const currentRank = playerStats.psionic.level;
     setCoinVault(prev => ({
@@ -680,6 +1184,121 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+  const identityLabel = useMemo(
+    () => `${betaStatus.citizenId} · ${playerNeuralProtocol.toUpperCase()} · ${playerFaction.name}`,
+    [betaStatus.citizenId, playerNeuralProtocol, playerFaction.name],
+  );
+  const effectiveNarrativeLocation = useMemo(
+    () => (stateLock.lockLocation ? stateLock.lockedLocation || currentNarrativeLocation : currentNarrativeLocation),
+    [stateLock.lockLocation, stateLock.lockedLocation, currentNarrativeLocation],
+  );
+  const effectiveElapsedMinutes = useMemo(
+    () => (stateLock.lockTime ? stateLock.lockedElapsedMinutes ?? mapRuntime.elapsedMinutes : mapRuntime.elapsedMinutes),
+    [stateLock.lockTime, stateLock.lockedElapsedMinutes, mapRuntime.elapsedMinutes],
+  );
+  const effectiveGameTimeText = useMemo(() => formatGameTime(effectiveElapsedMinutes || 0), [effectiveElapsedMinutes]);
+  const effectiveGameDayPhase = useMemo(() => getDayPhase(effectiveElapsedMinutes || 0), [effectiveElapsedMinutes]);
+  const effectiveGameSceneHint = useMemo(() => getSceneHintByPhase(effectiveGameDayPhase), [effectiveGameDayPhase]);
+  const effectiveIdentityLabel = useMemo(
+    () => (stateLock.lockIdentity ? stateLock.lockedIdentity || identityLabel : identityLabel),
+    [stateLock.lockIdentity, stateLock.lockedIdentity, identityLabel],
+  );
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    if (typeof getVariables !== 'function' || typeof replaceVariables !== 'function') return;
+
+    const nextSignature = JSON.stringify({
+      hpCurrent: playerStats.hp.current,
+      hpMax: playerStats.hp.max,
+      mpCurrent: playerStats.mp.current,
+      mpMax: playerStats.mp.max,
+      sanityCurrent: playerStats.sanity.current,
+      sanityMax: playerStats.sanity.max,
+      credits: playerStats.credits,
+      reputation: betaStatus.creditScore,
+      conversionRate: playerStats.psionic.conversionRate,
+      recoveryRate: playerStats.psionic.recoveryRate,
+      rank: playerStats.psionic.level,
+    });
+    if (nextSignature === lastPulledSyncSignatureRef.current) return;
+    if (nextSignature === lastPushedSyncSignatureRef.current) return;
+
+    const timer = window.setTimeout(() => {
+      try {
+        const vars = getVariables({ type: 'chat' }) || {};
+        const root = vars.stat_data && typeof vars.stat_data === 'object' ? vars.stat_data : {};
+        const world = root.world && typeof root.world === 'object' ? root.world : {};
+        const player = root.player && typeof root.player === 'object' ? root.player : {};
+        const coreStatus = player.core_status && typeof player.core_status === 'object' ? player.core_status : {};
+        const psionic = player.psionic && typeof player.psionic === 'object' ? player.psionic : {};
+        const assets = player.assets && typeof player.assets === 'object' ? player.assets : {};
+        const lcoin = assets.lcoin && typeof assets.lcoin === 'object' ? assets.lcoin : {};
+
+        const nextVars = { ...vars };
+        nextVars.stat_data = {
+          ...root,
+          world: {
+            ...world,
+            current_time: effectiveGameTimeText,
+            current_location: currentNarrativeLocation || world.current_location || '未知区域',
+          },
+          player: {
+            ...player,
+            psionic_rank: playerStats.psionic.level,
+            core_status: {
+              ...coreStatus,
+              hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
+              mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+              sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
+              reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
+            },
+            psionic: {
+              ...psionic,
+              conversion_rate: {
+                ...(typeof psionic.conversion_rate === 'object' ? psionic.conversion_rate : {}),
+                current: playerStats.psionic.conversionRate,
+              },
+              recovery_rate: {
+                ...(typeof psionic.recovery_rate === 'object' ? psionic.recovery_rate : {}),
+                current: playerStats.psionic.recoveryRate,
+              },
+            },
+            assets: {
+              ...assets,
+              credits: playerStats.credits,
+              lcoin: {
+                ...lcoin,
+                total: playerStats.credits,
+              },
+            },
+          },
+        };
+
+        replaceVariables(nextVars, { type: 'chat' });
+        lastPushedSyncSignatureRef.current = nextSignature;
+      } catch (error) {
+        console.warn('写回酒馆变量失败:', error);
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    gameStage,
+    playerStats.hp.current,
+    playerStats.hp.max,
+    playerStats.mp.current,
+    playerStats.mp.max,
+    playerStats.sanity.current,
+    playerStats.sanity.max,
+    playerStats.credits,
+    playerStats.psionic.level,
+    playerStats.psionic.conversionRate,
+    playerStats.psionic.recoveryRate,
+    betaStatus.creditScore,
+    effectiveGameTimeText,
+    currentNarrativeLocation,
+  ]);
   const visibleMessages = messages;
   const visibleLayerMessages = useMemo(
     () => visibleMessages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)),
@@ -744,7 +1363,7 @@ const App: React.FC = () => {
     setPlayerStats(ensurePlayerStatsSixDim(payload.playerStats || MOCK_PLAYER_STATS));
     setPlayerGender(payload.playerGender || 'male');
     setPlayerSkills(payload.playerSkills || []);
-    setNpcs(payload.npcs || MOCK_NPCS);
+    setNpcs(normalizeNpcListForUi(payload.npcs || MOCK_NPCS));
     setContactGroups(payload.contactGroups || []);
     setPlayerChips(payload.playerChips || MOCK_CHIPS);
     setStorageChips(payload.storageChips || MOCK_STORAGE_CHIPS);
@@ -762,7 +1381,14 @@ const App: React.FC = () => {
     setLeftModuleTab(payload.leftModuleTab || 'chips');
     setPlayerNeuralProtocol(payload.playerNeuralProtocol === 'beta' ? 'beta' : 'none');
     setCareerTracks(payload.careerTracks?.length ? payload.careerTracks : DEFAULT_CAREER_TRACKS);
-    setBetaStatus(payload.betaStatus || MOCK_PLAYER_STATUS);
+    const loadedStatus = payload.betaStatus || MOCK_PLAYER_STATUS;
+    setBetaStatus({
+      ...loadedStatus,
+      taxOfficerUnlocked: loadedStatus.taxOfficerUnlocked ?? payload.playerNeuralProtocol === 'beta',
+      taxOfficerBoundId: loadedStatus.taxOfficerBoundId ?? null,
+      taxOfficerName: loadedStatus.taxOfficerName || '',
+      taxOfficeAddress: loadedStatus.taxOfficeAddress || '',
+    });
     setBetaTasks(payload.betaTasks || []);
     setAcceptedBetaTaskIds(payload.acceptedBetaTaskIds || []);
     setClaimableBetaTaskIds(payload.claimableBetaTaskIds || []);
@@ -976,7 +1602,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateNpc = (npcId: string, updates: Partial<NPC>) => {
-    setNpcs(prev => prev.map(n => (n.id === npcId ? { ...n, ...updates } : n)));
+    setNpcs(prev => prev.map(n => (n.id === npcId ? normalizeNpcForUi({ ...n, ...updates }) : n)));
   };
 
   const handleRemoveGroup = (groupName: string) => {
@@ -984,7 +1610,7 @@ const App: React.FC = () => {
     setNpcs(prev =>
       prev.map(npc => {
         if (npc.group === groupName && npc.isContact) {
-          return { ...npc, isContact: false, group: '', temporaryStatus: '近期删除' };
+          return normalizeNpcForUi({ ...npc, isContact: false, group: '', temporaryStatus: '近期删除' });
         }
         return npc;
       }),
@@ -1140,7 +1766,7 @@ const App: React.FC = () => {
         quantity: 1,
         icon: '⚙️',
         description: removedItem.description || '灵枢可装配装备',
-        category: 'equipment',
+        category: removedItem.sourceCategory || 'equipment',
         rank: removedItem.rank || Rank.Lv1,
       };
       return [...prev, restored];
@@ -1148,12 +1774,13 @@ const App: React.FC = () => {
   };
 
   const handleEquipLingshuItem = (partId: string, itemId: string) => {
-    const fromInventory = playerInventory.find(item => item.id === itemId && item.category === 'equipment' && item.quantity > 0);
+    const fromInventory = playerInventory.find(item => item.id === itemId && isLingshuEquipableItem(item));
     if (!fromInventory) return;
     let equipped = false;
     const equippedItem = {
       id: `${itemId}_eq_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
       sourceItemId: fromInventory.id,
+      sourceCategory: fromInventory.category,
       name: fromInventory.name,
       description: fromInventory.description || '灵枢装备',
       rank: fromInventory.rank,
@@ -1163,7 +1790,7 @@ const App: React.FC = () => {
       prev.map(part => {
         if (part.id !== partId) return part;
         const currentItems = part.equippedItems ?? (part.equippedItem ? [part.equippedItem] : []);
-        const maxEquipSlots = part.maxEquipSlots || 3;
+        const maxEquipSlots = part.maxEquipSlots || DEFAULT_LINGSHU_EQUIP_SLOTS;
         if (currentItems.length >= maxEquipSlots) return part;
         equipped = true;
         const nextItems = [...currentItems, equippedItem];
@@ -1255,27 +1882,81 @@ const App: React.FC = () => {
   const rateBonus = useMemo(() => {
     let conversion = 0;
     let recovery = 0;
+    let charisma = 0;
+    let canFly = false;
+    const sixDim: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>> = {};
+    const mergeParsed = (parsed: ParsedRuntimeBonus) => {
+      conversion += parsed.conversion || 0;
+      recovery += parsed.recovery || 0;
+      charisma += parsed.charisma || 0;
+      canFly = canFly || !!parsed.canFly;
+      (Object.entries(parsed.sixDim || {}) as Array<['力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number]>).forEach(([k, v]) => {
+        sixDim[k] = (sixDim[k] || 0) + (v || 0);
+      });
+    };
     playerSkills.forEach(skill => {
       conversion += skill.conversionRateBonus || 0;
       recovery += skill.recoveryRateBonus || 0;
+      mergeParsed(parseRuntimeBonusFromText(`${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`));
     });
     playerLingshu.forEach(part => {
       const skills = part.spiritSkills ?? (part.spiritSkill ? [part.spiritSkill] : []);
       skills.forEach(skill => {
         conversion += skill.conversionRateBonus || 0;
         recovery += skill.recoveryRateBonus || 0;
+        mergeParsed(parseRuntimeBonusFromText(`${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`));
       });
       const equips = part.equippedItems ?? (part.equippedItem ? [part.equippedItem] : []);
       equips.forEach(item => {
         conversion += item.conversionRateBonus || 0;
         recovery += item.recoveryRateBonus || 0;
+        mergeParsed(parseRuntimeBonusFromText(`${item.name || ''} ${item.description || ''}`));
       });
     });
-    return { conversion, recovery };
-  }, [playerSkills, playerLingshu]);
+    playerChips.forEach(chip => {
+      mergeParsed(parseRuntimeBonusFromText(`${chip.name || ''} ${chip.description || ''}`));
+    });
+    return { conversion, recovery, charisma, sixDim, canFly };
+  }, [playerSkills, playerLingshu, playerChips]);
 
   const effectiveConversionRate = Math.max(0, playerStats.psionic.conversionRate + rateBonus.conversion);
   const effectiveRecoveryRate = Math.max(0, playerStats.psionic.recoveryRate + rateBonus.recovery);
+  const effectivePlayerStats = useMemo<PlayerStats>(() => {
+    const six = playerStats.sixDim || DEFAULT_SIX_DIM;
+    const sixDimBonus = rateBonus.sixDim || {};
+    const cap = six.cap || 99;
+    const nextSix = {
+      ...six,
+      力量: Math.min(cap, Math.max(1, (six.力量 || 8) + (sixDimBonus.力量 || 0))),
+      敏捷: Math.min(cap, Math.max(1, (six.敏捷 || 8) + (sixDimBonus.敏捷 || 0))),
+      体质: Math.min(cap, Math.max(1, (six.体质 || 8) + (sixDimBonus.体质 || 0))),
+      感知: Math.min(cap, Math.max(1, (six.感知 || 8) + (sixDimBonus.感知 || 0))),
+      意志: Math.min(cap, Math.max(1, (six.意志 || 8) + (sixDimBonus.意志 || 0))),
+      魅力: Math.min(cap, Math.max(1, (six.魅力 || 8) + (sixDimBonus.魅力 || 0))),
+    };
+    const nextCharismaCurrent = Math.min(playerStats.charisma.max, Math.max(0, playerStats.charisma.current + rateBonus.charisma));
+    return {
+      ...playerStats,
+      sixDim: nextSix,
+      charisma: {
+        ...playerStats.charisma,
+        current: nextCharismaCurrent,
+      },
+      psionic: {
+        ...playerStats.psionic,
+        conversionRate: effectiveConversionRate,
+        recoveryRate: effectiveRecoveryRate,
+      },
+    };
+  }, [playerStats, rateBonus, effectiveConversionRate, effectiveRecoveryRate]);
+  const activeEffectHint = useMemo(() => {
+    const lines: string[] = [];
+    if (rateBonus.canFly) lines.push('可短距飞行');
+    if (rateBonus.charisma) lines.push(`魅力+${rateBonus.charisma}`);
+    if (rateBonus.conversion) lines.push(`转化率+${rateBonus.conversion}`);
+    if (rateBonus.recovery) lines.push(`回复率+${rateBonus.recovery}`);
+    return lines.join('，');
+  }, [rateBonus.canFly, rateBonus.charisma, rateBonus.conversion, rateBonus.recovery]);
 
   const handleCrossLevelExchange = (direction: 'up' | 'down', amountRaw: number) => {
     const amount = Math.max(1, Math.floor(amountRaw || 0));
@@ -1535,9 +2216,9 @@ const App: React.FC = () => {
           prev.map(npc => {
             if (!targetIds.includes(npc.id)) return npc;
             if (npc.gender === 'female') {
-              return { ...npc, affection: Math.min(100, (npc.affection || 0) + bonus) };
+              return normalizeNpcForUi({ ...npc, affection: Math.min(100, (npc.affection || 0) + bonus) });
             }
-            return { ...npc, trust: Math.min(100, (npc.trust || 0) + bonus) };
+            return normalizeNpcForUi({ ...npc, trust: Math.min(100, (npc.trust || 0) + bonus) });
           }),
         );
         const targetName = npcs.find(n => n.id === targetIds[0])?.name || '目标';
@@ -1556,7 +2237,7 @@ const App: React.FC = () => {
   };
 
   const handleConversion = (type: 'xp' | 'coin' | 'mp', amount: number) => {
-    const rate = Math.max(0, effectiveConversionRate) / 100;
+    const rate = Math.max(0, effectivePlayerStats.psionic.conversionRate) / 100;
     const regionFactor = getExchangeRegionFactor(currentNarrativeLocation || '', playerGender);
 
     if (type === 'xp') {
@@ -1621,10 +2302,59 @@ const App: React.FC = () => {
   };
 
   const handleUseItem = (item: Item) => {
+    const parsed = parseRuntimeBonusFromText(`${item.name || ''} ${item.description || ''}`);
+    if (parsed.charisma > 0 || Object.keys(parsed.sixDim || {}).length > 0) {
+      setPlayerStats(prev => {
+        const six = prev.sixDim || DEFAULT_SIX_DIM;
+        const cap = six.cap || 99;
+        return {
+          ...prev,
+          charisma: {
+            ...prev.charisma,
+            current: Math.min(prev.charisma.max, Math.max(0, prev.charisma.current + parsed.charisma)),
+          },
+          sixDim: {
+            ...six,
+            力量: Math.min(cap, Math.max(1, (six.力量 || 8) + (parsed.sixDim.力量 || 0))),
+            敏捷: Math.min(cap, Math.max(1, (six.敏捷 || 8) + (parsed.sixDim.敏捷 || 0))),
+            体质: Math.min(cap, Math.max(1, (six.体质 || 8) + (parsed.sixDim.体质 || 0))),
+            感知: Math.min(cap, Math.max(1, (six.感知 || 8) + (parsed.sixDim.感知 || 0))),
+            意志: Math.min(cap, Math.max(1, (six.意志 || 8) + (parsed.sixDim.意志 || 0))),
+            魅力: Math.min(cap, Math.max(1, (six.魅力 || 8) + (parsed.sixDim.魅力 || 0))),
+          },
+        };
+      });
+    }
+    if (parsed.conversion || parsed.recovery) {
+      setPlayerStats(prev => ({
+        ...prev,
+        psionic: {
+          ...prev.psionic,
+          conversionRate: Math.max(0, prev.psionic.conversionRate + (parsed.conversion || 0)),
+          recoveryRate: Math.max(0, prev.psionic.recoveryRate + (parsed.recovery || 0)),
+        },
+      }));
+    }
+    if (parsed.canFly) {
+      setPlayerCoreAffixes(prev => {
+        if (prev.some(a => /飞行|悬浮/.test(a.name))) return prev;
+        return [
+          ...prev,
+          {
+            id: `core_flight_${Date.now()}`,
+            name: '状态：短距飞行',
+            description: `由[${item.name}]触发，可进行短距飞行与越障。`,
+            type: 'buff',
+            source: '道具',
+          },
+        ];
+      });
+    }
+
     const sysMsg: Message = {
       id: Date.now().toString(),
       sender: 'System',
-      content: `你使用了 [${item.name}]。`,
+      content: `你使用了 [${item.name}]。${parsed.canFly ? '获得短距飞行能力。' : ''}`,
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
       type: 'narrative',
     };
@@ -1643,7 +2373,7 @@ const App: React.FC = () => {
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + actionMinutes;
     const nextGameTimeText = formatGameTime(nextElapsedMinutes);
     const nextGameDayPhase = getDayPhase(nextElapsedMinutes);
-    const nextGameSceneHint = getSceneHintByPhase(nextGameDayPhase);
+    const nextGameSceneHint = `${getSceneHintByPhase(nextGameDayPhase)}${activeEffectHint ? ` 当前增益：${activeEffectHint}` : ''}`;
     const playerMsg: Message = {
       id: `user_${Date.now()}`,
       sender: 'Player',
@@ -1664,7 +2394,7 @@ const App: React.FC = () => {
     let layerContent = buildPseudoLayer({
       playerInput: input,
       location: currentNarrativeLocation || '未知区域',
-      credits: playerStats.credits,
+      credits: effectivePlayerStats.credits,
       reputation: betaStatus.creditScore,
       gameTime: nextGameTimeText,
       dayPhase: nextGameDayPhase,
@@ -2040,7 +2770,10 @@ const App: React.FC = () => {
     setTaskDeadlines({});
     setBetaStatus(prev => ({
       ...prev,
-      taxOfficeAddress: `${config.startingLocation} · 税务征收机构`,
+      taxOfficerUnlocked: !!config.installBetaChip,
+      taxOfficerBoundId: null,
+      taxOfficerName: '',
+      taxOfficeAddress: '',
       taxDeadline: prev.taxDeadline?.replaceAll('-', '.'),
     }));
 
@@ -2069,13 +2802,6 @@ const App: React.FC = () => {
     setSelectedNPC(null);
     setIsLayerPickerOpen(false);
     setGameStage('game');
-  };
-
-  const triggerBetaViolation = (rawReason: string) => {
-    const humiliatingReason = `检测到违规行为：${rawReason}`;
-    const humiliatingRule = `禁止事项：未经许可越区、逃税、抗命、非法接入。请立即停止。`;
-    setBetaOverlayWarnings([humiliatingReason, humiliatingRule]);
-    setIsBetaOverlayActive(true);
   };
 
   const completeBetaTaskReward = (taskId: string) => {
@@ -2258,15 +2984,6 @@ const App: React.FC = () => {
   useEffect(() => {
     const last = messages[messages.length - 1];
     if (!last || last.sender === 'Player') return;
-    if (playerNeuralProtocol !== 'beta') return;
-    const dangerKeywords = ['逃税', '越区', '抗命', '袭警', '未授权接入', '违禁'];
-    const hit = dangerKeywords.find(keyword => last.content.includes(keyword));
-    if (hit) triggerBetaViolation(hit);
-  }, [messages, playerNeuralProtocol]);
-
-  useEffect(() => {
-    const last = messages[messages.length - 1];
-    if (!last || last.sender === 'Player') return;
     const text = last.content;
 
     if (pendingUpgradeEvaluation) {
@@ -2409,59 +3126,150 @@ const App: React.FC = () => {
   };
 
   const handleNavToTax = () => {
+    const target = betaStatus.taxOfficeAddress?.trim() || `${playerFaction.headquarters} · 税务征收机构`;
     const navMsg: Message = {
       id: `nav_tax_${Date.now()}`,
       sender: 'System',
-      content: '导航已设定：第一区税务征收处。',
+      content: `导航已设定：${target}`,
       timestamp: new Date().toLocaleTimeString('zh-CN'),
       type: 'narrative',
     };
     setMessages(prev => [...prev, navMsg]);
   };
 
-  const handleAddTaxOfficerContact = () => {
-    const officerName = betaStatus.taxOfficerName || '第7区税务官·柳映荷';
-    const officerId = `tax_officer_${officerName}`;
-    const exists = npcs.some(npc => npc.id === officerId || npc.name === officerName);
-    if (exists) {
-      const msg: Message = {
-        id: `tax_officer_exists_${Date.now()}`,
+  const bindTaxOfficer = (candidate: TaxOfficerCandidate) => {
+    setBetaStatus(prev => ({
+      ...prev,
+      taxOfficerUnlocked: true,
+      taxOfficerBoundId: candidate.id,
+      taxOfficerName: candidate.name,
+      taxOfficeAddress: candidate.location,
+    }));
+    setNpcs(prev =>
+      prev.map(npc =>
+        npc.id === candidate.id
+          ? normalizeNpcForUi({
+              ...npc,
+              isContact: true,
+              group: npc.group || '税务关系',
+              position: npc.position || '区域缴税官',
+            })
+          : npc,
+      ),
+    );
+    setContactGroups(prev => (prev.includes('税务关系') ? prev : ['税务关系', ...prev]));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `tax_officer_bound_${Date.now()}`,
         sender: 'System',
-        content: `缴税官「${officerName}」已在标记人物中。`,
+        content: `税务官已绑定：${candidate.name}（${candidate.affiliation}）`,
         timestamp: new Date().toLocaleTimeString('zh-CN'),
         type: 'narrative',
-      };
-      setMessages(prev => [...prev, msg]);
+      },
+    ]);
+  };
+
+  const forceAssignBetaTaxOfficer = (reason: 'activation' | 'fallback') => {
+    const district = pickAirelaTaxDistrict(betaStatus.citizenId || '');
+    const officerId = `airela_tax_officer_${district.id}`;
+    const boundAlready = !!betaStatus.taxOfficerBoundId && !!betaStatus.taxOfficerName;
+    if (boundAlready && reason === 'activation') {
+      setBetaStatus(prev => ({ ...prev, taxOfficerUnlocked: true }));
       return;
     }
 
-    const officerNpc: NPC = {
-      id: officerId,
-      name: officerName,
-      gender: 'female',
-      group: '税务关系',
-      position: '区域缴税官',
-      affiliation: '第7区税务总署',
-      location: betaStatus.taxOfficeAddress || `${playerFaction.headquarters} · 税务征收机构`,
-      isContact: true,
-      stats: MOCK_PLAYER_STATS,
-      affection: 5,
-      avatarUrl: 'https://via.placeholder.com/64',
-      status: 'online',
-      inventory: [],
-      socialFeed: [],
-    };
-    setNpcs(prev => [officerNpc, ...prev]);
+    setNpcs(prev => {
+      const foundIndex = prev.findIndex(npc => npc.id === officerId || npc.name === district.officerName);
+      const nextNpc: NPC = {
+        id: officerId,
+        name: district.officerName,
+        gender: 'female',
+        group: '税务关系',
+        position: '分区税务官',
+        affiliation: district.officerAffiliation,
+        location: district.officeAddress,
+        isContact: true,
+        stats: MOCK_PLAYER_STATS,
+        affection: 10,
+        avatarUrl: 'https://via.placeholder.com/64',
+        status: 'online',
+        inventory: [],
+        socialFeed: [],
+      };
+      if (foundIndex === -1) return normalizeNpcListForUi([nextNpc, ...prev]);
+      const cloned = [...prev];
+      cloned[foundIndex] = normalizeNpcForUi({ ...cloned[foundIndex], ...nextNpc });
+      return normalizeNpcListForUi(cloned);
+    });
+
     setContactGroups(prev => (prev.includes('税务关系') ? prev : ['税务关系', ...prev]));
-    const msg: Message = {
-      id: `tax_officer_added_${Date.now()}`,
-      sender: 'System',
-      content: `已将缴税官「${officerName}」加入标记人物。`,
-      timestamp: new Date().toLocaleTimeString('zh-CN'),
-      type: 'narrative',
-    };
-    setMessages(prev => [...prev, msg]);
+
+    setBetaStatus(prev => ({
+      ...prev,
+      taxOfficerUnlocked: true,
+      taxOfficerBoundId: officerId,
+      taxOfficerName: district.officerName,
+      taxOfficeAddress: district.officeAddress,
+    }));
+
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `beta_tax_assign_${Date.now()}`,
+        sender: 'System',
+        content: `Beta协议已生效：你被强制编入「${district.name}」，分配税务官「${district.officerName}」。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN'),
+        type: 'narrative',
+      },
+    ]);
   };
+
+  const handleAddTaxOfficerContact = () => {
+    if (!betaStatus.taxOfficerUnlocked) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `tax_officer_locked_${Date.now()}`,
+          sender: 'System',
+          content: '税务官绑定尚未解锁：当前未接入 Beta 税务协议。',
+          timestamp: new Date().toLocaleTimeString('zh-CN'),
+          type: 'narrative',
+        },
+      ]);
+      return;
+    }
+    if (taxOfficerCandidates.length === 0) {
+      setMessages(prev => [
+        ...prev,
+        {
+          id: `tax_officer_no_candidate_${Date.now()}`,
+          sender: 'System',
+          content: '暂无可绑定对象：请先在标记人物中建立可交互 NPC。',
+          timestamp: new Date().toLocaleTimeString('zh-CN'),
+          type: 'narrative',
+        },
+      ]);
+      return;
+    }
+    setIsTaxOfficerPickerOpen(true);
+  };
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    const prevProtocol = lastProtocolRef.current;
+    const currentProtocol = playerNeuralProtocol;
+    const justActivated = prevProtocol !== 'beta' && currentProtocol === 'beta';
+
+    if (currentProtocol === 'beta') {
+      if (justActivated || !betaStatus.taxOfficerBoundId) {
+        forceAssignBetaTaxOfficer(justActivated ? 'activation' : 'fallback');
+      } else if (!betaStatus.taxOfficerUnlocked) {
+        setBetaStatus(prev => ({ ...prev, taxOfficerUnlocked: true }));
+      }
+    }
+    lastProtocolRef.current = currentProtocol;
+  }, [gameStage, playerNeuralProtocol, betaStatus.taxOfficerBoundId, betaStatus.taxOfficerUnlocked, betaStatus.citizenId]);
 
   const toggleFullscreen = async () => {
     try {
@@ -2481,8 +3289,38 @@ const App: React.FC = () => {
     }
   };
 
+  const openTavernPhone = useCallback(() => {
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>('.qr--button, .menu_button, button'));
+    const target = buttons.find(el => (el.textContent || '').trim() === '手机');
+    if (!target) {
+      spawnFloatingText('未找到酒馆手机按钮', 'text-amber-300');
+      return;
+    }
+    target.click();
+  }, [spawnFloatingText]);
+
+  const openTavernRegexSettings = useCallback(() => {
+    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button');
+    if (extButton) extButton.click();
+
+    const regexToggle =
+      document.querySelector<HTMLElement>('#regex_container .inline-drawer-toggle') ||
+      document.querySelector<HTMLElement>('#regex_container .inline-drawer-header');
+    if (regexToggle) {
+      regexToggle.click();
+      regexToggle.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    const regexContainer = document.querySelector<HTMLElement>('#regex_container');
+    if (regexContainer) {
+      regexContainer.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
+    spawnFloatingText('未找到脚本/正则设置区', 'text-amber-300');
+  }, [spawnFloatingText]);
+
   const availableLingshuEquipItems = useMemo(
-    () => playerInventory.filter(item => item.category === 'equipment' && item.quantity > 0),
+    () => playerInventory.filter(item => isLingshuEquipableItem(item)),
     [playerInventory],
   );
   const availableResonanceMaterials = useMemo(
@@ -2514,7 +3352,7 @@ const App: React.FC = () => {
         equippedItems: part.equippedItems ?? (part.equippedItem ? [part.equippedItem] : []),
         statusAffixes: part.statusAffixes || [],
         maxSkillSlots: part.maxSkillSlots || 3,
-        maxEquipSlots: part.maxEquipSlots || 3,
+        maxEquipSlots: part.maxEquipSlots || DEFAULT_LINGSHU_EQUIP_SLOTS,
       };
     });
 
@@ -2562,12 +3400,6 @@ const App: React.FC = () => {
           </div>
         ))}
 
-        <BetaInhibitionOverlay
-          warnings={betaOverlayWarnings}
-          isActive={isBetaOverlayActive}
-          onDismiss={() => setIsBetaOverlayActive(false)}
-          mode={betaOverlayMode}
-        />
         <CareerLineEditorModal
           open={isCareerEditorOpen}
           onClose={() => setIsCareerEditorOpen(false)}
@@ -2613,7 +3445,7 @@ const App: React.FC = () => {
 
           <div className="flex-1 space-y-3 min-w-[320px] pb-4 px-4 pt-4">
             <CyberPanel title="生理监测" className="mb-2" noPadding variant="gold">
-              <PlayerStatePanel stats={playerStats} hasBetaChip={hasBetaChip} onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)} gender={playerGender} />
+              <PlayerStatePanel stats={effectivePlayerStats} hasBetaChip={hasBetaChip} onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)} gender={playerGender} />
             </CyberPanel>
 
             <CyberPanel title="功能面板" className="mb-2" noPadding>
@@ -2748,10 +3580,11 @@ const App: React.FC = () => {
           />
 
           <ActionMenu
-            stats={{ ...playerStats, psionic: { ...playerStats.psionic, conversionRate: effectiveConversionRate } }}
+            stats={effectivePlayerStats}
             onConvert={handleConversion}
             onCrossLevelConvert={handleCrossLevelExchange}
             nextRankCoin={nextRankCoin}
+            onOpenPhone={openTavernPhone}
           />
 
           <div className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md">
@@ -2882,6 +3715,19 @@ const App: React.FC = () => {
                   </div>
                 </CyberPanel>
 
+                <CyberPanel title="脚本与正则" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40 space-y-2">
+                    <div className="text-xs text-slate-400">打开酒馆扩展设置并定位到正则区域。</div>
+                    <button
+                      type="button"
+                      onClick={openTavernRegexSettings}
+                      className="w-full border border-amber-700 text-amber-300 hover:text-white hover:border-amber-500 px-2 py-1.5 text-xs"
+                    >
+                      打开脚本/正则
+                    </button>
+                  </div>
+                </CyberPanel>
+
                 <div className="text-[11px] text-slate-500 px-1">
                   当前档案：{selectedArchiveId ? archiveSlots.find(slot => slot.id === selectedArchiveId)?.name || '未命名' : '未选择'}
                 </div>
@@ -3004,6 +3850,57 @@ const App: React.FC = () => {
           </div>
         )}
 
+        {isTaxOfficerPickerOpen && (
+          <div className="fixed inset-0 z-[132] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsTaxOfficerPickerOpen(false)}>
+            <div className="w-full max-w-2xl border border-fuchsia-900/60 rounded bg-[#07030b] p-3" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                <div className="text-sm font-bold text-fuchsia-300">选择税务官</div>
+                <button
+                  type="button"
+                  onClick={() => setIsTaxOfficerPickerOpen(false)}
+                  className="text-xs px-2 py-1 border border-slate-700 text-slate-300 hover:text-white"
+                >
+                  关闭
+                </button>
+              </div>
+              <div className="text-xs text-slate-400 mt-2 mb-3">优先展示夜莺线索与已标记人物。选择后会写入 Beta 税务档案。</div>
+              <div className="max-h-[55vh] overflow-auto border border-slate-800 bg-black/30 custom-scrollbar scrollbar-hidden">
+                {taxOfficerCandidates.length === 0 ? (
+                  <div className="text-xs text-slate-500 p-3">暂无可绑定对象。</div>
+                ) : (
+                  taxOfficerCandidates.map(candidate => {
+                    const selected = betaStatus.taxOfficerBoundId === candidate.id;
+                    return (
+                      <div key={candidate.id} className="px-3 py-2 border-b border-slate-800 last:border-b-0 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className={`text-sm font-bold ${selected ? 'text-fuchsia-300' : 'text-slate-200'}`}>{candidate.name}</div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {candidate.affiliation} · {candidate.location} · {candidate.group}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            bindTaxOfficer(candidate);
+                            setIsTaxOfficerPickerOpen(false);
+                          }}
+                          className={`shrink-0 text-xs px-2 py-1 border ${
+                            selected
+                              ? 'border-fuchsia-600 text-fuchsia-300'
+                              : 'border-cyan-700 text-cyan-300 hover:text-white hover:border-cyan-500'
+                          }`}
+                        >
+                          {selected ? '已绑定' : '绑定'}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {isInventoryOpen && (
           <InventoryModal title="物品库" items={playerInventory} onClose={() => setIsInventoryOpen(false)} isOwner={true} />
         )}
@@ -3112,3 +4009,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
