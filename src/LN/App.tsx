@@ -3290,33 +3290,51 @@ const App: React.FC = () => {
   };
 
   const openTavernPhone = useCallback(() => {
-    const buttons = Array.from(document.querySelectorAll<HTMLElement>('.qr--button, .menu_button, button'));
-    const target = buttons.find(el => (el.textContent || '').trim() === '手机');
-    if (!target) {
-      spawnFloatingText('未找到酒馆手机按钮', 'text-amber-300');
-      return;
-    }
-    target.click();
+    const clickPhone = () => {
+      const nodes = Array.from(document.querySelectorAll<HTMLElement>('button, .menu_button, .qr--button, [role="button"]'));
+      const target = nodes.find(el => {
+        const text = (el.textContent || '').replace(/\s+/g, '').trim();
+        const title = (el.getAttribute('title') || '').replace(/\s+/g, '').trim();
+        return text.includes('手机') || text.includes('灵网') || title.includes('手机') || title.includes('灵网');
+      });
+      if (!target) return false;
+      target.click();
+      return true;
+    };
+
+    if (clickPhone()) return;
+    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button, button[title="扩展"]');
+    if (extButton) extButton.click();
+    setTimeout(() => {
+      if (!clickPhone()) {
+        spawnFloatingText('未找到酒馆手机按钮', 'text-amber-300');
+      }
+    }, 250);
   }, [spawnFloatingText]);
 
   const openTavernRegexSettings = useCallback(() => {
-    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button');
+    const extButton = document.querySelector<HTMLElement>('#extensions-settings-button, button[title="扩展"]');
     if (extButton) extButton.click();
-
-    const regexToggle =
-      document.querySelector<HTMLElement>('#regex_container .inline-drawer-toggle') ||
-      document.querySelector<HTMLElement>('#regex_container .inline-drawer-header');
-    if (regexToggle) {
-      regexToggle.click();
-      regexToggle.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return;
-    }
-    const regexContainer = document.querySelector<HTMLElement>('#regex_container');
-    if (regexContainer) {
-      regexContainer.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      return;
-    }
-    spawnFloatingText('未找到脚本/正则设置区', 'text-amber-300');
+    const tryOpen = (left: number) => {
+      const regexContainer =
+        document.querySelector<HTMLElement>('#regex_container') ||
+        document.querySelector<HTMLElement>('.regex_settings') ||
+        document.querySelector<HTMLElement>('[id*="regex" i]');
+      if (regexContainer) {
+        const regexToggle =
+          regexContainer.querySelector<HTMLElement>('.inline-drawer-toggle') ||
+          regexContainer.querySelector<HTMLElement>('.inline-drawer-header');
+        if (regexToggle) regexToggle.click();
+        regexContainer.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        return;
+      }
+      if (left <= 0) {
+        spawnFloatingText('未找到脚本/正则设置区', 'text-amber-300');
+        return;
+      }
+      setTimeout(() => tryOpen(left - 1), 250);
+    };
+    tryOpen(8);
   }, [spawnFloatingText]);
 
   const availableLingshuEquipItems = useMemo(
@@ -4009,4 +4027,3 @@ const App: React.FC = () => {
 };
 
 export default App;
-
