@@ -94,6 +94,7 @@ export function literalYamlify(value: any) {
 }
 
 export function parseString(content: string): any {
+<<<<<<< HEAD
   let parsed: unknown;
   try {
     parsed = YAML.parseDocument(content, { merge: true }).toJS();
@@ -113,12 +114,45 @@ export function parseString(content: string): any {
               YAML错误信息: toError(yaml_error),
               JSON5错误信息: toError(json5_error),
               尝试修复JSON时的错误信息: toError(json_error),
+=======
+  const json_first = /^[[{]/s.test(content.trimStart());
+  try {
+    if (json_first) {
+      throw Error(`expected error`);
+    }
+    return YAML.parseDocument(content, { merge: true }).toJS();
+  } catch (yaml_error1) {
+    try {
+      // eslint-disable-next-line import-x/no-named-as-default-member
+      return JSON5.parse(content);
+    } catch (json5_error) {
+      try {
+        return JSON.parse(jsonrepair(content));
+      } catch (json_error) {
+        try {
+          if (!json_first) {
+            throw Error(`expected error`);
+          }
+          return YAML.parseDocument(content, { merge: true }).toJS();
+        } catch (yaml_error2) {
+          const toError = (error: unknown) =>
+            error instanceof Error ? `${error.stack ? error.stack : error.message}` : String(error);
+
+          throw new Error(
+            literalYamlify({
+              ['要解析的字符串不是有效的 YAML/JSON/JSON5 格式']: {
+                字符串内容: content,
+                YAML错误信息: toError(json_first ? yaml_error2 : yaml_error1),
+                JSON5错误信息: toError(json5_error),
+                JSON错误信息: toError(json_error),
+>>>>>>> 95299edcaebf7bb81b1a8d87fb1226c74ed1188a
             },
           }),
         );
       }
     }
   }
+<<<<<<< HEAD
   return parsed;
 }
 
@@ -133,4 +167,7 @@ export async function checkAndUpdateCharacter(name: string, latest_version: stri
     `角色卡已自动更新到 '${latest_version.startsWith('v') ? latest_version : `v${latest_version}`}'`,
     name,
   );
+=======
+  }
+>>>>>>> 95299edcaebf7bb81b1a8d87fb1226c74ed1188a
 }
