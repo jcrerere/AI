@@ -147,7 +147,11 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                         </div>
                     )}
                     {nearbyNPCs.map(npc => (
-                        <div key={npc.id} className="flex items-center justify-between p-2 hover:bg-green-900/20 group rounded transition-colors">
+                        <div
+                            key={npc.id}
+                            className="flex items-center justify-between p-2 hover:bg-green-900/20 group rounded transition-colors cursor-pointer"
+                            onClick={() => onSelect(npc)}
+                        >
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full overflow-hidden border border-green-800 opacity-70 group-hover:opacity-100">
                                     <img src={npc.avatarUrl} className="w-full h-full object-cover grayscale group-hover:grayscale-0" />
@@ -166,13 +170,16 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                             </div>
                             <div className="relative">
                                 <button 
-                                    onClick={() => setActionMenuNpcId(actionMenuNpcId === npc.id ? null : npc.id)}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setActionMenuNpcId(actionMenuNpcId === npc.id ? null : npc.id);
+                                    }}
                                     className="p-1 text-green-600 hover:text-green-300"
                                 >
                                     <UserPlus className="w-4 h-4" />
                                 </button>
                                 {actionMenuNpcId === npc.id && (
-                                    <div className="absolute right-0 top-6 z-20 bg-black border border-green-500/50 rounded shadow-xl w-32 animate-in fade-in zoom-in-95">
+                                    <div className="absolute right-0 top-6 z-20 bg-black border border-green-500/50 rounded shadow-xl w-32 animate-in fade-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
                                         <div className="text-[9px] text-green-600 px-2 py-1 bg-green-950/30 font-bold uppercase">添加到分组</div>
                                         {groups.map(g => (
                                             <button 
