@@ -798,7 +798,7 @@ const App: React.FC = () => {
   const [selectedArchiveId, setSelectedArchiveId] = useState<string>('');
   const [archiveNameInput, setArchiveNameInput] = useState('');
   const [apiConfig, setApiConfig] = useState<LnApiConfig>({
-    enabled: false,
+    enabled: true,
     useTavernApi: true,
     endpoint: '',
     apiKey: '',
@@ -1005,7 +1005,7 @@ const App: React.FC = () => {
       setApiConfig(prev => ({
         ...prev,
         ...parsed,
-        enabled: !!parsed.enabled,
+        enabled: parsed.enabled ?? prev.enabled,
       }));
     } catch (error) {
       console.warn('读取 API 配置失败:', error);
@@ -2486,6 +2486,44 @@ const App: React.FC = () => {
     setFocusedLayerId(systemLayerMsg.id);
   };
 
+  const rerollLayerWithApi = async (targetLayerId: string, playerInput: string) => {
+    let nextLayer = buildPseudoLayer({
+      playerInput,
+      location: currentNarrativeLocation || '未知区域',
+      credits: playerStats.credits,
+      reputation: betaStatus.creditScore,
+      gameTime: gameTimeText,
+      dayPhase: gameDayPhase,
+      sceneHint: gameSceneHint,
+    });
+
+    if (apiConfig.enabled) {
+      setApiError('');
+      setIsApiSending(true);
+      try {
+        const apiText = await requestApiMaintext(playerInput, {
+          gameTime: gameTimeText,
+          dayPhase: gameDayPhase,
+          location: currentNarrativeLocation || '未知区域',
+          sceneHint: gameSceneHint,
+        });
+        if (apiText) {
+          nextLayer = replaceMaintext(nextLayer, apiText);
+        } else {
+          setApiError('重roll 未检测到合格 <maintext>，已回退到系统伪0层正文模板。');
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        setApiError(`重roll 调用失败: ${message}`);
+      } finally {
+        setIsApiSending(false);
+      }
+    }
+
+    setMessages(prev => prev.map(msg => (msg.id === targetLayerId ? { ...msg, content: nextLayer } : msg)));
+    setFocusedLayerId(targetLayerId);
+  };
+
   const rerollActiveLayer = (targetLayerId?: string) => {
     const targetLayer = targetLayerId
       ? layerMessages.find(layer => layer.id === targetLayerId) || activeLayerMessage
@@ -2498,17 +2536,7 @@ const App: React.FC = () => {
         .slice(0, layerIdx)
         .reverse()
         .find(msg => msg.sender === 'Player')?.content || '继续推进当前局势';
-    const nextLayer = buildPseudoLayer({
-      playerInput: latestPlayerInput,
-      location: currentNarrativeLocation || '未知区域',
-      credits: playerStats.credits,
-      reputation: betaStatus.creditScore,
-      gameTime: gameTimeText,
-      dayPhase: gameDayPhase,
-      sceneHint: gameSceneHint,
-    });
-    setMessages(prev => prev.map(msg => (msg.id === targetLayer.id ? { ...msg, content: nextLayer } : msg)));
-    setFocusedLayerId(targetLayer.id);
+    void rerollLayerWithApi(targetLayer.id, latestPlayerInput);
   };
 
   const rerollByMessage = (messageId: string, sender: 'Player' | 'System') => {
@@ -2523,17 +2551,7 @@ const App: React.FC = () => {
     if (!targetLayer) {
       return;
     }
-    const nextLayer = buildPseudoLayer({
-      playerInput,
-      location: currentNarrativeLocation || '未知区域',
-      credits: playerStats.credits,
-      reputation: betaStatus.creditScore,
-      gameTime: gameTimeText,
-      dayPhase: gameDayPhase,
-      sceneHint: gameSceneHint,
-    });
-    setMessages(prev => prev.map(msg => (msg.id === targetLayer.id ? { ...msg, content: nextLayer } : msg)));
-    setFocusedLayerId(targetLayer.id);
+    void rerollLayerWithApi(targetLayer.id, playerInput);
   };
 
   const openEditActiveLayer = (targetLayerId?: string) => {
