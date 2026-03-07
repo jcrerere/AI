@@ -2597,7 +2597,7 @@ const App: React.FC = () => {
     setFocusedLayerId(systemLayerMsg.id);
   };
 
-  const rerollLayerWithApi = async (targetLayerId: string, playerInput: string) => {
+  const rerollLayerWithApi = async (targetLayerId: string, playerInput: string, sourcePlayerMessageId?: string) => {
     let nextLayer = buildPseudoLayer({
       playerInput,
       location: currentNarrativeLocation || '未知区域',
@@ -2631,7 +2631,30 @@ const App: React.FC = () => {
       }
     }
 
-    setMessages(prev => prev.map(msg => (msg.id === targetLayerId ? { ...msg, content: nextLayer } : msg)));
+    const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    setMessages(prev => {
+      if (sourcePlayerMessageId) {
+        const sourcePlayerIdx = prev.findIndex(msg => msg.id === sourcePlayerMessageId && msg.sender === 'Player');
+        if (sourcePlayerIdx >= 0) {
+          const replayPlayerMsg: Message = {
+            id: `user_reroll_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            sender: 'Player',
+            content: playerInput,
+            timestamp: now,
+            type: 'action',
+          };
+          const replayLayerMsg: Message = {
+            id: targetLayerId,
+            sender: 'System',
+            content: nextLayer,
+            timestamp: now,
+            type: 'narrative',
+          };
+          return [...prev.slice(0, sourcePlayerIdx), replayPlayerMsg, replayLayerMsg];
+        }
+      }
+      return prev.map(msg => (msg.id === targetLayerId ? { ...msg, content: nextLayer, timestamp: now } : msg));
+    });
     setFocusedLayerId(targetLayerId);
   };
 
@@ -2642,12 +2665,13 @@ const App: React.FC = () => {
     if (!targetLayer) return;
     const layerIdx = messages.findIndex(msg => msg.id === targetLayer.id);
     if (layerIdx < 0) return;
-    const latestPlayerInput =
+    const latestPlayerMessage =
       [...messages]
         .slice(0, layerIdx)
         .reverse()
-        .find(msg => msg.sender === 'Player')?.content || '继续推进当前局势';
-    void rerollLayerWithApi(targetLayer.id, latestPlayerInput);
+        .find(msg => msg.sender === 'Player');
+    const latestPlayerInput = latestPlayerMessage?.content || '继续推进当前局势';
+    void rerollLayerWithApi(targetLayer.id, latestPlayerInput, latestPlayerMessage?.id);
   };
 
   const rerollByMessage = (messageId: string, sender: 'Player' | 'System') => {
@@ -2662,7 +2686,7 @@ const App: React.FC = () => {
     if (!targetLayer) {
       return;
     }
-    void rerollLayerWithApi(targetLayer.id, playerInput);
+    void rerollLayerWithApi(targetLayer.id, playerInput, messageId);
   };
 
   const openEditActiveLayer = (targetLayerId?: string) => {
