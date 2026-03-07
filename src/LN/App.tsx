@@ -20,7 +20,6 @@ import {
   MOCK_MESSAGES,
   MOCK_CHIPS,
   MOCK_INVENTORY,
-  MOCK_NPCS,
   MOCK_PLAYER_STATS,
   MOCK_PLAYER_STATUS,
   MOCK_PLAYER_FACTION,
@@ -757,8 +756,8 @@ const App: React.FC = () => {
   ]);
   const [isSpiritCoreModalOpen, setIsSpiritCoreModalOpen] = useState(false);
 
-  const [npcs, setNpcs] = useState<NPC[]>(() => normalizeNpcListForUi(MOCK_NPCS));
-  const [contactGroups, setContactGroups] = useState<string[]>(() => Array.from(new Set(normalizeNpcListForUi(MOCK_NPCS).filter(n => n.group).map(n => n.group))));
+  const [npcs, setNpcs] = useState<NPC[]>([]);
+  const [contactGroups, setContactGroups] = useState<string[]>([]);
 
   const [playerChips, setPlayerChips] = useState<Chip[]>(MOCK_CHIPS);
   const [storageChips, setStorageChips] = useState<Chip[]>(MOCK_STORAGE_CHIPS);
@@ -1363,7 +1362,7 @@ const App: React.FC = () => {
     setPlayerStats(ensurePlayerStatsSixDim(payload.playerStats || MOCK_PLAYER_STATS));
     setPlayerGender(payload.playerGender || 'male');
     setPlayerSkills(payload.playerSkills || []);
-    setNpcs(normalizeNpcListForUi(payload.npcs || MOCK_NPCS));
+    setNpcs(normalizeNpcListForUi(payload.npcs || []));
     setContactGroups(payload.contactGroups || []);
     setPlayerChips(payload.playerChips || MOCK_CHIPS);
     setStorageChips(payload.storageChips || MOCK_STORAGE_CHIPS);
@@ -3406,14 +3405,16 @@ const App: React.FC = () => {
         <aside
           onClick={e => e.stopPropagation()}
           className={`border-r border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 md:h-full transition-all duration-300 absolute md:relative h-full overflow-y-auto custom-scrollbar scrollbar-hidden ${
-            leftOpen ? 'w-full md:w-80 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
+            leftOpen
+              ? 'w-[calc(100%-3.5rem)] max-w-[320px] md:w-80 md:max-w-none translate-x-0'
+              : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
           }`}
         >
           <button onClick={() => setLeftOpen(false)} className="md:hidden absolute top-2 right-2 p-2 text-slate-500 z-50">
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex-1 space-y-3 min-w-[320px] pb-4 px-4 pt-4">
+          <div className="flex-1 space-y-3 min-w-0 md:min-w-[320px] pb-4 px-4 pt-4">
             <CyberPanel title="生理监测" className="mb-2" noPadding variant="gold">
               <PlayerStatePanel stats={effectivePlayerStats} hasBetaChip={hasBetaChip} onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)} gender={playerGender} />
             </CyberPanel>
@@ -3582,10 +3583,12 @@ const App: React.FC = () => {
         <aside
           onClick={e => e.stopPropagation()}
           className={`border-l border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 h-full transition-all duration-300 absolute md:relative right-0 ${
-            rightOpen ? 'w-full md:w-[450px] translate-x-0' : 'w-0 translate-x-full md:w-0 overflow-hidden border-none'
+            rightOpen
+              ? 'w-[calc(100%-3.5rem)] max-w-[420px] md:w-[450px] md:max-w-none translate-x-0'
+              : 'w-0 translate-x-full md:w-0 overflow-hidden border-none'
           }`}
         >
-          <div className="flex border-b border-white/10 min-w-[380px]">
+          <div className="flex border-b border-white/10 min-w-0 md:min-w-[380px]">
             {[
               { id: 'contacts', icon: <Users className="w-4 h-4" />, label: '标记人物' },
               { id: 'settings', icon: <Settings className="w-4 h-4" />, label: '设置' },
@@ -3605,7 +3608,7 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 pr-6 ln-carbon min-w-[380px] custom-scrollbar scrollbar-hidden">
+          <div className="flex-1 overflow-y-auto p-4 pr-6 ln-carbon min-w-0 md:min-w-[380px] custom-scrollbar scrollbar-hidden">
             {activeTab === 'contacts' && (
               <div className="space-y-6 h-full flex flex-col">
                 {!selectedNPC ? (
@@ -3687,6 +3690,19 @@ const App: React.FC = () => {
                 <div className="text-[11px] text-slate-500 px-1">
                   当前档案：{selectedArchiveId ? archiveSlots.find(slot => slot.id === selectedArchiveId)?.name || '未命名' : '未选择'}
                 </div>
+
+                <CyberPanel title="显示" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40">
+                    <button
+                      type="button"
+                      onClick={toggleFullscreen}
+                      className="w-full border border-fuchsia-700 text-fuchsia-300 hover:text-white hover:border-fuchsia-500 px-2 py-2 text-xs flex items-center justify-center gap-2"
+                    >
+                      {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+                      {isFullscreen ? '退出全屏' : '进入全屏'}
+                    </button>
+                  </div>
+                </CyberPanel>
               </div>
             )}
           </div>
@@ -3930,13 +3946,6 @@ const App: React.FC = () => {
   return (
     <div className="ln-root flex flex-col md:flex-row bg-[#030005] text-slate-200 font-sans selection:bg-fuchsia-500/30 relative">
       {renderContent()}
-      <button
-        onClick={toggleFullscreen}
-        className="absolute top-2 right-2 z-[60] bg-[#0f0510] border border-fuchsia-900/50 text-fuchsia-500 hover:text-white hover:bg-fuchsia-900 transition-all flex items-center justify-center w-8 h-8 rounded-md shadow-[0_0_10px_rgba(219,39,119,0.2)] animate-in fade-in slide-in-from-right-2"
-        title={isFullscreen ? '退出全屏' : '进入全屏'}
-      >
-        {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-      </button>
       {gameStage === 'game' && (
         <>
           <button

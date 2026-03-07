@@ -120,8 +120,8 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
   const [expandedSkillId, setExpandedSkillId] = useState<string | null>(skills[0]?.id || null);
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/95 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
-      <div className={`w-full max-w-md bg-slate-950 border ${isFemale ? 'border-fuchsia-600/30' : 'border-amber-600/30'} ${shadowColor} flex flex-col relative overflow-hidden`}>
+    <div className="fixed inset-0 z-[160] bg-black/95 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
+      <div className={`w-full max-w-md max-h-[90vh] bg-slate-950 border ${isFemale ? 'border-fuchsia-600/30' : 'border-amber-600/30'} ${shadowColor} flex flex-col relative overflow-hidden`}>
         <div className={`absolute inset-0 bg-[radial-gradient(circle_at_top_right,${isFemale ? 'rgba(217,70,239,0.1)' : 'rgba(217,119,6,0.1)'},transparent_70%)] pointer-events-none`} />
 
         <div className={`flex justify-between items-start p-4 border-b ${borderColor} relative z-10 bg-black/40`}>
@@ -143,7 +143,7 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
           </button>
         </div>
 
-        <div className="bg-red-950/20 border-y border-red-900/30 p-2 flex items-center gap-2 justify-center">
+        <div className="bg-red-950/20 border-y border-red-900/30 p-2 flex items-center gap-2 justify-center shrink-0">
           {isFemale ? (
             <>
               <Sparkles className="w-4 h-4 text-fuchsia-500" />
@@ -157,7 +157,7 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
           )}
         </div>
 
-        <div className="p-4 space-y-4 relative z-10">
+        <div className="p-4 space-y-4 relative z-10 flex-1 min-h-0 overflow-y-auto custom-scrollbar scrollbar-hidden">
           <div className="grid grid-cols-3 gap-2 text-[10px]">
             <div className="border border-slate-800 bg-black/40 p-2">
               <div className="text-slate-500 flex items-center gap-1"><Gauge className="w-3 h-3" /> 密度等级</div>
