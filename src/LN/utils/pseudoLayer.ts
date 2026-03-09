@@ -34,16 +34,20 @@ export interface BuildLayerInput {
 
 export const buildPseudoLayer = (input: BuildLayerInput): string => {
   const cleanInput = input.playerInput.trim();
-  const safeInput = cleanInput || '继续推进当前局势';
   const maintext = [
-    `已记录玩家动作：${safeInput}。`,
+    cleanInput ? `已记录玩家动作：${cleanInput}。` : '已收到基于当前上下文的续写请求。',
     '当前为系统占位正文，仅用于保持楼层结构连续。',
     input.sceneHint ? `场景参考：${input.sceneHint}` : '',
   ]
     .filter(Boolean)
     .join('\n');
 
-  const sum = `地点:${input.location} | 时间:${input.gameTime || '未知'} | 行动:${safeInput} | 状态:信誉${input.reputation}/币${input.credits}`;
+  const sumParts = [
+    `地点:${input.location}`,
+    `时间:${input.gameTime || '未知'}`,
+    cleanInput ? `行动:${cleanInput}` : '',
+    `状态:信誉${input.reputation}/币${input.credits}`,
+  ].filter(Boolean);
 
-  return `<maintext>\n${maintext}\n</maintext>\n\n<sum>${sum}</sum>`;
+  return `<maintext>\n${maintext}\n</maintext>\n\n<sum>${sumParts.join(' | ')}</sum>`;
 };

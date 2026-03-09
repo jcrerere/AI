@@ -289,7 +289,7 @@ const ensurePseudoLayerOnLoad = (
   const dayPhase = getDayPhase(context.elapsedMinutes || 0);
   const sceneHint = getSceneHintByPhase(dayPhase);
   let pseudoContent = buildPseudoLayer({
-    playerInput: latestPlayer?.content || '继续推进当前局势',
+    playerInput: latestPlayer?.content || '',
     location: context.location || '未知区域',
     credits: Number.isFinite(context.credits) ? context.credits : 0,
     reputation: Number.isFinite(context.reputation) ? context.reputation : 60,
@@ -474,6 +474,13 @@ const ensurePlayerStatsSixDim = (stats: PlayerStats): PlayerStats => ({
 const sanitizeAiMaintext = (raw: string): string => {
   if (!raw) return '';
   return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const HIDDEN_CONTINUE_REQUEST = '请基于已有聊天记录直接给出下一条回复，不要复述本句。';
+
+const resolveGenerateRequestInput = (raw: string): string => {
+  const clean = sanitizeAiMaintext(raw);
+  return clean || HIDDEN_CONTINUE_REQUEST;
 };
 
 const isStatusLikeMaintextLine = (rawLine: string): boolean => {
@@ -1326,7 +1333,7 @@ const applyPatchOperationsToVariables = (
 };
 
 type TavernGenerateArgs = {
-  user_input: string;
+  user_input?: string;
   should_silence?: boolean;
 };
 
@@ -1352,15 +1359,15 @@ const resolveTavernGenerateList = (): TavernGenerateFn[] => {
   const runtime = globalThis as Record<string, unknown>;
   const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
   const candidates: Array<TavernGenerateFn | null> = [
-    // 当前环境下 silent generate 可能返回空串，优先 raw 分支拿正文。
-    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generateRaw'),
     bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generate'),
     bindHostFunction<TavernGenerateFn>(runtime, 'generate'),
     bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generate'),
     bindHostFunction<TavernGenerateFn>(parentRuntime, 'generate'),
+    // generate 无法给出正文时，再退回 raw 分支兜底。
+    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generateRaw'),
   ];
   const unique = new Set<TavernGenerateFn>();
   candidates.forEach(candidate => {
@@ -1396,7 +1403,11 @@ const extractRenderableNarrativeFromMessage = (message: Message): string => {
   if (!message?.content) return '';
   if (message.sender === 'System' && hasPseudoLayer(message.content)) {
     const parsed = parsePseudoLayer(message.content);
-    return parsed.maintext || '';
+    const maintext = sanitizeAiMaintext(parsed.maintext || '');
+    if (!maintext || maintext.includes('当前为系统占位正文，仅用于保持楼层结构连续。')) {
+      return '';
+    }
+    return maintext;
   }
   return message.content;
 };
@@ -1404,20 +1415,20 @@ const extractRenderableNarrativeFromMessage = (message: Message): string => {
 const buildDialogueContextFromMessages = (timeline: Message[], maxMessages = 8): string => {
   if (!Array.isArray(timeline) || timeline.length === 0) return '';
   const picked = timeline
-    .filter(msg => msg.sender === 'Player' || msg.sender === 'System')
+    .filter(msg => msg.sender === 'Player' || (msg.sender === 'System' && hasPseudoLayer(msg.content || '')))
     .slice(-maxMessages);
   if (picked.length === 0) return '';
 
   const lines = picked
     .map(msg => {
-      const role = msg.sender === 'Player' ? '玩家' : '系统';
+      const role = msg.sender === 'Player' ? '玩家' : '前文';
       const compact = toCompactSingleLine(extractRenderableNarrativeFromMessage(msg), 260);
       if (!compact) return '';
       return `[${role}] ${compact}`;
     })
     .filter(Boolean);
   if (lines.length === 0) return '';
-  return `【前端对话区最近记录】\n${lines.join('\n')}`;
+  return `【最近对话记录】\n${lines.join('\n')}`;
 };
 
 const App: React.FC = () => {
@@ -3216,30 +3227,45 @@ const App: React.FC = () => {
     }
   };
 
-  const processCommand = async (input: string) => {
+  const processCommand = async (
+    input: string,
+    options?: {
+      requestInput?: string;
+      appendPlayerMessage?: boolean;
+    },
+  ) => {
+    const visibleInput = input.trim();
+    const requestInput = resolveGenerateRequestInput(options?.requestInput ?? visibleInput);
+    const appendPlayerMessage = options?.appendPlayerMessage ?? visibleInput.length > 0;
     const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    const actionMinutes = estimateActionMinutes(input);
+    const actionMinutes = appendPlayerMessage && visibleInput ? estimateActionMinutes(visibleInput) : 0;
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + actionMinutes;
     const nextGameTimeText = formatGameTime(nextElapsedMinutes);
     const nextGameDayPhase = getDayPhase(nextElapsedMinutes);
     const nextGameSceneHint = `${getSceneHintByPhase(nextGameDayPhase)}${activeEffectHint ? ` 当前增益：${activeEffectHint}` : ''}`;
-    const playerMsg: Message = {
-      id: `user_${Date.now()}`,
-      sender: 'Player',
-      content: input,
-      timestamp: now,
-      type: 'action',
-    };
+    const playerMsg: Message | null =
+      appendPlayerMessage && visibleInput
+        ? {
+            id: `user_${Date.now()}`,
+            sender: 'Player',
+            content: visibleInput,
+            timestamp: now,
+            type: 'action',
+          }
+        : null;
     let baseTimeline = messages;
     if (focusedLayerId) {
       const focusIndex = messages.findIndex(msg => msg.id === focusedLayerId);
       if (focusIndex >= 0) baseTimeline = messages.slice(0, focusIndex + 1);
     }
 
-    setMessages([...baseTimeline, playerMsg]);
+    const requestTimeline = playerMsg ? [...baseTimeline, playerMsg] : baseTimeline;
+    if (playerMsg || requestTimeline !== messages) {
+      setMessages(requestTimeline);
+    }
 
     let layerContent = buildPseudoLayer({
-      playerInput: input,
+      playerInput: visibleInput,
       location: currentNarrativeLocation || '未知区域',
       credits: effectivePlayerStats.credits,
       reputation: betaStatus.creditScore,
@@ -3247,7 +3273,7 @@ const App: React.FC = () => {
       dayPhase: nextGameDayPhase,
       sceneHint: nextGameSceneHint,
     });
-    const dialogueContextForRequest = buildDialogueContextFromMessages([...baseTimeline, playerMsg]);
+    const dialogueContextForRequest = buildDialogueContextFromMessages(requestTimeline);
 
     let aborted = false;
     let requestSeq = 0;
@@ -3260,7 +3286,7 @@ const App: React.FC = () => {
       setIsApiSending(true);
       setApiError('');
       try {
-        const apiPayload = await requestApiMaintext(input, {
+        const apiPayload = await requestApiMaintext(requestInput, {
           gameTime: nextGameTimeText,
           dayPhase: nextGameDayPhase,
           location: currentNarrativeLocation || '未知区域',
@@ -3316,7 +3342,7 @@ const App: React.FC = () => {
     };
 
     const parsedMaintext = parsePseudoLayer(layerContent).maintext || '';
-    const settleSource = `${input}\n${parsedMaintext}`;
+    const settleSource = [visibleInput, parsedMaintext].filter(Boolean).join('\n');
     const patchLines: string[] = [];
     if (apiPatchResult) {
       const hasPatchActivity =
@@ -3337,9 +3363,9 @@ const App: React.FC = () => {
       patchLines.push(`变量补丁解析：${apiPatchParseError}`);
     }
     const settlementLines = [
-      ...settleIntentCostDeterministic(input),
-      ...settleKillFromText(settleSource),
-      ...settleStatusFromText(settleSource),
+      ...(appendPlayerMessage && visibleInput ? settleIntentCostDeterministic(visibleInput) : []),
+      ...(settleSource ? settleKillFromText(settleSource) : []),
+      ...(settleSource ? settleStatusFromText(settleSource) : []),
       ...patchLines,
     ];
 
@@ -3356,15 +3382,20 @@ const App: React.FC = () => {
       }
       return next;
     });
-    setMapRuntime(prev => ({
-      ...prev,
-      elapsedMinutes: nextElapsedMinutes,
-      logs: [...(prev.logs || []), `+${actionMinutes}min -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
-    }));
+    if (actionMinutes > 0) {
+      setMapRuntime(prev => ({
+        ...prev,
+        elapsedMinutes: nextElapsedMinutes,
+        logs: [...(prev.logs || []), `+${actionMinutes}min -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
+      }));
+    }
     setFocusedLayerId(systemLayerMsg.id);
   };
 
   const rerollLayerWithApi = async (targetLayerId: string, playerInput: string, sourcePlayerMessageId?: string) => {
+    const targetLayerIndex = messages.findIndex(msg => msg.id === targetLayerId);
+    const rerollTimeline = targetLayerIndex >= 0 ? messages.slice(0, targetLayerIndex) : messages;
+    const requestInput = resolveGenerateRequestInput(playerInput);
     let nextLayer = buildPseudoLayer({
       playerInput,
       location: currentNarrativeLocation || '未知区域',
@@ -3374,13 +3405,13 @@ const App: React.FC = () => {
       dayPhase: gameDayPhase,
       sceneHint: gameSceneHint,
     });
-    const dialogueContextForRequest = buildDialogueContextFromMessages(messages);
+    const dialogueContextForRequest = buildDialogueContextFromMessages(rerollTimeline);
 
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       setApiError('');
       setIsApiSending(true);
       try {
-        const apiPayload = await requestApiMaintext(playerInput, {
+        const apiPayload = await requestApiMaintext(requestInput, {
           gameTime: gameTimeText,
           dayPhase: gameDayPhase,
           location: currentNarrativeLocation || '未知区域',
@@ -3440,7 +3471,7 @@ const App: React.FC = () => {
         .slice(0, layerIdx)
         .reverse()
         .find(msg => msg.sender === 'Player');
-    const latestPlayerInput = latestPlayerMessage?.content || '继续推进当前局势';
+    const latestPlayerInput = latestPlayerMessage?.content || '';
     void rerollLayerWithApi(targetLayer.id, latestPlayerInput, latestPlayerMessage?.id);
   };
 
@@ -3451,7 +3482,7 @@ const App: React.FC = () => {
     }
     const playerIdx = messages.findIndex(msg => msg.id === messageId && msg.sender === 'Player');
     if (playerIdx < 0) return;
-    const playerInput = messages[playerIdx]?.content || '继续推进当前局势';
+    const playerInput = messages[playerIdx]?.content || '';
     const targetLayer = messages.slice(playerIdx + 1).find(msg => msg.sender === 'System' && hasPseudoLayer(msg.content));
     if (!targetLayer) {
       return;
@@ -3572,15 +3603,6 @@ const App: React.FC = () => {
     const rawInput = inputText.trim();
     if (isApiSending) return;
 
-    const command =
-      rawInput ||
-      (() => {
-        const activeMaintext = activeLayerMessage?.content ? parsePseudoLayer(activeLayerMessage.content).maintext : '';
-        if (activeMaintext.trim()) return '继续推进当前局势';
-        return '继续';
-      })();
-    if (!command) return;
-
     if (rawInput === '/reroll' || rawInput === '/重掷') {
       rerollActiveLayer();
       setInputText('');
@@ -3611,8 +3633,16 @@ const App: React.FC = () => {
       return;
     }
 
+    const hasTimelineContext = messages.some(
+      msg => msg.sender === 'Player' || (msg.sender === 'System' && hasPseudoLayer(msg.content || '')),
+    );
+    if (!rawInput && !hasTimelineContext) return;
+
     setInputText('');
-    await processCommand(command);
+    await processCommand(rawInput, {
+      requestInput: rawInput,
+      appendPlayerMessage: rawInput.length > 0,
+    });
   };
 
   const handleStopGenerating = () => {
