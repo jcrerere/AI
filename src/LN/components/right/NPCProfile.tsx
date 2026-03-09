@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { NPC, Item, Skill, Rank } from '../../types';
 import { getRankColor } from '../../constants';
 import CyberPanel from '../ui/CyberPanel';
@@ -23,7 +23,7 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
   const [showSpiritModal, setShowSpiritModal] = useState(false);
   const [isAvatarZoomed, setIsAvatarZoomed] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setActiveSection('info');
   }, [npc.id]);
 
@@ -33,7 +33,7 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
     setTimeout(() => setIsAvatarGenerating(false), 1500);
   };
 
-  const femaleCorePart = React.useMemo(() => {
+  const femaleCorePart = useMemo(() => {
     const parts = npc.bodyParts || [];
     return parts.find(p => p.key === 'brain') || parts.find(p => p.key === 'core') || null;
   }, [npc.bodyParts]);
@@ -45,7 +45,7 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
     return merged.slice(0, 8);
   };
 
-  const femaleSoulLedger = React.useMemo(() => {
+  const femaleSoulLedger = useMemo(() => {
     const base: Partial<Record<Rank, number>> = { [Rank.Lv1]: 0, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 };
     if (npc.gender !== 'female') return base;
     const parts = npc.bodyParts || [];
@@ -56,6 +56,12 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
     });
     return base;
   }, [npc.gender, npc.bodyParts]);
+
+  const spiritStringCount = useMemo(
+    () => (npc.bodyParts || []).reduce((sum, part) => sum + ((part.skills || []).length || 0), 0),
+    [npc.bodyParts],
+  );
+  const chipCount = useMemo(() => (npc.chips || []).length, [npc.chips]);
 
   return (
     <div className="h-full flex flex-col animate-in slide-in-from-right-4 duration-300 relative">
@@ -172,7 +178,15 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
           <div className="space-y-4">
             <CyberPanel title="状态监控" className="p-0">
               <div className="p-3">
-                <PlayerStatePanel stats={npc.stats} gender={npc.gender} onOpenSpiritCore={() => setShowSpiritModal(true)} />
+                <PlayerStatePanel
+                  stats={npc.stats}
+                  gender={npc.gender}
+                  race={npc.race}
+                  statusTags={npc.statusTags}
+                  chipCount={chipCount}
+                  spiritStringCount={spiritStringCount}
+                  onOpenSpiritCore={() => setShowSpiritModal(true)}
+                />
               </div>
             </CyberPanel>
 
@@ -282,3 +296,4 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
 };
 
 export default NPCProfile;
+

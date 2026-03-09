@@ -1,11 +1,11 @@
 output_format:
   rule:
-    - 回复末尾需输出变量更新块
-    - 变量更新块需使用 <UpdateVariable> 包裹
-    - JSONPatch 需为合法 JSON 数组
+    - 回复末尾如需改变量，必须输出变量更新块
+    - 变量更新块必须使用 <UpdateVariable> 包裹
+    - JSONPatch 必须是合法 JSON 数组
     - 支持 op: replace, delta, insert, remove, move
     - 所有路径以 /stat_data 为根路径
-    - 玩家声明动作默认执行，变量层仅结算代价与后果
+    - 玩家声明动作默认执行，变量层只结算代价与后果
 
   format: |-
     <UpdateVariable>
@@ -24,3 +24,40 @@ output_format:
     ]
     </JSONPatch>
     </UpdateVariable>
+
+npc_data_format:
+  rule:
+    - 可选块，使用 <npcdata> 包裹
+    - 内容必须是合法 JSON 数组
+    - 只记录本轮正文中明确出现或被识别的 NPC
+    - 必填字段：name, gender, affiliation, position
+    - gender 只允许 female 或 male
+    - 灵核类型只有两种：女性=奇点型，男性=发散型
+    - body_parts[].spirit_strings 普通NPC单部位通常0到3条
+    - core.stored_souls 仅女性使用，通常0到10
+    - 未知字段用空数组或省略，不得照抄玩家状态栏
+
+  format: |-
+    <npcdata>
+    [
+      {
+        "name": "塞西莉亚",
+        "gender": "female",
+        "affiliation": "夜莺",
+        "position": "追猎者",
+        "location": "艾瑞拉-窄巷",
+        "psionic_rank": "Lv.1",
+        "perception": 14,
+        "status_tags": ["目标锁定"],
+        "chip_modules": ["静音追踪模块"],
+        "body_parts": [
+          { "part": "r_leg", "spirit_strings": ["追猎步频"], "equipments": ["夜莺高跟靴"] }
+        ],
+        "core": {
+          "type": "奇点型",
+          "stored_souls": 2,
+          "notes": ["灵核空间稳定"]
+        }
+      }
+    ]
+    </npcdata>

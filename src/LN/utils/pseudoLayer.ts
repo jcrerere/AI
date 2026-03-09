@@ -1,6 +1,7 @@
 export interface ParsedPseudoLayer {
   maintext: string;
   sum: string;
+  npcdata: string;
 }
 
 const readTag = (content: string, tag: string): string => {
@@ -14,12 +15,32 @@ export const hasPseudoLayer = (content: string): boolean => /<maintext>[\s\S]*<\
 export const parsePseudoLayer = (content: string): ParsedPseudoLayer => {
   const maintext = readTag(content, 'maintext');
   const sum = readTag(content, 'sum');
-  return { maintext, sum };
+  const npcdata = readTag(content, 'npcdata');
+  return { maintext, sum, npcdata };
 };
 
 export const replaceMaintext = (content: string, nextMaintext: string): string => {
   if (!hasPseudoLayer(content)) return content;
   return content.replace(/<maintext>[\s\S]*?<\/maintext>/i, `<maintext>\n${nextMaintext.trim()}\n</maintext>`);
+};
+
+export const replaceNpcData = (content: string, nextNpcData: string): string => {
+  if (!hasPseudoLayer(content)) return content;
+  const trimmed = nextNpcData.trim();
+  const block = trimmed ? `<npcdata>\n${trimmed}\n</npcdata>` : '';
+
+  if (/<npcdata>[\s\S]*?<\/npcdata>/i.test(content)) {
+    if (!block) {
+      return content.replace(/\n*\s*<npcdata>[\s\S]*?<\/npcdata>\s*\n*/i, '\n').trim();
+    }
+    return content.replace(/<npcdata>[\s\S]*?<\/npcdata>/i, block);
+  }
+
+  if (!block) return content;
+  if (/<sum>[\s\S]*?<\/sum>/i.test(content)) {
+    return content.replace(/<sum>[\s\S]*?<\/sum>/i, `${block}\n\n$&`);
+  }
+  return `${content.trim()}\n\n${block}`;
 };
 
 export interface BuildLayerInput {

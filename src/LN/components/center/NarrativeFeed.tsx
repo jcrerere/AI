@@ -68,13 +68,20 @@ const NarrativeFeed: React.FC<Props> = ({
 
   const normalizeMaintext = (text: string) => text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 
+  const normalizeParagraph = (paragraph: string) =>
+    paragraph
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean)
+      .join(' ');
+
   const renderParagraphs = (text: string) => {
     const normalized = normalizeMaintext(text);
     const paragraphs = normalized.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
     if (paragraphs.length === 0) return <span>（空内容）</span>;
     return paragraphs.map((paragraph, index) => (
-      <p key={index} className="mb-3 last:mb-0 whitespace-pre-wrap">
-        {renderMessageContent(paragraph)}
+      <p key={index} className="mb-3 last:mb-0 whitespace-normal">
+        {renderMessageContent(normalizeParagraph(paragraph))}
       </p>
     ));
   };

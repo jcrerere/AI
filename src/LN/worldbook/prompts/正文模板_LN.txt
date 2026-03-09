@@ -1,15 +1,54 @@
 [Template]
 name=LN剧情生成模板
-version=1.2.0
+version=1.3.0
 description=适配灵能腐蚀项目的模块化输出模板
 
 [OutputOrder]
 1=<maintext>
-2=<sum> (optional)
-3=<UpdateVariable> (optional)
+2=<npcdata> (optional)
+3=<sum> (optional)
+4=<UpdateVariable> (optional)
 
 [MainTextRules]
 required=true
+notes=只写可直接进入对话区的正文，不要把时间地点再重复写到正文首行
+
+[NPCDataRules]
+optional=true
+format=JSON array wrapped by <npcdata>
+required_fields=name,gender,affiliation,position
+notes=仅记录本轮正文里明确出现或被识别的NPC；未知字段宁缺勿滥
+schema_example=|-
+  <npcdata>
+  [
+    {
+      "name": "塞西莉亚",
+      "gender": "female",
+      "affiliation": "夜莺",
+      "position": "追猎者",
+      "location": "艾瑞拉-窄巷",
+      "psionic_rank": "Lv.1",
+      "perception": 14,
+      "status_tags": ["目标锁定", "近距追猎"],
+      "chip_modules": ["静音追踪模块"],
+      "body_parts": [
+        { "part": "r_leg", "spirit_strings": ["追猎步频"], "equipments": ["夜莺高跟靴"] },
+        { "part": "r_hand", "spirit_strings": [], "equipments": ["黑色短鞭"] }
+      ],
+      "core": {
+        "type": "奇点型",
+        "stored_souls": 2,
+        "notes": ["灵核空间稳定"]
+      }
+    }
+  ]
+  </npcdata>
+
+[NPCWorldRules]
+core_types=女性奇点型；男性发散型
+spirit_string_limit=普通NPC单部位通常0-3条，特殊个体才允许更多
+core_storage_rule=女性灵核空间存量通常0-10；普通人应偏低
+unknown_policy=未知的芯片、灵弦、装备、灵魂数量都不要硬编
 
 [SumRules]
 optional=true

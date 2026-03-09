@@ -15,7 +15,7 @@ import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
 import GameSetup from './components/flow/GameSetup';
 import { Message, NPC, Item, GameConfig, PlayerStats, Chip, PlayerFaction, Rank, Skill, PlayerCivilianStatus, BetaTask, CareerTrack, WorldNodeMapData, MapRuntimeData, LingshuPart, RuntimeAffix, BodyPart } from './types';
-import { buildPseudoLayer, hasPseudoLayer, parsePseudoLayer, replaceMaintext } from './utils/pseudoLayer';
+import { buildPseudoLayer, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData } from './utils/pseudoLayer';
 import {
   MOCK_MESSAGES,
   MOCK_CHIPS,
@@ -591,6 +591,17 @@ const isLingshuEquipableItem = (item: Item): boolean => {
 };
 
 const normalizeNpcForUi = (npc: NPC): NPC => {
+  if (isAutoNearbyNpc(npc) || (npc.statusTags || []).includes('自动识别')) {
+    return {
+      ...npc,
+      stats: ensurePlayerStatsSixDim(npc.stats || MOCK_PLAYER_STATS),
+      bodyParts: Array.isArray(npc.bodyParts) ? npc.bodyParts : [],
+      chips: Array.isArray(npc.chips) ? npc.chips : [],
+      inventory: Array.isArray(npc.inventory) ? npc.inventory : [],
+      socialFeed: Array.isArray(npc.socialFeed) ? npc.socialFeed : [],
+    };
+  }
+
   const fallbackBoard = MOCK_CHIPS.find(chip => chip.type === 'board');
   const fallbackNormals = MOCK_CHIPS.filter(chip => chip.type === 'active' || chip.type === 'passive' || chip.type === 'process');
   const sourceChips = Array.isArray(npc.chips) ? npc.chips : [];
@@ -712,6 +723,185 @@ const NEARBY_NPC_NAME_STOPWORDS = new Set([
   '黄昏',
 ]);
 
+const NEARBY_NPC_OBJECT_WORDS = [
+  '高跟鞋',
+  '鞋跟',
+  '靴子',
+  '警犬',
+  '水管',
+  '积水',
+  '雨水',
+  '水洼',
+  '霓虹',
+  '广告牌',
+  '脚步',
+  '尾音',
+  '塑料片',
+  '机械眼球',
+  '手套',
+  '短鞭',
+  '巷子',
+];
+
+const NEARBY_SOUND_LIKE_NAME_RE = /^(?:哈|啊|呀|哒|啪|咔|咚|呜|哼|嘿|呵|啧|噗|嘭|铛|叮|滴|答|吱|呲|咻|呼|嗯|哦|嗷|喵|汪|哐|砰|咣){1,4}$/;
+const NEARBY_HUMAN_CUE_RE = /(她|他|女性|男性|女子|男人|少女|女士|小姐|先生|夜莺|修女|巡逻者|税务官|猎手|特工|佣兵|队长|警员|主人)/;
+const NEARBY_FEMALE_CUE_RE = /(她|女性|女子|女人|少女|女士|小姐|夜莺|修女)/;
+const NEARBY_MALE_CUE_RE = /(他|男性|男子|男人|先生)/;
+const NEARBY_ACTION_CUE_RE = /(停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手)/;
+
+const isSoundEffectLikeName = (name: string): boolean => {
+  const compact = name.replace(/[「」“”"'`·•\s，。、！？!?,.~\-]/g, '');
+  if (!compact) return true;
+  return compact.length <= 4 && NEARBY_SOUND_LIKE_NAME_RE.test(compact);
+};
+
+const stripNpcTitlePrefix = (rawName: string): { name: string; affiliation?: string; position?: string } => {
+  const clean = rawName.trim();
+  if (clean.startsWith('夜莺') && clean.length > 2) {
+    return { name: clean.slice(2), affiliation: '夜莺' };
+  }
+  if (clean.startsWith('税务官') && clean.length > 3) {
+    return { name: clean.slice(3), position: '税务官' };
+  }
+  if (clean.startsWith('巡逻者') && clean.length > 3) {
+    return { name: clean.slice(3), position: '巡逻者' };
+  }
+  if (clean.startsWith('警员') && clean.length > 2) {
+    return { name: clean.slice(2), position: '警员' };
+  }
+  return { name: clean };
+};
+
+const inferNearbyAffiliation = (text: string): string | undefined => {
+  if (/夜莺/.test(text)) return '夜莺';
+  if (/圣教/.test(text)) return '圣教';
+  if (/黑玫瑰/.test(text)) return '黑玫瑰';
+  if (/血玫瑰/.test(text)) return '血玫瑰';
+  return undefined;
+};
+
+const inferNearbyPosition = (text: string, fallback?: string): string => {
+  const normalizedFallback = (fallback || '').trim();
+  if (normalizedFallback) return normalizedFallback;
+  if (/税务官/.test(text)) return '税务官';
+  if (/巡逻/.test(text)) return '巡逻者';
+  if (/(追猎|追杀|猎手|追踪)/.test(text) && /夜莺/.test(text)) return '夜莺追猎者';
+  if (/夜莺/.test(text)) return '夜莺成员';
+  if (/警员/.test(text)) return '警员';
+  if (/佣兵/.test(text)) return '佣兵';
+  return '待识别人物';
+};
+
+const inferNearbyGender = (text: string): NPC['gender'] => {
+  const hasFemaleCue = NEARBY_FEMALE_CUE_RE.test(text);
+  const hasMaleCue = NEARBY_MALE_CUE_RE.test(text);
+  if (hasFemaleCue && !hasMaleCue) return 'female';
+  return 'male';
+};
+
+const isRejectedNpcName = (name: string): boolean => {
+  const clean = name.trim();
+  if (!clean) return true;
+  if (clean.length > 16 || /^\d+$/.test(clean)) return true;
+  if (NEARBY_NPC_NAME_STOPWORDS.has(clean) || NEARBY_NPC_NAME_STOPWORDS.has(normalizeNpcNameKey(clean))) return true;
+  if (NEARBY_NPC_OBJECT_WORDS.some(word => clean.includes(word))) return true;
+  if (isSoundEffectLikeName(clean)) return true;
+  return false;
+};
+
+const buildAutoNearbyNpcStats = (seedKey: string, gender: NPC['gender']): PlayerStats => {
+  const isFemale = gender === 'female';
+  const baseOffset = hashText(seedKey);
+  const hpMax = isFemale ? 220 : 180;
+  const mpMax = isFemale ? 260 : 180;
+  return ensurePlayerStatsSixDim({
+    hp: { current: hpMax, max: hpMax },
+    mp: { current: mpMax, max: mpMax },
+    formStability: 74 + (baseOffset % 12),
+    formStatus: MOCK_PLAYER_STATS.formStatus,
+    psionic: {
+      level: Rank.Lv1,
+      xp: 0,
+      maxXp: RANK_CONFIG[Rank.Lv1].maxXp,
+      conversionRate: isFemale ? 88 : 42,
+      recoveryRate: isFemale ? 55 : 120,
+    },
+    sixDim: {
+      力量: 7 + (baseOffset % 4),
+      敏捷: 8 + ((baseOffset >> 1) % 4),
+      体质: 7 + ((baseOffset >> 2) % 4),
+      感知: 8 + ((baseOffset >> 3) % 4),
+      意志: 8 + ((baseOffset >> 4) % 4),
+      魅力: isFemale ? 10 + ((baseOffset >> 5) % 4) : 7 + ((baseOffset >> 5) % 4),
+      freePoints: 0,
+      cap: 99,
+    },
+    sanity: { current: 70, max: 100 },
+    charisma: { current: isFemale ? 58 : 40, max: 100 },
+    credits: 0,
+    gasMask: { current: 100, max: 100 },
+  });
+};
+
+const buildAutoNearbyNpcBodyParts = (npcId: string): BodyPart[] =>
+  LINGSHU_BODY_PART_TEMPLATE.map((tpl, index) => ({
+    id: `${npcId}_${tpl.key}_${index + 1}`,
+    key: tpl.key,
+    name: tpl.name,
+    rank: levelToRank(tpl.level),
+    description: tpl.description,
+    skills: [],
+    equippedItems: [],
+    statusAffixes: [],
+    maxSkillSlots: 3,
+    maxEquipSlots: DEFAULT_LINGSHU_EQUIP_SLOTS,
+  }));
+
+const buildAutoNearbyNpcChips = (npcId: string, gender: NPC['gender']): Chip[] =>
+  gender === 'male'
+    ? [
+        {
+          id: `${npcId}_chip_board`,
+          name: '基础神经主板',
+          type: 'board',
+          rank: Rank.Lv1,
+          description: '自动识别人物，未取得详细芯片模组资料。',
+        },
+      ]
+    : [];
+
+const buildAutoNearbyNpcFromSeed = (location: string, seed: NearbyNpcSeed, index: number, current?: NPC): NPC => {
+  const loc = (location || '未知区域').trim() || '未知区域';
+  const seedKey = `${loc}_${seed.name}_${index}`;
+  const npcId = current?.id || `${AUTO_NEARBY_NPC_ID_PREFIX}${hashText(seedKey)}_${index + 1}`;
+  const statusList: NPC['status'][] = ['online', 'busy', 'offline'];
+  const status = current?.status || statusList[hashTextToIndex(`${seedKey}_s`, statusList.length)];
+  const gender = seed.gender || current?.gender || 'male';
+  const stats = buildAutoNearbyNpcStats(seedKey, gender);
+  return normalizeNpcForUi({
+    id: npcId,
+    name: seed.name,
+    gender,
+    group: current?.group || '',
+    position: seed.position || current?.position || '待识别人物',
+    affiliation: seed.affiliation || current?.affiliation || '待识别来源',
+    location: loc,
+    isContact: current?.isContact || false,
+    temporaryStatus: current?.temporaryStatus,
+    stats,
+    affection: gender === 'female' ? current?.affection ?? 12 : undefined,
+    trust: gender === 'male' ? current?.trust ?? 12 : undefined,
+    bodyParts: gender === 'female' ? buildAutoNearbyNpcBodyParts(npcId) : [],
+    spiritSkills: gender === 'male' ? [] : undefined,
+    chips: buildAutoNearbyNpcChips(npcId, gender),
+    avatarUrl: current?.avatarUrl || 'https://via.placeholder.com/64',
+    status,
+    inventory: current?.inventory || [],
+    socialFeed: current?.socialFeed || [],
+    statusTags: Array.from(new Set([...(current?.statusTags || []), '自动识别', '待补全'])),
+  });
+};
+
 const extractKnownNpcSeedsFromText = (text: string, existingNpcs: NPC[]): NearbyNpcSeed[] => {
   const normalizedText = sanitizeAiMaintext(text).replace(/\s+/g, ' ').trim();
   if (!normalizedText) return [];
@@ -735,19 +925,22 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
   if (!text) return [];
 
   const seeds: NearbyNpcSeed[] = [];
-  const pushSeed = (name: string, position?: string, sourceText?: string) => {
-    const cleanName = name.trim();
+  const pushSeed = (name: string, position?: string, sourceText?: string, contextText?: string) => {
+    const titled = stripNpcTitlePrefix(name.trim());
+    const cleanName = titled.name.trim();
     const normalizedName = normalizeNpcNameKey(cleanName);
-    if (!normalizedName || cleanName.length > 16) return;
-    if (NEARBY_NPC_NAME_STOPWORDS.has(cleanName) || NEARBY_NPC_NAME_STOPWORDS.has(normalizedName)) return;
-    if (/^\d+$/.test(cleanName)) return;
+    if (!normalizedName || isRejectedNpcName(cleanName)) return;
     if (seeds.some(seed => normalizeNpcNameKey(seed.name) === normalizedName)) return;
-    const nameText = `${cleanName}${position || ''}${sourceText || ''}`;
-    const gender: NPC['gender'] = /(她|小姐|女士|女孩|少女|夜莺|修女)/.test(nameText) ? 'female' : 'male';
+    const detailText = `${cleanName} ${position || ''} ${sourceText || ''} ${contextText || ''}`.trim();
+    if (!NEARBY_HUMAN_CUE_RE.test(detailText) && !/(名叫|叫做|名为|称作)/.test(sourceText || '') && !NEARBY_ACTION_CUE_RE.test(detailText)) {
+      return;
+    }
+    const affiliation = titled.affiliation || inferNearbyAffiliation(detailText);
     seeds.push({
       name: cleanName,
-      position: position?.trim() || '待识别人物',
-      gender,
+      position: inferNearbyPosition(detailText, titled.position || position),
+      gender: inferNearbyGender(detailText),
+      affiliation,
     });
   };
 
@@ -755,7 +948,7 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
     { regex: /(?:名叫|叫做|叫|名为|称作)\s*[「“]?([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]?(?:的)?(?:一名|一个)?([\u4e00-\u9fa5]{2,12})?/g, nameIdx: 1, posIdx: 2 },
     { regex: /([「“]?[\u4e00-\u9fa5A-Za-z0-9_-]{2,10}[」”]?)[:：]/g, nameIdx: 1 },
     { regex: /([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})\s*[（(]([^)）]{2,12})[)）]/g, nameIdx: 1, posIdx: 2 },
-    { regex: /[「“]([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]/g, nameIdx: 1 },
+    { regex: /(?:^|[，。！？；\s])([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})(?=(?:停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手))/g, nameIdx: 1 },
   ];
 
   patterns.forEach(({ regex, nameIdx, posIdx }) => {
@@ -765,7 +958,10 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
       const rawPos = posIdx ? `${match[posIdx] || ''}` : '';
       if (rawName.length < 2) continue;
       if (/当前地点|系统|玩家|你在|继续行动|灵能|剧情|设置|时间|地点|场景/.test(rawName)) continue;
-      pushSeed(rawName, rawPos, match[0] || '');
+      const contextStart = Math.max(0, (match.index || 0) - 18);
+      const contextEnd = Math.min(text.length, (match.index || 0) + (match[0] || '').length + 18);
+      const contextText = text.slice(contextStart, contextEnd);
+      pushSeed(rawName, rawPos, match[0] || '', contextText);
       if (seeds.length >= 4) break;
     }
   });
@@ -803,31 +999,353 @@ const buildAutoNearbyNpcsFromSeeds = (location: string, seeds: NearbyNpcSeed[]):
   const loc = (location || '未知区域').trim() || '未知区域';
   if (seeds.length === 0) return [];
 
-  const list: NPC[] = seeds.slice(0, 6).map((seed, index) => {
-    const seedKey = `${loc}_${seed.name}_${index}`;
-    const statusList: NPC['status'][] = ['online', 'busy', 'offline'];
-    return {
-      id: `${AUTO_NEARBY_NPC_ID_PREFIX}${hashText(seedKey)}_${index + 1}`,
-      name: seed.name,
-      gender: seed.gender,
-      group: '',
-      position: seed.position || '待识别人物',
-      affiliation: seed.affiliation || '待识别来源',
-      location: loc,
-      isContact: false,
-      stats: ensurePlayerStatsSixDim({
-        ...MOCK_PLAYER_STATS,
-        psionic: { ...MOCK_PLAYER_STATS.psionic, level: Rank.Lv1, xp: 0, maxXp: RANK_CONFIG[Rank.Lv1].maxXp },
-      }),
-      affection: seed.gender === 'female' ? 5 : undefined,
-      trust: seed.gender === 'male' ? 5 : undefined,
-      avatarUrl: 'https://via.placeholder.com/64',
-      status: statusList[hashTextToIndex(`${seedKey}_s`, statusList.length)],
-      inventory: [],
-      socialFeed: [],
-    };
+  return seeds.slice(0, 6).map((seed, index) => buildAutoNearbyNpcFromSeed(loc, seed, index));
+};
+
+type NearbyNpcRecordBodyPart = {
+  key: string;
+  spiritStrings: string[];
+  equipments: string[];
+};
+
+type NearbyNpcRecord = {
+  name: string;
+  gender: NPC['gender'];
+  affiliation: string;
+  position: string;
+  location?: string;
+  race?: string;
+  psionicRank: Rank;
+  perception?: number;
+  chipModules: string[];
+  bodyParts: NearbyNpcRecordBodyPart[];
+  storedSouls?: number;
+  statusTags: string[];
+};
+
+const coerceRankFromValue = (value: unknown, fallback: Rank = Rank.Lv1): Rank => {
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return fallback;
+    const normalized = text.toLowerCase();
+    if (normalized === 'lv.1' || normalized === 'lv1' || normalized === '1') return Rank.Lv1;
+    if (normalized === 'lv.2' || normalized === 'lv2' || normalized === '2') return Rank.Lv2;
+    if (normalized === 'lv.3' || normalized === 'lv3' || normalized === '3') return Rank.Lv3;
+    if (normalized === 'lv.4' || normalized === 'lv4' || normalized === '4') return Rank.Lv4;
+    if (normalized === 'lv.5' || normalized === 'lv5' || normalized === '5') return Rank.Lv5;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return levelToRank(value);
+  }
+  return fallback;
+};
+
+const coerceNearbyGender = (value: unknown, coreType?: unknown): NPC['gender'] => {
+  const text = `${value || ''}`.trim().toLowerCase();
+  if (text === 'female' || text === '女' || text === '女性') return 'female';
+  if (text === 'male' || text === '男' || text === '男性') return 'male';
+  const coreText = `${coreType || ''}`.trim();
+  if (coreText.includes('奇点')) return 'female';
+  return 'male';
+};
+
+const pickStringArray = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map(entry => `${entry || ''}`.trim())
+        .filter(Boolean),
+    ),
+  );
+};
+
+const resolveNearbyBodyPartKey = (value: unknown): string => {
+  const text = `${value || ''}`.trim().toLowerCase();
+  if (!text) return 'body';
+  const direct = LINGSHU_BODY_PART_TEMPLATE.find(tpl => {
+    const aliasSet = new Set([tpl.key, ...(tpl.aliases || [])].map(item => item.toLowerCase()));
+    return aliasSet.has(text);
   });
-  return normalizeNpcListForUi(list);
+  if (direct) return direct.key;
+  if (/(眼|eye)/.test(text)) return 'eyes';
+  if (/(脑|核|core|brain)/.test(text)) return 'brain';
+  if (/(脸|face)/.test(text)) return 'face';
+  if (/(嘴|mouth)/.test(text)) return 'mouth';
+  if (/(胸|chest)/.test(text)) return 'chest';
+  if (/(左臂|leftarm|larm)/.test(text)) return 'l_arm';
+  if (/(右臂|rightarm|rarm)/.test(text)) return 'r_arm';
+  if (/(左手|lefthand|lhand)/.test(text)) return 'l_hand';
+  if (/(右手|righthand|rhand)/.test(text)) return 'r_hand';
+  if (/(左腿|leftleg|lleg)/.test(text)) return 'l_leg';
+  if (/(右腿|rightleg|rleg)/.test(text)) return 'r_leg';
+  if (/(左脚|leftfoot|lfoot)/.test(text)) return 'l_foot';
+  if (/(右脚|rightfoot|rfoot)/.test(text)) return 'r_foot';
+  if (/(腿|leg)/.test(text)) return 'r_leg';
+  if (/(脚|foot)/.test(text)) return 'r_foot';
+  if (/(躯干|身躯|body|torso)/.test(text)) return 'body';
+  if (/(臀|hip)/.test(text)) return 'hip';
+  if (/(腋|axilla)/.test(text)) return 'axilla';
+  return 'body';
+};
+
+const classifyNearbyChipType = (name: string): Chip['type'] => {
+  if (/(主板|母板|board)/i.test(name)) return 'board';
+  if (/(协议|算法|管理|控制|矩阵|识别)/i.test(name)) return 'process';
+  if (/(驱动|推进|强化|增幅|追踪|激活|爆发)/i.test(name)) return 'active';
+  return 'passive';
+};
+
+const buildNearbySkill = (name: string, rank: Rank, description?: string): Skill => ({
+  id: `skill_${hashText(`${name}_${rank}_${description || ''}_${Date.now()}`)}`,
+  name: name.startsWith('灵弦') ? name : `灵弦：${name}`,
+  level: rankToLevel(rank),
+  description: description || '由结构化 NPC 数据写入的灵弦。',
+  rank,
+});
+
+const buildNearbyEquipItem = (npcId: string, partKey: string, name: string, rank: Rank) => ({
+  id: `${npcId}_${partKey}_equip_${hashText(name)}`,
+  name,
+  description: '由结构化 NPC 数据写入的部位装备。',
+  sourceCategory: 'equipment' as const,
+  rank,
+});
+
+const buildNearbyCapturedSouls = (npcId: string, count: number, rank: Rank) =>
+  Array.from({ length: Math.max(0, Math.min(10, count)) }).map((_, index) => ({
+    id: `${npcId}_soul_${index + 1}`,
+    originalName: `未登记灵魂-${index + 1}`,
+    rank,
+    efficiency: 1,
+    retainedSkills: [],
+    status: 'intact' as const,
+  }));
+
+const buildStructuredNpcStats = (record: NearbyNpcRecord, seedKey: string): PlayerStats => {
+  const isFemale = record.gender === 'female';
+  const level = rankToLevel(record.psionicRank);
+  const maxMp = getMaxMpByGenderAndRank(record.gender, record.psionicRank);
+  const maxHp = 150 + level * 45 + (isFemale ? 15 : 0);
+  const perception = Math.max(6, Math.min(99, Number(record.perception || (isFemale ? 14 : 12))));
+  const baseHash = hashText(seedKey);
+  return ensurePlayerStatsSixDim({
+    hp: { current: maxHp, max: maxHp },
+    mp: { current: maxMp, max: maxMp },
+    formStability: 72 + (baseHash % 16),
+    formStatus: MOCK_PLAYER_STATS.formStatus,
+    psionic: {
+      level: record.psionicRank,
+      xp: 0,
+      maxXp: RANK_CONFIG[record.psionicRank].maxXp,
+      conversionRate: isFemale ? 80 + level * 6 : 38 + level * 10,
+      recoveryRate: isFemale ? 42 + level * 4 : 96 + level * 10,
+    },
+    sixDim: {
+      力量: 7 + Math.min(4, level),
+      敏捷: 8 + ((baseHash >> 1) % 4),
+      体质: 7 + ((baseHash >> 2) % 4),
+      感知: perception,
+      意志: 8 + Math.min(4, level),
+      魅力: isFemale ? 9 + ((baseHash >> 3) % 5) : 7 + ((baseHash >> 3) % 4),
+      freePoints: 0,
+      cap: 99,
+    },
+    sanity: { current: 75, max: 100 },
+    charisma: { current: isFemale ? 60 : 45, max: 100 },
+    credits: 0,
+    gasMask: { current: 100, max: 100 },
+  });
+};
+
+const buildStructuredNpcBodyParts = (npcId: string, record: NearbyNpcRecord): BodyPart[] => {
+  const rank = record.psionicRank;
+  const baseParts = buildAutoNearbyNpcBodyParts(npcId).map(part => ({ ...part, rank }));
+  const partMap = new Map(baseParts.map(part => [part.key, part]));
+  record.bodyParts.forEach(partRecord => {
+    const target = partMap.get(partRecord.key);
+    if (!target) return;
+    target.skills = partRecord.spiritStrings.map(name => buildNearbySkill(name, rank));
+    target.equippedItems = partRecord.equipments.map(name => buildNearbyEquipItem(npcId, partRecord.key, name, rank));
+  });
+  if (record.gender === 'female' && (record.storedSouls || 0) > 0) {
+    const corePart = partMap.get('brain');
+    if (corePart) {
+      corePart.capturedSouls = buildNearbyCapturedSouls(npcId, record.storedSouls || 0, rank);
+    }
+  }
+  return Array.from(partMap.values());
+};
+
+const buildStructuredNpcChips = (npcId: string, record: NearbyNpcRecord): Chip[] =>
+  record.chipModules.map((name, index) => ({
+    id: `${npcId}_chip_${index + 1}_${hashText(name)}`,
+    name,
+    type: classifyNearbyChipType(name),
+    rank: record.psionicRank,
+    description: '由结构化 NPC 数据写入的芯片模组。',
+  }));
+
+const extractNpcDataCandidate = (raw: string): { found: boolean; text: string } => {
+  const clean = sanitizeAiMaintext(raw);
+  if (!clean) return { found: false, text: '' };
+
+  const pickFromText = (source: string): string => {
+    const scoped = source.match(/<npcdata\b[^>]*>([\s\S]*?)<\/npcdata>/i)?.[1] || source;
+    const trimmed = scoped.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('[')) return trimmed;
+    return extractFirstJsonArraySnippet(trimmed);
+  };
+
+  const direct = pickFromText(clean);
+  if (direct) return { found: true, text: direct };
+
+  const fencedBlocks = [...clean.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)].map(match => match[1] || '');
+  for (const block of fencedBlocks) {
+    const picked = pickFromText(block);
+    if (picked) return { found: true, text: picked };
+  }
+
+  return { found: false, text: '' };
+};
+
+const parseNearbyNpcRecordsFromText = (raw: string): { records: NearbyNpcRecord[]; error: string | null } => {
+  const candidate = extractNpcDataCandidate(raw);
+  if (!candidate.found) return { records: [], error: null };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(candidate.text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'JSON 语法错误';
+    return { records: [], error: `npcdata 解析失败：${message}` };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { records: [], error: 'npcdata 解析结果不是数组。' };
+  }
+
+  const records: NearbyNpcRecord[] = [];
+  parsed.forEach(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+    const row = entry as Record<string, unknown>;
+    const titled = stripNpcTitlePrefix(`${row.name || row.npc_name || ''}`.trim());
+    const name = titled.name.trim();
+    if (isRejectedNpcName(name)) return;
+
+    const rawCore = row.core && typeof row.core === 'object' && !Array.isArray(row.core) ? (row.core as Record<string, unknown>) : {};
+    const gender = coerceNearbyGender(row.gender, rawCore.type || row.core_type);
+    const rank = coerceRankFromValue(
+      row.psionic_rank || row.psionicRank || row.rank || row.psionic_level || rawCore.rank,
+      Rank.Lv1,
+    );
+    const bodyPartRows = Array.isArray(row.body_parts)
+      ? row.body_parts
+      : Array.isArray(row.bodyParts)
+        ? row.bodyParts
+        : [];
+    const mergedParts = new Map<string, NearbyNpcRecordBodyPart>();
+    bodyPartRows.forEach(partEntry => {
+      if (!partEntry || typeof partEntry !== 'object' || Array.isArray(partEntry)) return;
+      const partRow = partEntry as Record<string, unknown>;
+      const key = resolveNearbyBodyPartKey(partRow.key || partRow.part || partRow.name);
+      const current = mergedParts.get(key) || { key, spiritStrings: [], equipments: [] };
+      current.spiritStrings = Array.from(
+        new Set([
+          ...current.spiritStrings,
+          ...pickStringArray(partRow.spirit_strings || partRow.spiritStrings || partRow.strings),
+        ]),
+      ).slice(0, 5);
+      current.equipments = Array.from(
+        new Set([
+          ...current.equipments,
+          ...pickStringArray(partRow.equipments || partRow.equipment || partRow.items),
+        ]),
+      ).slice(0, 4);
+      mergedParts.set(key, current);
+    });
+
+    const chipModules = pickStringArray(row.chip_modules || row.chipModules || row.chips).slice(0, 8);
+    const storedSoulsRaw = Number(
+      rawCore.stored_souls || rawCore.storedSouls || rawCore.soul_count || rawCore.soulCount || row.stored_souls || row.storedSouls || 0,
+    );
+    const storedSouls = gender === 'female' && Number.isFinite(storedSoulsRaw) ? Math.max(0, Math.min(10, storedSoulsRaw)) : 0;
+    const perceptionRaw = Number(row.perception || row.perception_value || row.sense || row.sense_value);
+    const perception = Number.isFinite(perceptionRaw) ? Math.max(6, Math.min(99, perceptionRaw)) : undefined;
+    const affiliation =
+      `${row.affiliation || row.faction || row.organization || titled.affiliation || ''}`.trim() || '待识别来源';
+    const position = inferNearbyPosition(
+      `${row.position || row.role || ''} ${affiliation}`.trim(),
+      `${row.position || row.role || titled.position || ''}`.trim(),
+    );
+    const race = `${row.race || row.race_name || ''}`.trim() || undefined;
+    const notes = pickStringArray(rawCore.notes || row.notes);
+    const statusTags = Array.from(
+      new Set([
+        ...pickStringArray(row.status_tags || row.statusTags || row.tags),
+        ...notes,
+        perception ? `感知度 ${perception}` : '',
+        gender === 'female' ? `灵核空间 ${storedSouls} 魂` : '发散型灵核',
+      ].filter(Boolean)),
+    ).slice(0, 8);
+
+    records.push({
+      name,
+      gender,
+      affiliation,
+      position,
+      location: `${row.location || ''}`.trim() || undefined,
+      race,
+      psionicRank: rank,
+      perception,
+      chipModules,
+      bodyParts: Array.from(mergedParts.values()),
+      storedSouls,
+      statusTags,
+    });
+  });
+
+  return { records, error: null };
+};
+
+const serializeNearbyNpcRecords = (records: NearbyNpcRecord[]): string => JSON.stringify(records, null, 2);
+
+const buildStructuredNearbyNpc = (location: string, record: NearbyNpcRecord, index: number, current?: NPC): NPC => {
+  const fallbackSeed: NearbyNpcSeed = {
+    name: record.name,
+    gender: record.gender,
+    position: record.position,
+    affiliation: record.affiliation,
+  };
+  const base = buildAutoNearbyNpcFromSeed(location, fallbackSeed, index, current);
+  const npcId = current?.id || base.id;
+  const stats = buildStructuredNpcStats(record, `${location}_${record.name}_${index}`);
+  const bodyParts = buildStructuredNpcBodyParts(npcId, record);
+  const chips = buildStructuredNpcChips(npcId, record);
+  const spiritSkills = record.gender === 'male' ? bodyParts.flatMap(part => part.skills || []).slice(0, 6) : [];
+  return normalizeNpcForUi({
+    ...base,
+    ...current,
+    id: npcId,
+    name: record.name,
+    gender: record.gender,
+    position: record.position,
+    affiliation: record.affiliation,
+    location: record.location || location,
+    race: record.race,
+    isContact: current?.isContact || false,
+    temporaryStatus: undefined,
+    stats,
+    statusTags: Array.from(new Set([...(current?.statusTags || []), '自动识别', ...record.statusTags])),
+    affection: record.gender === 'female' ? current?.affection ?? 12 : undefined,
+    trust: record.gender === 'male' ? current?.trust ?? 12 : undefined,
+    bodyParts,
+    spiritSkills,
+    chips,
+    inventory: current?.inventory || [],
+    socialFeed: current?.socialFeed || [],
+  });
 };
 
 type ParsedRuntimeBonus = {
@@ -988,7 +1506,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   // Strict fallback:
   // If model mixed modules in one response and forgot <maintext>,
   // only keep the prefix before <sum>/<UpdateVariable>.
-  const splitIndex = text.search(/<(?:sum|update(?:variable)?)\b/i);
+  const splitIndex = text.search(/<(?:sum|npcdata|update(?:variable)?)\b/i);
   if (splitIndex > 0) {
     const prefix = stripLeadingStatusLinesFromMaintext(text.slice(0, splitIndex));
     if (prefix) return prefix;
@@ -1000,6 +1518,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
     text
       .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '')
       .replace(/<sum\b[^>]*>[\s\S]*?<\/sum>/gi, '')
+      .replace(/<npcdata\b[^>]*>[\s\S]*?<\/npcdata>/gi, '')
       .replace(/<update(?:variable)?\b[^>]*>[\s\S]*?<\/update(?:variable)?>/gi, '')
       .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
       .replace(/<jsonpatch\b[^>]*>[\s\S]*?<\/jsonpatch>/gi, '')
@@ -1018,6 +1537,8 @@ type VariablePatchOperation =
 
 type ParsedApiOutput = {
   maintext: string | null;
+  npcDataRecords: NearbyNpcRecord[];
+  npcDataParseError: string | null;
   patchOperations: VariablePatchOperation[];
   patchParseError: string | null;
 };
@@ -1214,9 +1735,12 @@ const parseApiOutputPayload = (raw: string): ParsedApiOutput => {
     /<\/?(?:html|body|script)\b/i.test(finalMaintext)
       ? extractedMaintext || null
       : finalMaintext || extractedMaintext || null;
+  const npcDataParsed = parseNearbyNpcRecordsFromText(clean);
   const { operations, error } = parsePatchOperationsFromText(clean);
   return {
     maintext,
+    npcDataRecords: npcDataParsed.records,
+    npcDataParseError: npcDataParsed.error,
     patchOperations: operations,
     patchParseError: error,
   };
@@ -2095,39 +2619,69 @@ const App: React.FC = () => {
   }, [activeLayerMessage, playerFaction.headquarters]);
 
   const syncNearbyNpcsFromContext = useCallback(
-    (location: string, playerInput: string, narrativeText: string) => {
+    (location: string, playerInput: string, narrativeText: string, structuredRecords: NearbyNpcRecord[] = []) => {
       const normalizedLocation = (location || '未知区域').trim() || '未知区域';
       setNpcs(prev => {
-        const seeds = collectNearbyNpcSeeds(
-          [playerInput, narrativeText].filter(text => `${text || ''}`.trim().length > 0),
-          prev,
-          normalizedLocation,
-          playerFaction.name,
+        const seeds =
+          structuredRecords.length > 0
+            ? []
+            : collectNearbyNpcSeeds(
+                [playerInput, narrativeText].filter(text => `${text || ''}`.trim().length > 0),
+                prev,
+                normalizedLocation,
+                playerFaction.name,
+              );
+        const targetKeys = new Set(
+          (structuredRecords.length > 0
+            ? structuredRecords.map(record => record.name)
+            : seeds.map(seed => seed.name))
+            .map(name => normalizeNpcNameKey(name))
+            .filter(Boolean),
         );
-        const seedKeys = new Set(seeds.map(seed => normalizeNpcNameKey(seed.name)).filter(Boolean));
         let next = prev.filter(npc => {
           if (!isAutoNearbyNpc(npc) || npc.isContact || npc.temporaryStatus) return true;
           if ((npc.location || '').trim() !== normalizedLocation) return true;
-          return seedKeys.has(normalizeNpcNameKey(npc.name));
+          return targetKeys.has(normalizeNpcNameKey(npc.name));
         });
+
+        if (structuredRecords.length > 0) {
+          structuredRecords.forEach((record, index) => {
+            const recordKey = normalizeNpcNameKey(record.name);
+            const existingIndex = next.findIndex(npc => normalizeNpcNameKey(npc.name) === recordKey);
+            if (existingIndex >= 0) {
+              next[existingIndex] = buildStructuredNearbyNpc(normalizedLocation, record, existingIndex, next[existingIndex]);
+              return;
+            }
+            next = [buildStructuredNearbyNpc(normalizedLocation, record, next.length), ...next];
+          });
+          return normalizeNpcListForUi(next);
+        }
 
         seeds.forEach(seed => {
           const seedKey = normalizeNpcNameKey(seed.name);
           const existingIndex = next.findIndex(npc => normalizeNpcNameKey(npc.name) === seedKey);
           if (existingIndex >= 0) {
             const current = next[existingIndex];
-            next[existingIndex] = normalizeNpcForUi({
-              ...current,
-              name: seed.name,
-              position: seed.position || current.position || '待识别人物',
-              affiliation: seed.affiliation || current.affiliation || '待识别来源',
-              location: normalizedLocation,
-              temporaryStatus: undefined,
-              ...(current.isContact ? {} : { isContact: false }),
-            });
+            if (current.isContact && !isAutoNearbyNpc(current)) {
+              next[existingIndex] = normalizeNpcForUi({
+                ...current,
+                name: seed.name,
+                gender: seed.gender || current.gender,
+                position: seed.position || current.position || '待识别人物',
+                affiliation: seed.affiliation || current.affiliation || '待识别来源',
+                location: normalizedLocation,
+                temporaryStatus: undefined,
+              });
+            } else {
+              next[existingIndex] = buildAutoNearbyNpcFromSeed(normalizedLocation, seed, existingIndex, {
+                ...current,
+                isContact: false,
+                temporaryStatus: undefined,
+              });
+            }
             return;
           }
-          const created = buildAutoNearbyNpcsFromSeeds(normalizedLocation, [seed])[0];
+          const created = buildAutoNearbyNpcFromSeed(normalizedLocation, seed, next.length);
           if (created) {
             next = [created, ...next];
           }
@@ -2146,13 +2700,15 @@ const App: React.FC = () => {
     if (layerSignature === lastNearbySyncSignatureRef.current) return;
     lastNearbySyncSignatureRef.current = layerSignature;
 
-    const parsedMaintext = sanitizeAiMaintext(parsePseudoLayer(activeLayerMessage.content).maintext || '');
+    const parsedLayer = parsePseudoLayer(activeLayerMessage.content);
+    const parsedMaintext = sanitizeAiMaintext(parsedLayer.maintext || '');
+    const parsedNpcRecords = parseNearbyNpcRecordsFromText(parsedLayer.npcdata || '').records;
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
     const playerTimeline = layerIndex >= 0 ? messages.slice(0, layerIndex) : messages;
     const latestPlayerInput =
       [...playerTimeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
 
-    syncNearbyNpcsFromContext(currentNarrativeLocation || '未知区域', latestPlayerInput, parsedMaintext);
+    syncNearbyNpcsFromContext(currentNarrativeLocation || '未知区域', latestPlayerInput, parsedMaintext, parsedNpcRecords);
   }, [gameStage, currentNarrativeLocation, activeLayerMessage, messages, syncNearbyNpcsFromContext]);
 
   const identityLabel = useMemo(
@@ -3481,6 +4037,7 @@ const App: React.FC = () => {
     let requestSeq = 0;
     let apiPatchResult: PatchApplyResult | null = null;
     let apiPatchParseError: string | null = null;
+    let apiNpcDataParseError: string | null = null;
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       requestSeq = ++apiRequestSeqRef.current;
       const controller = new AbortController();
@@ -3499,6 +4056,12 @@ const App: React.FC = () => {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
         } else {
           setApiError('本轮生成未提取到可用正文，已回退到系统伪0层正文模板。');
+        }
+        if (apiPayload?.npcDataRecords?.length) {
+          layerContent = replaceNpcData(layerContent, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
+        }
+        if (apiPayload?.npcDataParseError) {
+          apiNpcDataParseError = apiPayload.npcDataParseError;
         }
         if (apiPayload?.patchParseError) {
           apiPatchParseError = apiPayload.patchParseError;
@@ -3564,6 +4127,9 @@ const App: React.FC = () => {
     if (apiPatchParseError) {
       patchLines.push(`变量补丁解析：${apiPatchParseError}`);
     }
+    if (apiNpcDataParseError) {
+      patchLines.push(`NPC数据解析：${apiNpcDataParseError}`);
+    }
     const settlementLines = [
       ...(appendPlayerMessage && visibleInput ? settleIntentCostDeterministic(visibleInput) : []),
       ...(settleSource ? settleKillFromText(settleSource) : []),
@@ -3628,6 +4194,9 @@ const App: React.FC = () => {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);
         } else {
           setApiError('重roll 未提取到可用正文，已回退到系统伪0层正文模板。');
+        }
+        if (apiPayload?.npcDataRecords?.length) {
+          nextLayer = replaceNpcData(nextLayer, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
         }
         // reroll 仅改写文本楼层，不重复执行增量变量补丁，避免重复累加。
       } catch (error) {
