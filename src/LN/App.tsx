@@ -2235,7 +2235,8 @@ const App: React.FC = () => {
     context?: { gameTime?: string; dayPhase?: string; location?: string; sceneHint?: string; dialogueContext?: string },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
-    if (!apiConfig.enabled) return null;
+    const shouldUseApi = apiConfig.useTavernApi || apiConfig.enabled;
+    if (!shouldUseApi) return null;
     if (apiConfig.useTavernApi) {
       const tavernGenerate = resolveTavernGenerate();
       if (!tavernGenerate) {
@@ -3114,7 +3115,7 @@ const App: React.FC = () => {
     let requestSeq = 0;
     let apiPatchResult: PatchApplyResult | null = null;
     let apiPatchParseError: string | null = null;
-    if (apiConfig.enabled) {
+    if (apiConfig.enabled || apiConfig.useTavernApi) {
       requestSeq = ++apiRequestSeqRef.current;
       const controller = new AbortController();
       apiAbortControllerRef.current = controller;
@@ -3237,7 +3238,7 @@ const App: React.FC = () => {
     });
     const dialogueContextForRequest = buildDialogueContextFromMessages(messages);
 
-    if (apiConfig.enabled) {
+    if (apiConfig.enabled || apiConfig.useTavernApi) {
       setApiError('');
       setIsApiSending(true);
       try {
