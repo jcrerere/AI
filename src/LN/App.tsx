@@ -476,26 +476,58 @@ const sanitizeAiMaintext = (raw: string): string => {
   return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
+const extractTextFromUnknownResult = (value: unknown, depth = 0): string => {
+  if (value === null || value === undefined || depth > 4) return '';
+  if (typeof value === 'string') return value.trim() ? value : '';
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const nested = extractTextFromUnknownResult(entry, depth + 1);
+      if (nested) return nested;
+    }
+    return '';
+  }
+
+  if (typeof value !== 'object') return '';
+  const record = value as Record<string, unknown>;
+
+  const directFields = [
+    record.text,
+    record.content,
+    record.message,
+    record.reply,
+    record.output,
+    record.result,
+    record.response,
+    record.completion,
+  ];
+  for (const field of directFields) {
+    const nested = extractTextFromUnknownResult(field, depth + 1);
+    if (nested) return nested;
+  }
+
+  const choices = record.choices;
+  if (Array.isArray(choices)) {
+    for (const entry of choices) {
+      const nested = extractTextFromUnknownResult(entry, depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  const nestedData = [record.data, record.results, record.output_text];
+  for (const entry of nestedData) {
+    const nested = extractTextFromUnknownResult(entry, depth + 1);
+    if (nested) return nested;
+  }
+
+  return '';
+};
+
 const coerceGenerateResultToText = (value: unknown): string => {
   if (typeof value === 'string') return value;
   if (!value) return '';
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const directFields = [record.text, record.content, record.message, record.reply, record.output, record.result];
-    for (const field of directFields) {
-      if (typeof field === 'string' && field.trim()) return field;
-    }
-    const choices = record.choices;
-    if (Array.isArray(choices)) {
-      for (const entry of choices) {
-        if (!entry || typeof entry !== 'object') continue;
-        const asRecord = entry as Record<string, unknown>;
-        if (typeof asRecord.text === 'string' && asRecord.text.trim()) return asRecord.text;
-        const message = asRecord.message as Record<string, unknown> | undefined;
-        if (message && typeof message.content === 'string' && message.content.trim()) return message.content;
-      }
-    }
-  }
+  const extracted = extractTextFromUnknownResult(value);
+  if (extracted) return extracted;
   try {
     return JSON.stringify(value);
   } catch {
@@ -2277,7 +2309,11 @@ const App: React.FC = () => {
   ): Promise<ParsedApiOutput | null> => {
     const shouldUseApi = apiConfig.useTavernApi || apiConfig.enabled;
     if (!shouldUseApi) return null;
-    if (apiConfig.useTavernApi) {
+    const endpoint = resolveApiEndpoint(apiConfig.endpoint);
+    const canUseExternalApi = !apiConfig.useTavernApi && apiConfig.enabled && !!endpoint && !!apiConfig.model.trim();
+
+    // 外部端点未就绪时，自动回退到酒馆接口，避免整轮直接掉回伪0层模板。
+    if (!canUseExternalApi) {
       const tavernGenerateList = resolveTavernGenerateList();
       if (tavernGenerateList.length === 0) {
         throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
@@ -2289,11 +2325,12 @@ const App: React.FC = () => {
         ? `${context.dialogueContext.trim()}\n`
         : '';
       const userInput = `${contextPrefix}${dialoguePrefix}${input}`.trim();
-      const runWithAbort = async (fn: TavernGenerateFn): Promise<string> => {
-        const genPromise = fn({
-          user_input: userInput,
-          should_silence: true,
-        });
+      const runWithAbort = async (fn: TavernGenerateFn, shouldSilence?: boolean): Promise<string> => {
+        const args: TavernGenerateArgs =
+          typeof shouldSilence === 'boolean'
+            ? { user_input: userInput, should_silence: shouldSilence }
+            : { user_input: userInput };
+        const genPromise = fn(args);
         const result = signal
           ? await Promise.race<unknown>([
               genPromise,
@@ -2311,8 +2348,13 @@ const App: React.FC = () => {
       };
 
       let text = '';
-      for (const generateFn of tavernGenerateList) {
-        text = await runWithAbort(generateFn);
+      // 先走静默模式；若宿主实现返回空串，再退化到默认参数重试。
+      const silenceModes: Array<boolean | undefined> = [true, undefined];
+      for (const silenceMode of silenceModes) {
+        for (const generateFn of tavernGenerateList) {
+          text = await runWithAbort(generateFn, silenceMode);
+          if (text) break;
+        }
         if (text) break;
       }
       if (!text) {
@@ -2320,9 +2362,6 @@ const App: React.FC = () => {
       }
       return parseApiOutputPayload(text);
     }
-
-    const endpoint = resolveApiEndpoint(apiConfig.endpoint);
-    if (!endpoint || !apiConfig.model.trim()) return null;
 
     const requestMessages = context
       ? [
@@ -2361,8 +2400,7 @@ const App: React.FC = () => {
       throw new Error(`HTTP ${response.status}`);
     }
     const json = await response.json();
-    const text = json?.choices?.[0]?.message?.content;
-    return parseApiOutputPayload(typeof text === 'string' ? text : '');
+    return parseApiOutputPayload(sanitizeAiMaintext(coerceGenerateResultToText(json)));
   };
 
   const handleUpdateNpc = (npcId: string, updates: Partial<NPC>) => {
