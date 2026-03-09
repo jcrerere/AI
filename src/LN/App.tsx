@@ -476,6 +476,43 @@ const sanitizeAiMaintext = (raw: string): string => {
   return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
+const isStatusLikeMaintextLine = (rawLine: string): boolean => {
+  const line = sanitizeAiMaintext(rawLine);
+  if (!line) return false;
+  if (/^【(?:时间|地点|区域|场景)】/i.test(line)) return true;
+  if (/^(?:当前)?(?:时间|地点|区域|场景|时段)[:：]/i.test(line)) return true;
+  if (/^(?:时间推进至|地点确认为)/i.test(line)) return true;
+  if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?:\s*[\|｜/／].*)?$/i.test(line)) return true;
+  if (/^[^\n]{1,40}[,，]\s*\d{1,2}:\d{2}[。.]?$/.test(line)) return true;
+  if (
+    /^[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,20}$/.test(line)
+    && /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(line)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+const stripLeadingStatusLinesFromMaintext = (raw: string): string => {
+  const clean = sanitizeAiMaintext(raw);
+  if (!clean) return '';
+  const lines = clean.split('\n');
+  let index = 0;
+  while (index < lines.length && !lines[index].trim()) index += 1;
+
+  let stripped = 0;
+  while (index < lines.length && stripped < 3) {
+    if (!isStatusLikeMaintextLine(lines[index])) break;
+    stripped += 1;
+    index += 1;
+    while (index < lines.length && !lines[index].trim()) index += 1;
+  }
+
+  if (!stripped) return clean;
+  const remainder = sanitizeAiMaintext(lines.slice(index).join('\n'));
+  return remainder || clean;
+};
+
 const extractTextFromUnknownResult = (value: unknown, depth = 0): string => {
   if (value === null || value === undefined || depth > 4) return '';
   if (typeof value === 'string') return value.trim() ? value : '';
@@ -846,15 +883,15 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   const text = sanitizeAiMaintext(raw);
   if (!text) return '';
   const tagMatch = text.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-  if (tagMatch?.[1]?.trim()) return sanitizeAiMaintext(tagMatch[1]);
+  if (tagMatch?.[1]?.trim()) return stripLeadingStatusLinesFromMaintext(tagMatch[1]);
   const contentMatch = text.match(/<content\b[^>]*>([\s\S]*?)<\/content>/i);
-  if (contentMatch?.[1]?.trim()) return sanitizeAiMaintext(contentMatch[1]);
+  if (contentMatch?.[1]?.trim()) return stripLeadingStatusLinesFromMaintext(contentMatch[1]);
 
   const fencedBlocks = [...text.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)].map(m => m[1]?.trim() || '');
   const preferred = fencedBlocks.find(block => /<maintext>[\s\S]*?<\/maintext>/i.test(block));
   if (preferred) {
     const inner = preferred.match(/<maintext>([\s\S]*?)<\/maintext>/i);
-    if (inner?.[1]?.trim()) return sanitizeAiMaintext(inner[1]);
+    if (inner?.[1]?.trim()) return stripLeadingStatusLinesFromMaintext(inner[1]);
   }
 
   // Strict fallback:
@@ -862,7 +899,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   // only keep the prefix before <option>/<sum>/<UpdateVariable>.
   const splitIndex = text.search(/<(?:option|sum|update(?:variable)?)\b/i);
   if (splitIndex > 0) {
-    const prefix = sanitizeAiMaintext(text.slice(0, splitIndex));
+    const prefix = stripLeadingStatusLinesFromMaintext(text.slice(0, splitIndex));
     if (prefix) return prefix;
   }
 
@@ -879,7 +916,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
       .replace(/<\/?(?:time|content|recap|details|summary)\b[^>]*>/gi, '')
       .replace(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g, '$1'),
   );
-  return stripped || text;
+  return stripLeadingStatusLinesFromMaintext(stripped || text);
 };
 
 type VariablePatchOperation =
@@ -2319,7 +2356,16 @@ const App: React.FC = () => {
         throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
       }
       const contextPrefix = context
-        ? `【时间】${context.gameTime || ''}（${context.dayPhase || ''}）\n【地点】${context.location || ''}\n【场景】${context.sceneHint || ''}\n`
+        ? [
+            '【运行上下文（仅用于内部推理，不要原样复述）】',
+            `time=${context.gameTime || ''}${context.dayPhase ? ` (${context.dayPhase})` : ''}`,
+            `location=${context.location || ''}`,
+            context.sceneHint ? `scene=${context.sceneHint}` : '',
+            '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
+          ]
+            .filter(Boolean)
+            .join('\n')
+            .concat('\n')
         : '';
       const dialoguePrefix = context?.dialogueContext?.trim()
         ? `${context.dialogueContext.trim()}\n`
@@ -2368,9 +2414,11 @@ const App: React.FC = () => {
           {
             role: 'system',
             content: [
-              `当前时间：${context.gameTime || ''}（${context.dayPhase || ''}）`,
-              `当前地点：${context.location || ''}`,
-              `场景提示：${context.sceneHint || ''}`,
+              '以下为运行上下文，仅用于内部推理：',
+              `time=${context.gameTime || ''}${context.dayPhase ? ` (${context.dayPhase})` : ''}`,
+              `location=${context.location || ''}`,
+              context.sceneHint ? `scene=${context.sceneHint}` : '',
+              '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
             ]
               .filter(Boolean)
