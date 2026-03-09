@@ -1338,6 +1338,8 @@ type TavernGenerateArgs = {
 };
 
 type TavernGenerateFn = (args: TavernGenerateArgs) => Promise<unknown>;
+type TavernGetVariablesFn = (args: { type: 'chat' }) => Record<string, any>;
+type TavernReplaceVariablesFn = (vars: Record<string, any>, args: { type: 'chat' }) => void;
 
 const bindHostFunction = <T extends (...args: any[]) => any>(host: unknown, key: string): T | null => {
   if (!host || (typeof host !== 'object' && typeof host !== 'function')) return null;
@@ -1355,15 +1357,37 @@ const readParentRuntime = (): unknown => {
   }
 };
 
+const readLooseGlobalValue = <T,>(name: string): T | null => {
+  const runtime = globalThis as Record<string, unknown>;
+  const direct = runtime[name];
+  if (direct !== undefined) return direct as T;
+  try {
+    const resolved = Function(`return typeof ${name} !== 'undefined' ? ${name} : null;`)();
+    return (resolved ?? null) as T | null;
+  } catch {
+    return null;
+  }
+};
+
+const readLooseGlobalFunction = <T extends (...args: any[]) => any>(name: string): T | null => {
+  const resolved = readLooseGlobalValue<unknown>(name);
+  return typeof resolved === 'function' ? (resolved as T) : null;
+};
+
 const resolveTavernGenerateList = (): TavernGenerateFn[] => {
   const runtime = globalThis as Record<string, unknown>;
   const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
+  const directTavernHelper = readLooseGlobalValue<unknown>('TavernHelper');
   const candidates: Array<TavernGenerateFn | null> = [
+    readLooseGlobalFunction<TavernGenerateFn>('generate'),
+    bindHostFunction<TavernGenerateFn>(directTavernHelper, 'generate'),
     bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generate'),
     bindHostFunction<TavernGenerateFn>(runtime, 'generate'),
     bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generate'),
     bindHostFunction<TavernGenerateFn>(parentRuntime, 'generate'),
     // generate 无法给出正文时，再退回 raw 分支兜底。
+    readLooseGlobalFunction<TavernGenerateFn>('generateRaw'),
+    bindHostFunction<TavernGenerateFn>(directTavernHelper, 'generateRaw'),
     bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generateRaw'),
     bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
     bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generateRaw'),
@@ -1379,17 +1403,52 @@ const resolveTavernGenerateList = (): TavernGenerateFn[] => {
 const resolveTavernStopGenerating = (): (() => void) | null => {
   const runtime = globalThis as Record<string, unknown>;
   const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
+  const directTavernHelper = readLooseGlobalValue<unknown>('TavernHelper');
   const candidates: Array<(() => void) | null> = [
+    readLooseGlobalFunction<() => void>('stopAllGeneration'),
+    bindHostFunction<() => void>(directTavernHelper, 'stopAllGeneration'),
     bindHostFunction<() => void>(runtime, 'stopAllGeneration'),
     bindHostFunction<() => void>(runtime.TavernHelper, 'stopAllGeneration'),
     bindHostFunction<() => void>(parentRuntime, 'stopAllGeneration'),
     bindHostFunction<() => void>(parentRuntime?.TavernHelper, 'stopAllGeneration'),
+    bindHostFunction<() => void>(directTavernHelper, 'stopGeneration'),
     bindHostFunction<() => void>(runtime, 'stopGeneration'),
     bindHostFunction<() => void>(runtime.TavernHelper, 'stopGeneration'),
     bindHostFunction<() => void>(parentRuntime, 'stopGeneration'),
     bindHostFunction<() => void>(parentRuntime?.TavernHelper, 'stopGeneration'),
   ];
   return candidates.find(fn => typeof fn === 'function') || null;
+};
+
+const resolveTavernVariableBridge = (): {
+  getVariables: TavernGetVariablesFn | null;
+  replaceVariables: TavernReplaceVariablesFn | null;
+} => {
+  const runtime = globalThis as Record<string, unknown>;
+  const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
+  const directTavernHelper = readLooseGlobalValue<unknown>('TavernHelper');
+  const directGet = readLooseGlobalFunction<TavernGetVariablesFn>('getVariables');
+  const directReplace = readLooseGlobalFunction<TavernReplaceVariablesFn>('replaceVariables');
+  if (directGet || directReplace) {
+    return {
+      getVariables: directGet,
+      replaceVariables: directReplace,
+    };
+  }
+  return {
+    getVariables:
+      bindHostFunction<TavernGetVariablesFn>(runtime, 'getVariables')
+      || bindHostFunction<TavernGetVariablesFn>(directTavernHelper, 'getVariables')
+      || bindHostFunction<TavernGetVariablesFn>(runtime.TavernHelper, 'getVariables')
+      || bindHostFunction<TavernGetVariablesFn>(parentRuntime, 'getVariables')
+      || bindHostFunction<TavernGetVariablesFn>(parentRuntime?.TavernHelper, 'getVariables'),
+    replaceVariables:
+      bindHostFunction<TavernReplaceVariablesFn>(runtime, 'replaceVariables')
+      || bindHostFunction<TavernReplaceVariablesFn>(directTavernHelper, 'replaceVariables')
+      || bindHostFunction<TavernReplaceVariablesFn>(runtime.TavernHelper, 'replaceVariables')
+      || bindHostFunction<TavernReplaceVariablesFn>(parentRuntime, 'replaceVariables')
+      || bindHostFunction<TavernReplaceVariablesFn>(parentRuntime?.TavernHelper, 'replaceVariables'),
+  };
 };
 
 const toCompactSingleLine = (text: string, maxLength = 220): string => {
@@ -1727,9 +1786,7 @@ const App: React.FC = () => {
   }, [apiConfig]);
 
   const syncStateFromTavernVariables = useCallback(() => {
-    const tavernBridge = globalThis as {
-      getVariables?: (args: { type: 'chat' }) => Record<string, any>;
-    };
+    const tavernBridge = resolveTavernVariableBridge();
     if (typeof tavernBridge.getVariables !== 'function') return;
 
     let variables: Record<string, any>;
@@ -1880,10 +1937,7 @@ const App: React.FC = () => {
       if (!operations.length) {
         return { applied: 0, skipped: 0, failed: 0, errors: [] };
       }
-      const tavernBridge = globalThis as {
-        getVariables?: (args: { type: 'chat' }) => Record<string, any>;
-        replaceVariables?: (vars: Record<string, any>, args: { type: 'chat' }) => void;
-      };
+      const tavernBridge = resolveTavernVariableBridge();
       if (typeof tavernBridge.getVariables !== 'function' || typeof tavernBridge.replaceVariables !== 'function') {
         return {
           applied: 0,
@@ -2005,10 +2059,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (gameStage !== 'game') return;
-    const tavernBridge = globalThis as {
-      getVariables?: (args: { type: 'chat' }) => Record<string, any>;
-      replaceVariables?: (vars: Record<string, any>, args: { type: 'chat' }) => void;
-    };
+    const tavernBridge = resolveTavernVariableBridge();
     if (typeof tavernBridge.getVariables !== 'function' || typeof tavernBridge.replaceVariables !== 'function') return;
 
     const nextSignature = JSON.stringify({
@@ -2404,8 +2455,8 @@ const App: React.FC = () => {
       };
 
       let text = '';
-      // 先走静默模式；若宿主实现返回空串，再退化到默认参数重试。
-      const silenceModes: Array<boolean | undefined> = [true, undefined];
+      // 优先走非静默生成，让父酒馆进入正常生成态；若宿主实现返回空串，再退回静默模式兜底。
+      const silenceModes: Array<boolean | undefined> = [false, true];
       for (const silenceMode of silenceModes) {
         for (const generateFn of tavernGenerateList) {
           text = await runWithAbort(generateFn, silenceMode);
