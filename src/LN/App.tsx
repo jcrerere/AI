@@ -476,6 +476,33 @@ const sanitizeAiMaintext = (raw: string): string => {
   return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
+const coerceGenerateResultToText = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (!value) return '';
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const directFields = [record.text, record.content, record.message, record.reply, record.output, record.result];
+    for (const field of directFields) {
+      if (typeof field === 'string' && field.trim()) return field;
+    }
+    const choices = record.choices;
+    if (Array.isArray(choices)) {
+      for (const entry of choices) {
+        if (!entry || typeof entry !== 'object') continue;
+        const asRecord = entry as Record<string, unknown>;
+        if (typeof asRecord.text === 'string' && asRecord.text.trim()) return asRecord.text;
+        const message = asRecord.message as Record<string, unknown> | undefined;
+        if (message && typeof message.content === 'string' && message.content.trim()) return message.content;
+      }
+    }
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 const isLingshuEquipableItem = (item: Item): boolean => {
   if (!item || item.quantity <= 0) return false;
   if (item.category === 'equipment') return true;
@@ -788,6 +815,8 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   if (!text) return '';
   const tagMatch = text.match(/<maintext>([\s\S]*?)<\/maintext>/i);
   if (tagMatch?.[1]?.trim()) return sanitizeAiMaintext(tagMatch[1]);
+  const contentMatch = text.match(/<content\b[^>]*>([\s\S]*?)<\/content>/i);
+  if (contentMatch?.[1]?.trim()) return sanitizeAiMaintext(contentMatch[1]);
 
   const fencedBlocks = [...text.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)].map(m => m[1]?.trim() || '');
   const preferred = fencedBlocks.find(block => /<maintext>[\s\S]*?<\/maintext>/i.test(block));
@@ -809,11 +838,13 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   // If no <maintext> exists, remove known module blocks and keep plain narrative body.
   const stripped = sanitizeAiMaintext(
     text
+      .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '')
       .replace(/<option\b[^>]*>[\s\S]*?<\/option>/gi, '')
       .replace(/<sum\b[^>]*>[\s\S]*?<\/sum>/gi, '')
       .replace(/<update(?:variable)?\b[^>]*>[\s\S]*?<\/update(?:variable)?>/gi, '')
       .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
       .replace(/<jsonpatch\b[^>]*>[\s\S]*?<\/jsonpatch>/gi, '')
+      .replace(/<\/?(?:time|content|recap|details|summary)\b[^>]*>/gi, '')
       .replace(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g, '$1'),
   );
   return stripped || text;
@@ -1231,7 +1262,7 @@ type TavernGenerateArgs = {
   should_silence?: boolean;
 };
 
-type TavernGenerateFn = (args: TavernGenerateArgs) => Promise<string>;
+type TavernGenerateFn = (args: TavernGenerateArgs) => Promise<unknown>;
 
 const bindHostFunction = <T extends (...args: any[]) => any>(host: unknown, key: string): T | null => {
   if (!host || (typeof host !== 'object' && typeof host !== 'function')) return null;
@@ -1249,26 +1280,35 @@ const readParentRuntime = (): unknown => {
   }
 };
 
-const resolveTavernGenerate = (): TavernGenerateFn | null => {
+const resolveTavernGenerateList = (): TavernGenerateFn[] => {
   const runtime = globalThis as Record<string, unknown>;
   const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
   const candidates: Array<TavernGenerateFn | null> = [
-    bindHostFunction<TavernGenerateFn>(runtime, 'generate'),
-    bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generate'),
+    // 当前环境下 silent generate 可能返回空串，优先 raw 分支拿正文。
     bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generate'),
-    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generateRaw'),
-    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generate'),
+    bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
     bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generate'),
+    bindHostFunction<TavernGenerateFn>(runtime, 'generate'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generate'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generate'),
   ];
-  return candidates.find(fn => typeof fn === 'function') || null;
+  const unique = new Set<TavernGenerateFn>();
+  candidates.forEach(candidate => {
+    if (typeof candidate === 'function') unique.add(candidate);
+  });
+  return [...unique];
 };
 
 const resolveTavernStopGenerating = (): (() => void) | null => {
   const runtime = globalThis as Record<string, unknown>;
   const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
   const candidates: Array<(() => void) | null> = [
+    bindHostFunction<() => void>(runtime, 'stopAllGeneration'),
+    bindHostFunction<() => void>(runtime.TavernHelper, 'stopAllGeneration'),
+    bindHostFunction<() => void>(parentRuntime, 'stopAllGeneration'),
+    bindHostFunction<() => void>(parentRuntime?.TavernHelper, 'stopAllGeneration'),
     bindHostFunction<() => void>(runtime, 'stopGeneration'),
     bindHostFunction<() => void>(runtime.TavernHelper, 'stopGeneration'),
     bindHostFunction<() => void>(parentRuntime, 'stopGeneration'),
@@ -2238,8 +2278,8 @@ const App: React.FC = () => {
     const shouldUseApi = apiConfig.useTavernApi || apiConfig.enabled;
     if (!shouldUseApi) return null;
     if (apiConfig.useTavernApi) {
-      const tavernGenerate = resolveTavernGenerate();
-      if (!tavernGenerate) {
+      const tavernGenerateList = resolveTavernGenerateList();
+      if (tavernGenerateList.length === 0) {
         throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
       }
       const contextPrefix = context
@@ -2248,24 +2288,37 @@ const App: React.FC = () => {
       const dialoguePrefix = context?.dialogueContext?.trim()
         ? `${context.dialogueContext.trim()}\n`
         : '';
-      const genPromise = tavernGenerate({
-        user_input: `${contextPrefix}${dialoguePrefix}${input}`.trim(),
-        should_silence: true,
-      });
-      const text = signal
-        ? await Promise.race<string>([
-            genPromise,
-            new Promise<string>((_, reject) => {
-              if (signal.aborted) {
-                reject(new DOMException('Aborted', 'AbortError'));
-                return;
-              }
-              const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
-              signal.addEventListener('abort', onAbort, { once: true });
-            }),
-          ])
-        : await genPromise;
-      return parseApiOutputPayload(typeof text === 'string' ? text : '');
+      const userInput = `${contextPrefix}${dialoguePrefix}${input}`.trim();
+      const runWithAbort = async (fn: TavernGenerateFn): Promise<string> => {
+        const genPromise = fn({
+          user_input: userInput,
+          should_silence: true,
+        });
+        const result = signal
+          ? await Promise.race<unknown>([
+              genPromise,
+              new Promise<never>((_, reject) => {
+                if (signal.aborted) {
+                  reject(new DOMException('Aborted', 'AbortError'));
+                  return;
+                }
+                const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+                signal.addEventListener('abort', onAbort, { once: true });
+              }),
+            ])
+          : await genPromise;
+        return sanitizeAiMaintext(coerceGenerateResultToText(result));
+      };
+
+      let text = '';
+      for (const generateFn of tavernGenerateList) {
+        text = await runWithAbort(generateFn);
+        if (text) break;
+      }
+      if (!text) {
+        throw new Error('酒馆生成接口返回空文本。');
+      }
+      return parseApiOutputPayload(text);
     }
 
     const endpoint = resolveApiEndpoint(apiConfig.endpoint);
@@ -3132,7 +3185,7 @@ const App: React.FC = () => {
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
         } else {
-          setApiError('本轮输出未检测到合格 <maintext>，已回退到系统伪0层正文模板。');
+          setApiError('本轮生成未提取到可用正文，已回退到系统伪0层正文模板。');
         }
         if (apiPayload?.patchParseError) {
           apiPatchParseError = apiPayload.patchParseError;
@@ -3252,7 +3305,7 @@ const App: React.FC = () => {
         if (apiPayload?.maintext) {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);
         } else {
-          setApiError('重roll 未检测到合格 <maintext>，已回退到系统伪0层正文模板。');
+          setApiError('重roll 未提取到可用正文，已回退到系统伪0层正文模板。');
         }
         // reroll 仅改写文本楼层，不重复执行增量变量补丁，避免重复累加。
       } catch (error) {
