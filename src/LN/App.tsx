@@ -630,8 +630,7 @@ const buildAutoNearbyNpcsFromSeeds = (location: string, seeds: NearbyNpcSeed[]):
       isContact: false,
       stats: ensurePlayerStatsSixDim({
         ...MOCK_PLAYER_STATS,
-        rank: Rank.Lv1,
-        psionic: { ...MOCK_PLAYER_STATS.psionic, level: Rank.Lv1, value: 80, max: 120 },
+        psionic: { ...MOCK_PLAYER_STATS.psionic, level: Rank.Lv1, xp: 0, maxXp: RANK_CONFIG[Rank.Lv1].maxXp },
       }),
       affection: seed.gender === 'female' ? 5 : undefined,
       trust: seed.gender === 'male' ? 5 : undefined,
@@ -800,13 +799,517 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   // Strict fallback:
   // If model mixed modules in one response and forgot <maintext>,
   // only keep the prefix before <option>/<sum>/<UpdateVariable>.
-  const splitIndex = text.search(/<(?:option|sum|UpdateVariable)\b/i);
+  const splitIndex = text.search(/<(?:option|sum|update(?:variable)?)\b/i);
   if (splitIndex > 0) {
     const prefix = sanitizeAiMaintext(text.slice(0, splitIndex));
     if (prefix) return prefix;
   }
 
+  // Relaxed fallback:
+  // If no <maintext> exists, remove known module blocks and keep plain narrative body.
+  const stripped = sanitizeAiMaintext(
+    text
+      .replace(/<option\b[^>]*>[\s\S]*?<\/option>/gi, '')
+      .replace(/<sum\b[^>]*>[\s\S]*?<\/sum>/gi, '')
+      .replace(/<update(?:variable)?\b[^>]*>[\s\S]*?<\/update(?:variable)?>/gi, '')
+      .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
+      .replace(/<jsonpatch\b[^>]*>[\s\S]*?<\/jsonpatch>/gi, '')
+      .replace(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g, '$1'),
+  );
+  return stripped || text;
+};
+
+type VariablePatchOperation =
+  | { op: 'replace'; path: string; value: unknown }
+  | { op: 'delta'; path: string; value: number }
+  | { op: 'insert'; path: string; value: unknown }
+  | { op: 'remove'; path: string }
+  | { op: 'move'; from: string; to: string };
+
+type ParsedApiOutput = {
+  maintext: string | null;
+  patchOperations: VariablePatchOperation[];
+  patchParseError: string | null;
+};
+
+type PatchApplyResult = {
+  applied: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+};
+
+type WriteMode = 'upsert' | 'insert';
+
+const deepClonePlainData = <T,>(value: T): T => {
+  if (value === null || value === undefined) return value;
+  if (typeof globalThis.structuredClone === 'function') {
+    try {
+      return globalThis.structuredClone(value);
+    } catch {
+      // fallback to JSON clone below
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+};
+
+const unwrapCodeFence = (raw: string): string => {
+  const text = sanitizeAiMaintext(raw);
+  const fenced = text.match(/^```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)\s*```$/);
+  return fenced?.[1]?.trim() || text;
+};
+
+const extractFirstJsonArraySnippet = (raw: string): string => {
+  const text = sanitizeAiMaintext(raw);
+  if (!text) return '';
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString && char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === '[') {
+      if (depth === 0) start = i;
+      depth += 1;
+      continue;
+    }
+    if (char === ']') {
+      if (depth === 0) continue;
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
   return '';
+};
+
+const normalizePatchPath = (rawPath: string): string => {
+  const trimmed = `${rawPath || ''}`.trim();
+  if (!trimmed) return '';
+
+  let body = trimmed.startsWith('/') ? trimmed.slice(1) : trimmed;
+  if (!trimmed.startsWith('/') && body.includes('.') && !body.includes('/')) {
+    body = body.replace(/\./g, '/');
+  }
+  body = body.replace(/^\/+/, '');
+  if (!body) return '';
+
+  if (body === 'stat_data' || body.startsWith('stat_data/')) {
+    return `/${body}`.replace(/\/{2,}/g, '/');
+  }
+  return `/stat_data/${body}`.replace(/\/{2,}/g, '/');
+};
+
+const extractJsonPatchCandidate = (raw: string): { found: boolean; text: string } => {
+  const clean = sanitizeAiMaintext(raw);
+  if (!clean) return { found: false, text: '' };
+
+  const pickFromText = (source: string): string => {
+    const updateMatch = source.match(/<update(?:variable)?\b[^>]*>([\s\S]*?)<\/update(?:variable)?>/i);
+    const scoped = updateMatch?.[1] || source;
+    const taggedPatch = scoped.match(/<jsonpatch\b[^>]*>([\s\S]*?)<\/jsonpatch>/i);
+    if (taggedPatch?.[1]?.trim()) return taggedPatch[1].trim();
+    if (updateMatch?.[1]) {
+      const arraySnippet = extractFirstJsonArraySnippet(updateMatch[1]);
+      if (arraySnippet) return arraySnippet;
+    }
+    return '';
+  };
+
+  const direct = pickFromText(clean);
+  if (direct) return { found: true, text: direct };
+
+  const fencedBlocks = [...clean.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)].map(match => match[1] || '');
+  for (const block of fencedBlocks) {
+    const picked = pickFromText(block);
+    if (picked) return { found: true, text: picked };
+  }
+
+  const standalone = clean.match(/<jsonpatch\b[^>]*>([\s\S]*?)<\/jsonpatch>/i);
+  if (standalone?.[1]?.trim()) return { found: true, text: standalone[1].trim() };
+
+  return { found: false, text: '' };
+};
+
+const parsePatchOperationsFromText = (raw: string): { operations: VariablePatchOperation[]; error: string | null } => {
+  const candidate = extractJsonPatchCandidate(raw);
+  if (!candidate.found) return { operations: [], error: null };
+
+  const unpacked = unwrapCodeFence(candidate.text);
+  const arraySnippet = unpacked.trim().startsWith('[') ? unpacked.trim() : extractFirstJsonArraySnippet(unpacked);
+  if (!arraySnippet) {
+    return { operations: [], error: '检测到 <UpdateVariable>，但未找到可解析的 JSONPatch 数组。' };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(arraySnippet);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'JSON 语法错误';
+    return { operations: [], error: `JSONPatch 解析失败：${message}` };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return { operations: [], error: 'JSONPatch 解析结果不是数组。' };
+  }
+
+  const operations: VariablePatchOperation[] = [];
+  parsed.forEach(entry => {
+    if (!entry || typeof entry !== 'object') return;
+    const record = entry as Record<string, unknown>;
+    const op = `${record.op || ''}`.trim().toLowerCase();
+
+    if (op === 'replace' || op === 'insert') {
+      const path = normalizePatchPath(`${record.path || ''}`);
+      if (!path) return;
+      operations.push({ op, path, value: record.value });
+      return;
+    }
+
+    if (op === 'delta') {
+      const path = normalizePatchPath(`${record.path || ''}`);
+      const delta = Number(record.value);
+      if (!path || !Number.isFinite(delta)) return;
+      operations.push({ op: 'delta', path, value: delta });
+      return;
+    }
+
+    if (op === 'remove') {
+      const path = normalizePatchPath(`${record.path || ''}`);
+      if (!path) return;
+      operations.push({ op: 'remove', path });
+      return;
+    }
+
+    if (op === 'move') {
+      const from = normalizePatchPath(`${record.from || ''}`);
+      const to = normalizePatchPath(`${record.to || record.path || ''}`);
+      if (!from || !to) return;
+      operations.push({ op: 'move', from, to });
+    }
+  });
+
+  if (operations.length === 0 && parsed.length > 0) {
+    return { operations: [], error: 'JSONPatch 中没有可执行的操作（字段缺失或格式不合法）。' };
+  }
+
+  return { operations, error: null };
+};
+
+const parseApiOutputPayload = (raw: string): ParsedApiOutput => {
+  const clean = sanitizeAiMaintext(raw);
+  const extractedMaintext = extractMaintextFromApiOutput(clean);
+  const finalMaintext = sanitizeAiMaintext(extractedMaintext);
+  const maintext =
+    /<\/?(?:html|body|script)\b/i.test(finalMaintext)
+      ? extractedMaintext || null
+      : finalMaintext || extractedMaintext || null;
+  const { operations, error } = parsePatchOperationsFromText(clean);
+  return {
+    maintext,
+    patchOperations: operations,
+    patchParseError: error,
+  };
+};
+
+const decodeJsonPointerToken = (token: string): string => token.replace(/~1/g, '/').replace(/~0/g, '~');
+const isObjectRecord = (value: unknown): value is Record<string, any> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value);
+const isArrayIndexToken = (token: string): boolean => /^\d+$/.test(token);
+const parseArrayIndexToken = (token: string): number | null => (isArrayIndexToken(token) ? Number(token) : null);
+const toPointerTokens = (path: string): string[] =>
+  normalizePatchPath(path)
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter(Boolean)
+    .map(decodeJsonPointerToken);
+
+const readValueByPointer = (
+  root: Record<string, any>,
+  tokens: string[],
+): { exists: boolean; value: unknown } => {
+  if (tokens.length === 0) return { exists: true, value: root };
+  let current: unknown = root;
+  for (const token of tokens) {
+    if (Array.isArray(current)) {
+      const index = parseArrayIndexToken(token);
+      if (index === null || index < 0 || index >= current.length) return { exists: false, value: undefined };
+      current = current[index];
+      continue;
+    }
+    if (!isObjectRecord(current) || !(token in current)) return { exists: false, value: undefined };
+    current = current[token];
+  }
+  return { exists: true, value: current };
+};
+
+const writeValueByPointer = (
+  root: Record<string, any>,
+  tokens: string[],
+  value: unknown,
+  mode: WriteMode,
+): boolean => {
+  if (tokens.length === 0) return false;
+  let current: unknown = root;
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    const token = tokens[i];
+    const nextToken = tokens[i + 1];
+    const shouldArray = nextToken === '-' || isArrayIndexToken(nextToken);
+
+    if (Array.isArray(current)) {
+      const index = parseArrayIndexToken(token);
+      if (index === null || index < 0 || index > current.length) return false;
+      if (index === current.length) {
+        current.push(shouldArray ? [] : {});
+      } else if (current[index] === null || typeof current[index] !== 'object') {
+        current[index] = shouldArray ? [] : {};
+      }
+      current = current[index];
+      continue;
+    }
+
+    if (!isObjectRecord(current)) return false;
+    if (current[token] === null || typeof current[token] !== 'object') {
+      current[token] = shouldArray ? [] : {};
+    }
+    current = current[token];
+  }
+
+  const lastToken = tokens[tokens.length - 1];
+  const clonedValue = deepClonePlainData(value);
+  if (Array.isArray(current)) {
+    if (lastToken === '-') {
+      current.push(clonedValue);
+      return true;
+    }
+    const index = parseArrayIndexToken(lastToken);
+    if (index === null || index < 0) return false;
+    if (mode === 'insert') {
+      if (index > current.length) return false;
+      current.splice(index, 0, clonedValue);
+      return true;
+    }
+    if (index > current.length) return false;
+    if (index === current.length) {
+      current.push(clonedValue);
+      return true;
+    }
+    current[index] = clonedValue;
+    return true;
+  }
+
+  if (!isObjectRecord(current)) return false;
+  current[lastToken] = clonedValue;
+  return true;
+};
+
+const removeValueByPointer = (
+  root: Record<string, any>,
+  tokens: string[],
+): { removed: boolean; value: unknown } => {
+  if (tokens.length === 0) return { removed: false, value: undefined };
+  let current: unknown = root;
+  for (let i = 0; i < tokens.length - 1; i += 1) {
+    const token = tokens[i];
+    if (Array.isArray(current)) {
+      const index = parseArrayIndexToken(token);
+      if (index === null || index < 0 || index >= current.length) return { removed: false, value: undefined };
+      current = current[index];
+      continue;
+    }
+    if (!isObjectRecord(current) || !(token in current)) return { removed: false, value: undefined };
+    current = current[token];
+  }
+
+  const lastToken = tokens[tokens.length - 1];
+  if (Array.isArray(current)) {
+    const index = parseArrayIndexToken(lastToken);
+    if (index === null || index < 0 || index >= current.length) return { removed: false, value: undefined };
+    const [removed] = current.splice(index, 1);
+    return { removed: true, value: removed };
+  }
+
+  if (!isObjectRecord(current) || !(lastToken in current)) return { removed: false, value: undefined };
+  const removed = current[lastToken];
+  delete current[lastToken];
+  return { removed: true, value: removed };
+};
+
+const applyPatchOperationsToVariables = (
+  targetVariables: Record<string, any>,
+  operations: VariablePatchOperation[],
+): PatchApplyResult => {
+  const result: PatchApplyResult = { applied: 0, skipped: 0, failed: 0, errors: [] };
+  operations.forEach((operation, index) => {
+    try {
+      if (operation.op === 'remove') {
+        const removed = removeValueByPointer(targetVariables, toPointerTokens(operation.path));
+        if (removed.removed) result.applied += 1;
+        else result.skipped += 1;
+        return;
+      }
+
+      if (operation.op === 'move') {
+        const fromTokens = toPointerTokens(operation.from);
+        const toTokens = toPointerTokens(operation.to);
+        if (fromTokens.length === 0 || toTokens.length === 0) {
+          result.skipped += 1;
+          return;
+        }
+        const removed = removeValueByPointer(targetVariables, fromTokens);
+        if (!removed.removed) {
+          result.skipped += 1;
+          return;
+        }
+        const moved = writeValueByPointer(targetVariables, toTokens, removed.value, 'upsert');
+        if (moved) {
+          result.applied += 1;
+          return;
+        }
+        writeValueByPointer(targetVariables, fromTokens, removed.value, 'upsert');
+        result.failed += 1;
+        result.errors.push(`move#${index + 1} 目标路径不可写`);
+        return;
+      }
+
+      const tokens = toPointerTokens(operation.path);
+      if (tokens.length === 0) {
+        result.skipped += 1;
+        return;
+      }
+
+      if (operation.op === 'delta') {
+        const current = readValueByPointer(targetVariables, tokens);
+        const currentNumber = Number(current.exists ? current.value : 0);
+        const base = Number.isFinite(currentNumber) ? currentNumber : 0;
+        const next = base + operation.value;
+        const changed = writeValueByPointer(targetVariables, tokens, next, 'upsert');
+        if (changed) result.applied += 1;
+        else result.skipped += 1;
+        return;
+      }
+
+      const changed = writeValueByPointer(
+        targetVariables,
+        tokens,
+        operation.value,
+        operation.op === 'insert' ? 'insert' : 'upsert',
+      );
+      if (changed) result.applied += 1;
+      else result.skipped += 1;
+    } catch (error) {
+      result.failed += 1;
+      const message = error instanceof Error ? error.message : '未知错误';
+      result.errors.push(`op#${index + 1}: ${message}`);
+    }
+  });
+  return result;
+};
+
+type TavernGenerateArgs = {
+  user_input: string;
+  should_silence?: boolean;
+};
+
+type TavernGenerateFn = (args: TavernGenerateArgs) => Promise<string>;
+
+const bindHostFunction = <T extends (...args: any[]) => any>(host: unknown, key: string): T | null => {
+  if (!host || (typeof host !== 'object' && typeof host !== 'function')) return null;
+  const record = host as Record<string, unknown>;
+  const fn = record[key];
+  if (typeof fn !== 'function') return null;
+  return (fn as (...args: any[]) => any).bind(host) as T;
+};
+
+const readParentRuntime = (): unknown => {
+  try {
+    return (globalThis as { parent?: unknown }).parent;
+  } catch {
+    return undefined;
+  }
+};
+
+const resolveTavernGenerate = (): TavernGenerateFn | null => {
+  const runtime = globalThis as Record<string, unknown>;
+  const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
+  const candidates: Array<TavernGenerateFn | null> = [
+    bindHostFunction<TavernGenerateFn>(runtime, 'generate'),
+    bindHostFunction<TavernGenerateFn>(runtime, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generate'),
+    bindHostFunction<TavernGenerateFn>(runtime.TavernHelper, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generate'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime, 'generateRaw'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generate'),
+    bindHostFunction<TavernGenerateFn>(parentRuntime?.TavernHelper, 'generateRaw'),
+  ];
+  return candidates.find(fn => typeof fn === 'function') || null;
+};
+
+const resolveTavernStopGenerating = (): (() => void) | null => {
+  const runtime = globalThis as Record<string, unknown>;
+  const parentRuntime = readParentRuntime() as Record<string, unknown> | undefined;
+  const candidates: Array<(() => void) | null> = [
+    bindHostFunction<() => void>(runtime, 'stopGeneration'),
+    bindHostFunction<() => void>(runtime.TavernHelper, 'stopGeneration'),
+    bindHostFunction<() => void>(parentRuntime, 'stopGeneration'),
+    bindHostFunction<() => void>(parentRuntime?.TavernHelper, 'stopGeneration'),
+  ];
+  return candidates.find(fn => typeof fn === 'function') || null;
+};
+
+const toCompactSingleLine = (text: string, maxLength = 220): string => {
+  const normalized = sanitizeAiMaintext(text).replace(/\n+/g, ' / ').trim();
+  if (!normalized) return '';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}…`;
+};
+
+const extractRenderableNarrativeFromMessage = (message: Message): string => {
+  if (!message?.content) return '';
+  if (message.sender === 'System' && hasPseudoLayer(message.content)) {
+    const parsed = parsePseudoLayer(message.content);
+    return parsed.maintext || '';
+  }
+  return message.content;
+};
+
+const buildDialogueContextFromMessages = (timeline: Message[], maxMessages = 8): string => {
+  if (!Array.isArray(timeline) || timeline.length === 0) return '';
+  const picked = timeline
+    .filter(msg => msg.sender === 'Player' || msg.sender === 'System')
+    .slice(-maxMessages);
+  if (picked.length === 0) return '';
+
+  const lines = picked
+    .map(msg => {
+      const role = msg.sender === 'Player' ? '玩家' : '系统';
+      const compact = toCompactSingleLine(extractRenderableNarrativeFromMessage(msg), 260);
+      if (!compact) return '';
+      return `[${role}] ${compact}`;
+    })
+    .filter(Boolean);
+  if (lines.length === 0) return '';
+  return `【前端对话区最近记录】\n${lines.join('\n')}`;
 };
 
 const App: React.FC = () => {
@@ -1011,33 +1514,6 @@ const App: React.FC = () => {
   }, [npcs, selectedNPC]);
 
   useEffect(() => {
-    if (gameStage !== 'game') return;
-    const location = (currentNarrativeLocation || '未知区域').trim() || '未知区域';
-    const hasNearbyNpc = npcs.some(
-      npc => !npc.isContact && !npc.temporaryStatus && (npc.location || '').trim() === location,
-    );
-    if (hasNearbyNpc) return;
-    if (autoNearbyInjectedLocationsRef.current.has(location)) return;
-    const parsedMaintext = parsePseudoLayer(activeLayerMessage?.content || '').maintext || '';
-    const inferredSeeds = inferNearbyNpcSeedsFromMaintext(parsedMaintext);
-    const autoGenerated = buildAutoNearbyNpcsFromSeeds(location, inferredSeeds);
-    if (!autoGenerated.length) return;
-
-    autoNearbyInjectedLocationsRef.current.add(location);
-    setNpcs(prev => normalizeNpcListForUi([...autoGenerated, ...prev]));
-    setMessages(prev => [
-      ...prev,
-      {
-        id: `sys_auto_nearby_${Date.now()}`,
-        sender: 'System',
-        content: `侦测到附近出现 ${autoGenerated.length} 个可交互信号，已同步到「周围人物」。`,
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-        type: 'narrative',
-      },
-    ]);
-  }, [gameStage, currentNarrativeLocation, npcs, activeLayerMessage]);
-
-  useEffect(() => {
     if (!playerLingshu || playerLingshu.length === 0) return;
     const requiredParts: Array<{ key: string; name: string; rank: Rank; level: number; description: string }> = [
       { key: 'brain', name: '大脑', rank: Rank.Lv3, level: 3, description: '认知中枢与灵能感知核心。' },
@@ -1132,11 +1608,14 @@ const App: React.FC = () => {
   }, [apiConfig]);
 
   const syncStateFromTavernVariables = useCallback(() => {
-    if (typeof getVariables !== 'function') return;
+    const tavernBridge = globalThis as {
+      getVariables?: (args: { type: 'chat' }) => Record<string, any>;
+    };
+    if (typeof tavernBridge.getVariables !== 'function') return;
 
     let variables: Record<string, any>;
     try {
-      variables = getVariables({ type: 'chat' });
+      variables = tavernBridge.getVariables({ type: 'chat' });
     } catch {
       return;
     }
@@ -1149,31 +1628,50 @@ const App: React.FC = () => {
       return Number.isFinite(next) ? next : undefined;
     };
 
-    const coreStatus = stat?.player?.core_status || {};
-    const psionic = stat?.player?.psionic || {};
-    const assets = stat?.player?.assets || {};
+    const playerNode = stat?.player && typeof stat.player === 'object' ? stat.player : {};
+    const coreStatusRaw = playerNode?.core_status;
+    const coreStatus =
+      coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw)
+        ? coreStatusRaw
+        : {};
+    const statusRaw = playerNode?.status;
+    const status =
+      statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw)
+        ? statusRaw
+        : {};
+    const psionicRaw = playerNode?.psionic;
+    const psionic =
+      psionicRaw && typeof psionicRaw === 'object' && !Array.isArray(psionicRaw)
+        ? psionicRaw
+        : {};
+    const assetsRaw = playerNode?.assets;
+    const assets =
+      assetsRaw && typeof assetsRaw === 'object' && !Array.isArray(assetsRaw)
+        ? assetsRaw
+        : {};
     const lcoin = assets?.lcoin || {};
     const lcoinTotal =
       (toNumber(lcoin?.total) ?? 0) ||
       ['lv1', 'lv2', 'lv3', 'lv4', 'lv5'].reduce((sum, key) => sum + (toNumber(lcoin?.[key]) ?? 0), 0);
 
     const repCurrent =
+      toNumber(status?.reputation?.current) ??
       toNumber(coreStatus?.reputation?.current) ??
-      toNumber(stat?.player?.reputation) ??
-      toNumber(stat?.player?.core_status?.credit_score);
-    const creditsFromStat = toNumber(assets?.credits) ?? toNumber(stat?.player?.credits) ?? lcoinTotal;
+      toNumber(playerNode?.reputation) ??
+      toNumber(coreStatus?.credit_score);
+    const creditsFromStat = toNumber(assets?.credits) ?? toNumber(playerNode?.credits) ?? lcoinTotal;
     const syncSignature = JSON.stringify({
-      hpCurrent: toNumber(coreStatus?.hp?.current) ?? null,
-      hpMax: toNumber(coreStatus?.hp?.max) ?? null,
-      mpCurrent: toNumber(coreStatus?.mp?.current) ?? null,
-      mpMax: toNumber(coreStatus?.mp?.max) ?? null,
-      sanityCurrent: toNumber(coreStatus?.sanity?.current) ?? null,
-      sanityMax: toNumber(coreStatus?.sanity?.max) ?? null,
+      hpCurrent: toNumber(status?.hp?.current) ?? toNumber(coreStatus?.hp?.current) ?? null,
+      hpMax: toNumber(status?.hp?.max) ?? toNumber(coreStatus?.hp?.max) ?? null,
+      mpCurrent: toNumber(status?.mp?.current) ?? toNumber(coreStatus?.mp?.current) ?? null,
+      mpMax: toNumber(status?.mp?.max) ?? toNumber(coreStatus?.mp?.max) ?? null,
+      sanityCurrent: toNumber(status?.sanity?.current) ?? toNumber(coreStatus?.sanity?.current) ?? null,
+      sanityMax: toNumber(status?.sanity?.max) ?? toNumber(coreStatus?.sanity?.max) ?? null,
       credits: creditsFromStat ?? null,
       reputation: repCurrent ?? null,
       conversionRate: toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate) ?? null,
       recoveryRate: toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate) ?? null,
-      rank: `${stat?.player?.psionic_rank ?? psionic?.rank ?? ''}`.trim() || null,
+      rank: `${playerNode?.psionic_rank ?? psionic?.rank ?? ''}`.trim() || null,
     });
     lastPulledSyncSignatureRef.current = syncSignature;
 
@@ -1187,16 +1685,16 @@ const App: React.FC = () => {
       };
       let changed = false;
 
-      const hpCurrent = toNumber(coreStatus?.hp?.current);
-      const hpMax = toNumber(coreStatus?.hp?.max);
-      const mpCurrent = toNumber(coreStatus?.mp?.current);
-      const mpMax = toNumber(coreStatus?.mp?.max);
-      const sanityCurrent = toNumber(coreStatus?.sanity?.current);
-      const sanityMax = toNumber(coreStatus?.sanity?.max);
+      const hpCurrent = toNumber(status?.hp?.current) ?? toNumber(coreStatus?.hp?.current);
+      const hpMax = toNumber(status?.hp?.max) ?? toNumber(coreStatus?.hp?.max);
+      const mpCurrent = toNumber(status?.mp?.current) ?? toNumber(coreStatus?.mp?.current);
+      const mpMax = toNumber(status?.mp?.max) ?? toNumber(coreStatus?.mp?.max);
+      const sanityCurrent = toNumber(status?.sanity?.current) ?? toNumber(coreStatus?.sanity?.current);
+      const sanityMax = toNumber(status?.sanity?.max) ?? toNumber(coreStatus?.sanity?.max);
       const conversionRate = toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate);
       const recoveryRate = toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate);
 
-      const rankRaw = `${stat?.player?.psionic_rank ?? psionic?.rank ?? ''}`.trim();
+      const rankRaw = `${playerNode?.psionic_rank ?? psionic?.rank ?? ''}`.trim();
       const rankMatch = rankRaw.match(/Lv\.?\s*(\d+)/i);
       const rankValue = rankMatch?.[1] ? levelToRank(Number(rankMatch[1])) : undefined;
 
@@ -1258,6 +1756,50 @@ const App: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [gameStage, syncStateFromTavernVariables]);
 
+  const applyApiPatchToChatVariables = useCallback(
+    (operations: VariablePatchOperation[]): PatchApplyResult => {
+      if (!operations.length) {
+        return { applied: 0, skipped: 0, failed: 0, errors: [] };
+      }
+      const tavernBridge = globalThis as {
+        getVariables?: (args: { type: 'chat' }) => Record<string, any>;
+        replaceVariables?: (vars: Record<string, any>, args: { type: 'chat' }) => void;
+      };
+      if (typeof tavernBridge.getVariables !== 'function' || typeof tavernBridge.replaceVariables !== 'function') {
+        return {
+          applied: 0,
+          skipped: operations.length,
+          failed: 0,
+          errors: ['酒馆变量接口不可用，JSONPatch 未执行。'],
+        };
+      }
+
+      try {
+        const currentVars = tavernBridge.getVariables({ type: 'chat' }) || {};
+        const cloned = deepClonePlainData(currentVars);
+        const nextVars =
+          cloned && typeof cloned === 'object'
+            ? (cloned as Record<string, any>)
+            : {};
+        const patchResult = applyPatchOperationsToVariables(nextVars, operations);
+        if (patchResult.applied > 0) {
+          tavernBridge.replaceVariables(nextVars, { type: 'chat' });
+          syncStateFromTavernVariables();
+        }
+        return patchResult;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        return {
+          applied: 0,
+          skipped: 0,
+          failed: operations.length,
+          errors: [`变量写回失败：${message}`],
+        };
+      }
+    },
+    [syncStateFromTavernVariables],
+  );
+
   useEffect(() => {
     const currentRank = playerStats.psionic.level;
     setCoinVault(prev => ({
@@ -1294,6 +1836,34 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    const location = (currentNarrativeLocation || '未知区域').trim() || '未知区域';
+    const hasNearbyNpc = npcs.some(
+      npc => !npc.isContact && !npc.temporaryStatus && (npc.location || '').trim() === location,
+    );
+    if (hasNearbyNpc) return;
+    if (autoNearbyInjectedLocationsRef.current.has(location)) return;
+    const parsedMaintext = parsePseudoLayer(activeLayerMessage?.content || '').maintext || '';
+    const inferredSeeds = inferNearbyNpcSeedsFromMaintext(parsedMaintext);
+    const autoGenerated = buildAutoNearbyNpcsFromSeeds(location, inferredSeeds);
+    if (!autoGenerated.length) return;
+
+    autoNearbyInjectedLocationsRef.current.add(location);
+    setNpcs(prev => normalizeNpcListForUi([...autoGenerated, ...prev]));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `sys_auto_nearby_${Date.now()}`,
+        sender: 'System',
+        content: `侦测到附近出现 ${autoGenerated.length} 个可交互信号，已同步到「周围人物」。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+  }, [gameStage, currentNarrativeLocation, npcs, activeLayerMessage]);
+
   const identityLabel = useMemo(
     () => `${betaStatus.citizenId} · ${playerNeuralProtocol.toUpperCase()} · ${playerFaction.name}`,
     [betaStatus.citizenId, playerNeuralProtocol, playerFaction.name],
@@ -1316,7 +1886,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (gameStage !== 'game') return;
-    if (typeof getVariables !== 'function' || typeof replaceVariables !== 'function') return;
+    const tavernBridge = globalThis as {
+      getVariables?: (args: { type: 'chat' }) => Record<string, any>;
+      replaceVariables?: (vars: Record<string, any>, args: { type: 'chat' }) => void;
+    };
+    if (typeof tavernBridge.getVariables !== 'function' || typeof tavernBridge.replaceVariables !== 'function') return;
 
     const nextSignature = JSON.stringify({
       hpCurrent: playerStats.hp.current,
@@ -1336,14 +1910,62 @@ const App: React.FC = () => {
 
     const timer = window.setTimeout(() => {
       try {
-        const vars = getVariables({ type: 'chat' }) || {};
+        const vars = tavernBridge.getVariables!({ type: 'chat' }) || {};
         const root = vars.stat_data && typeof vars.stat_data === 'object' ? vars.stat_data : {};
         const world = root.world && typeof root.world === 'object' ? root.world : {};
         const player = root.player && typeof root.player === 'object' ? root.player : {};
-        const coreStatus = player.core_status && typeof player.core_status === 'object' ? player.core_status : {};
+        const coreStatusRaw = player.core_status;
+        const hasCoreStatusObject = !!coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw);
+        const coreStatus = hasCoreStatusObject ? coreStatusRaw : {};
+        const statusRaw = player.status;
+        const status = statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw) ? statusRaw : {};
         const psionic = player.psionic && typeof player.psionic === 'object' ? player.psionic : {};
         const assets = player.assets && typeof player.assets === 'object' ? player.assets : {};
         const lcoin = assets.lcoin && typeof assets.lcoin === 'object' ? assets.lcoin : {};
+        const normalizeRateField = (rawRate: unknown, current: number) => {
+          if (rawRate && typeof rawRate === 'object' && !Array.isArray(rawRate)) {
+            return {
+              ...(rawRate as Record<string, any>),
+              current,
+            };
+          }
+          return current;
+        };
+        const nextPlayer: Record<string, any> = {
+          ...player,
+          psionic_rank: playerStats.psionic.level,
+          reputation: betaStatus.creditScore,
+          credits: playerStats.credits,
+          status: {
+            ...status,
+            hp: { ...(status.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
+            mp: { ...(status.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+            sanity: { ...(status.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
+            reputation: { ...(status.reputation || {}), current: betaStatus.creditScore, max: 120 },
+          },
+          psionic: {
+            ...psionic,
+            conversion_rate: normalizeRateField(psionic.conversion_rate, playerStats.psionic.conversionRate),
+            recovery_rate: normalizeRateField(psionic.recovery_rate, playerStats.psionic.recoveryRate),
+          },
+          assets: {
+            ...assets,
+            credits: playerStats.credits,
+            lcoin: {
+              ...lcoin,
+              total: playerStats.credits,
+            },
+          },
+        };
+        if (hasCoreStatusObject) {
+          nextPlayer.core_status = {
+            ...coreStatus,
+            hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
+            mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+            sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
+            reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
+          };
+        }
 
         const nextVars = { ...vars };
         nextVars.stat_data = {
@@ -1353,39 +1975,10 @@ const App: React.FC = () => {
             current_time: effectiveGameTimeText,
             current_location: currentNarrativeLocation || world.current_location || '未知区域',
           },
-          player: {
-            ...player,
-            psionic_rank: playerStats.psionic.level,
-            core_status: {
-              ...coreStatus,
-              hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
-              mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
-              sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
-              reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
-            },
-            psionic: {
-              ...psionic,
-              conversion_rate: {
-                ...(typeof psionic.conversion_rate === 'object' ? psionic.conversion_rate : {}),
-                current: playerStats.psionic.conversionRate,
-              },
-              recovery_rate: {
-                ...(typeof psionic.recovery_rate === 'object' ? psionic.recovery_rate : {}),
-                current: playerStats.psionic.recoveryRate,
-              },
-            },
-            assets: {
-              ...assets,
-              credits: playerStats.credits,
-              lcoin: {
-                ...lcoin,
-                total: playerStats.credits,
-              },
-            },
-          },
+          player: nextPlayer,
         };
 
-        replaceVariables(nextVars, { type: 'chat' });
+        tavernBridge.replaceVariables!(nextVars, { type: 'chat' });
         lastPushedSyncSignatureRef.current = nextSignature;
       } catch (error) {
         console.warn('写回酒馆变量失败:', error);
@@ -1639,18 +2232,23 @@ const App: React.FC = () => {
 
   const requestApiMaintext = async (
     input: string,
-    context?: { gameTime?: string; dayPhase?: string; location?: string; sceneHint?: string },
+    context?: { gameTime?: string; dayPhase?: string; location?: string; sceneHint?: string; dialogueContext?: string },
     signal?: AbortSignal,
-  ): Promise<string | null> => {
+  ): Promise<ParsedApiOutput | null> => {
     if (!apiConfig.enabled) return null;
     if (apiConfig.useTavernApi) {
-      const tavernGenerate = (globalThis as { generate?: (args: { user_input: string; should_silence?: boolean }) => Promise<string> }).generate;
-      if (typeof tavernGenerate !== 'function') return null;
+      const tavernGenerate = resolveTavernGenerate();
+      if (!tavernGenerate) {
+        throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
+      }
       const contextPrefix = context
         ? `【时间】${context.gameTime || ''}（${context.dayPhase || ''}）\n【地点】${context.location || ''}\n【场景】${context.sceneHint || ''}\n`
         : '';
+      const dialoguePrefix = context?.dialogueContext?.trim()
+        ? `${context.dialogueContext.trim()}\n`
+        : '';
       const genPromise = tavernGenerate({
-        user_input: `${contextPrefix}${input}`.trim(),
+        user_input: `${contextPrefix}${dialoguePrefix}${input}`.trim(),
         should_silence: true,
       });
       const text = signal
@@ -1666,11 +2264,7 @@ const App: React.FC = () => {
             }),
           ])
         : await genPromise;
-      const clean = typeof text === 'string' ? sanitizeAiMaintext(text) : '';
-      const extracted = extractMaintextFromApiOutput(clean);
-      const finalText = sanitizeAiMaintext(extracted);
-      if (/<\/?(?:html|body|script)\b/i.test(finalText)) return extracted || null;
-      return finalText || extracted || null;
+      return parseApiOutputPayload(typeof text === 'string' ? text : '');
     }
 
     const endpoint = resolveApiEndpoint(apiConfig.endpoint);
@@ -1678,7 +2272,17 @@ const App: React.FC = () => {
 
     const requestMessages = context
       ? [
-          { role: 'system', content: `当前时间：${context.gameTime || ''}（${context.dayPhase || ''}）\n当前地点：${context.location || ''}\n场景提示：${context.sceneHint || ''}` },
+          {
+            role: 'system',
+            content: [
+              `当前时间：${context.gameTime || ''}（${context.dayPhase || ''}）`,
+              `当前地点：${context.location || ''}`,
+              `场景提示：${context.sceneHint || ''}`,
+              context.dialogueContext ? `\n${context.dialogueContext}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          },
           { role: 'user', content: input },
         ]
       : [{ role: 'user', content: input }];
@@ -1704,11 +2308,7 @@ const App: React.FC = () => {
     }
     const json = await response.json();
     const text = json?.choices?.[0]?.message?.content;
-    const clean = typeof text === 'string' ? sanitizeAiMaintext(text) : '';
-    const extracted = extractMaintextFromApiOutput(clean);
-    const finalText = sanitizeAiMaintext(extracted);
-    if (/<\/?(?:html|body|script)\b/i.test(finalText)) return extracted || null;
-    return finalText || extracted || null;
+    return parseApiOutputPayload(typeof text === 'string' ? text : '');
   };
 
   const handleUpdateNpc = (npcId: string, updates: Partial<NPC>) => {
@@ -2204,7 +2804,7 @@ const App: React.FC = () => {
     const partMatches = [...text.matchAll(/\[(?:状态|灵枢状态)\|([^\]]+)\]/g)];
     if (partMatches.length > 0) {
       setPlayerLingshu(prev => {
-        let next = [...prev];
+        const next = [...prev];
         partMatches.forEach(match => {
           const payload = parseTagPayload(match[1] || '');
           const partName = payload['部位'] || payload['part'] || '';
@@ -2491,15 +3091,13 @@ const App: React.FC = () => {
       timestamp: now,
       type: 'action',
     };
+    let baseTimeline = messages;
+    if (focusedLayerId) {
+      const focusIndex = messages.findIndex(msg => msg.id === focusedLayerId);
+      if (focusIndex >= 0) baseTimeline = messages.slice(0, focusIndex + 1);
+    }
 
-    setMessages(prev => {
-      let base = prev;
-      if (focusedLayerId) {
-        const focusIndex = prev.findIndex(msg => msg.id === focusedLayerId);
-        if (focusIndex >= 0) base = prev.slice(0, focusIndex + 1);
-      }
-      return [...base, playerMsg];
-    });
+    setMessages([...baseTimeline, playerMsg]);
 
     let layerContent = buildPseudoLayer({
       playerInput: input,
@@ -2510,9 +3108,12 @@ const App: React.FC = () => {
       dayPhase: nextGameDayPhase,
       sceneHint: nextGameSceneHint,
     });
+    const dialogueContextForRequest = buildDialogueContextFromMessages([...baseTimeline, playerMsg]);
 
     let aborted = false;
     let requestSeq = 0;
+    let apiPatchResult: PatchApplyResult | null = null;
+    let apiPatchParseError: string | null = null;
     if (apiConfig.enabled) {
       requestSeq = ++apiRequestSeqRef.current;
       const controller = new AbortController();
@@ -2520,23 +3121,30 @@ const App: React.FC = () => {
       setIsApiSending(true);
       setApiError('');
       try {
-        const apiText = await requestApiMaintext(input, {
+        const apiPayload = await requestApiMaintext(input, {
           gameTime: nextGameTimeText,
           dayPhase: nextGameDayPhase,
           location: currentNarrativeLocation || '未知区域',
           sceneHint: nextGameSceneHint,
+          dialogueContext: dialogueContextForRequest,
         }, controller.signal);
-        if (apiText) {
-          layerContent = replaceMaintext(layerContent, apiText);
+        if (apiPayload?.maintext) {
+          layerContent = replaceMaintext(layerContent, apiPayload.maintext);
         } else {
           setApiError('本轮输出未检测到合格 <maintext>，已回退到系统伪0层正文模板。');
+        }
+        if (apiPayload?.patchParseError) {
+          apiPatchParseError = apiPayload.patchParseError;
+        }
+        if (apiPayload?.patchOperations?.length) {
+          apiPatchResult = applyApiPatchToChatVariables(apiPayload.patchOperations);
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           aborted = true;
         } else {
-        const message = error instanceof Error ? error.message : '未知错误';
-        setApiError(`API 调用失败: ${message}`);
+          const message = error instanceof Error ? error.message : '未知错误';
+          setApiError(`API 调用失败: ${message}`);
         }
       } finally {
         if (apiRequestSeqRef.current === requestSeq) {
@@ -2570,10 +3178,30 @@ const App: React.FC = () => {
 
     const parsedMaintext = parsePseudoLayer(layerContent).maintext || '';
     const settleSource = `${input}\n${parsedMaintext}`;
+    const patchLines: string[] = [];
+    if (apiPatchResult) {
+      const hasPatchActivity =
+        apiPatchResult.applied > 0 ||
+        apiPatchResult.skipped > 0 ||
+        apiPatchResult.failed > 0 ||
+        apiPatchResult.errors.length > 0;
+      if (hasPatchActivity) {
+        patchLines.push(
+          `变量补丁写入：应用 ${apiPatchResult.applied}，跳过 ${apiPatchResult.skipped}，失败 ${apiPatchResult.failed}`,
+        );
+      }
+      if (apiPatchResult.errors.length > 0) {
+        patchLines.push(`变量补丁告警：${apiPatchResult.errors.slice(0, 2).join('；')}`);
+      }
+    }
+    if (apiPatchParseError) {
+      patchLines.push(`变量补丁解析：${apiPatchParseError}`);
+    }
     const settlementLines = [
       ...settleIntentCostDeterministic(input),
       ...settleKillFromText(settleSource),
       ...settleStatusFromText(settleSource),
+      ...patchLines,
     ];
 
     setMessages(prev => {
@@ -2607,22 +3235,25 @@ const App: React.FC = () => {
       dayPhase: gameDayPhase,
       sceneHint: gameSceneHint,
     });
+    const dialogueContextForRequest = buildDialogueContextFromMessages(messages);
 
     if (apiConfig.enabled) {
       setApiError('');
       setIsApiSending(true);
       try {
-        const apiText = await requestApiMaintext(playerInput, {
+        const apiPayload = await requestApiMaintext(playerInput, {
           gameTime: gameTimeText,
           dayPhase: gameDayPhase,
           location: currentNarrativeLocation || '未知区域',
           sceneHint: gameSceneHint,
+          dialogueContext: dialogueContextForRequest,
         });
-        if (apiText) {
-          nextLayer = replaceMaintext(nextLayer, apiText);
+        if (apiPayload?.maintext) {
+          nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);
         } else {
           setApiError('重roll 未检测到合格 <maintext>，已回退到系统伪0层正文模板。');
         }
+        // reroll 仅改写文本楼层，不重复执行增量变量补丁，避免重复累加。
       } catch (error) {
         const message = error instanceof Error ? error.message : '未知错误';
         setApiError(`重roll 调用失败: ${message}`);
@@ -2799,16 +3430,25 @@ const App: React.FC = () => {
   };
 
   const handleSend = async () => {
-    const command = inputText.trim();
-    if (!command || isApiSending) return;
+    const rawInput = inputText.trim();
+    if (isApiSending) return;
 
-    if (command === '/reroll' || command === '/重掷') {
+    const command =
+      rawInput ||
+      (() => {
+        const activeMaintext = activeLayerMessage?.content ? parsePseudoLayer(activeLayerMessage.content).maintext : '';
+        if (activeMaintext.trim()) return '继续推进当前局势';
+        return '继续';
+      })();
+    if (!command) return;
+
+    if (rawInput === '/reroll' || rawInput === '/重掷') {
       rerollActiveLayer();
       setInputText('');
       return;
     }
 
-    if (command === '/clearsave' || command === '/清档') {
+    if (rawInput === '/clearsave' || rawInput === '/清档') {
       try {
         window.localStorage.removeItem(LN_ARCHIVES_KEY);
         window.localStorage.removeItem(LN_LAST_ARCHIVE_ID_KEY);
@@ -2841,7 +3481,7 @@ const App: React.FC = () => {
     if (controller && !controller.signal.aborted) {
       controller.abort();
     }
-    const stopTavernGenerate = (globalThis as { stopGeneration?: () => void }).stopGeneration;
+    const stopTavernGenerate = resolveTavernStopGenerating();
     if (typeof stopTavernGenerate === 'function') {
       try {
         stopTavernGenerate();
@@ -3718,7 +4358,7 @@ const App: React.FC = () => {
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !isApiSending && handleSend()}
-                placeholder="输入行动指令..."
+                placeholder="输入行动指令（留空可直接续写）..."
                 className="flex-1 bg-transparent border-b border-slate-800 text-fuchsia-100 px-2 py-3 focus:outline-none focus:border-fuchsia-500 font-mono text-sm placeholder:text-slate-700"
               />
               <button
