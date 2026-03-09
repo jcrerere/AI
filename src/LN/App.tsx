@@ -668,6 +668,66 @@ type NearbyNpcSeed = {
   name: string;
   position: string;
   gender: NPC['gender'];
+  affiliation?: string;
+};
+
+const AUTO_NEARBY_NPC_ID_PREFIX = 'auto_nearby_';
+
+const normalizeNpcNameKey = (name: string): string =>
+  sanitizeAiMaintext(`${name || ''}`)
+    .replace(/[「」“”"'`·•\s]/g, '')
+    .trim()
+    .toLowerCase();
+
+const isAutoNearbyNpc = (npc: NPC): boolean => (npc.id || '').startsWith(AUTO_NEARBY_NPC_ID_PREFIX);
+
+const NEARBY_NPC_NAME_STOPWORDS = new Set([
+  '系统',
+  '玩家',
+  '前文',
+  '当前位置',
+  '当前地点',
+  '当前时间',
+  '时间',
+  '地点',
+  '场景',
+  '势力',
+  '区域',
+  '状态',
+  '资源',
+  '信誉',
+  '灵能',
+  '剧情',
+  '设置',
+  '对话',
+  '正文',
+  '周围人物',
+  '可交互信号',
+  '初始化完成',
+  '第一步行动',
+  '开局叙事',
+  '继续',
+  '行动',
+  '艾瑞拉',
+  '黄昏',
+]);
+
+const extractKnownNpcSeedsFromText = (text: string, existingNpcs: NPC[]): NearbyNpcSeed[] => {
+  const normalizedText = sanitizeAiMaintext(text).replace(/\s+/g, ' ').trim();
+  if (!normalizedText) return [];
+
+  return existingNpcs
+    .filter(npc => {
+      const name = (npc.name || '').trim();
+      return name.length >= 2 && normalizedText.includes(name);
+    })
+    .sort((a, b) => (b.name || '').length - (a.name || '').length)
+    .map(npc => ({
+      name: npc.name,
+      position: npc.position || '待识别人物',
+      gender: npc.gender,
+      affiliation: npc.affiliation || '待识别来源',
+    }));
 };
 
 const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
@@ -675,23 +735,27 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
   if (!text) return [];
 
   const seeds: NearbyNpcSeed[] = [];
-  const pushSeed = (name: string, position?: string) => {
+  const pushSeed = (name: string, position?: string, sourceText?: string) => {
     const cleanName = name.trim();
-    if (!cleanName || cleanName.length > 10) return;
-    if (seeds.some(seed => seed.name === cleanName)) return;
-    const nameText = `${cleanName}${position || ''}`;
-    const gender: NPC['gender'] = /(她|小姐|女士|女孩|少女)/.test(nameText) ? 'female' : 'male';
+    const normalizedName = normalizeNpcNameKey(cleanName);
+    if (!normalizedName || cleanName.length > 16) return;
+    if (NEARBY_NPC_NAME_STOPWORDS.has(cleanName) || NEARBY_NPC_NAME_STOPWORDS.has(normalizedName)) return;
+    if (/^\d+$/.test(cleanName)) return;
+    if (seeds.some(seed => normalizeNpcNameKey(seed.name) === normalizedName)) return;
+    const nameText = `${cleanName}${position || ''}${sourceText || ''}`;
+    const gender: NPC['gender'] = /(她|小姐|女士|女孩|少女|夜莺|修女)/.test(nameText) ? 'female' : 'male';
     seeds.push({
       name: cleanName,
-      position: position?.trim() || '未知身份',
+      position: position?.trim() || '待识别人物',
       gender,
     });
   };
 
   const patterns: Array<{ regex: RegExp; nameIdx: number; posIdx?: number }> = [
-    { regex: /名叫[「“]?([\u4e00-\u9fa5A-Za-z0-9_-]{2,10})[」”]?的?(?:一名)?([\u4e00-\u9fa5]{2,8})?/g, nameIdx: 1, posIdx: 2 },
+    { regex: /(?:名叫|叫做|叫|名为|称作)\s*[「“]?([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]?(?:的)?(?:一名|一个)?([\u4e00-\u9fa5]{2,12})?/g, nameIdx: 1, posIdx: 2 },
     { regex: /([「“]?[\u4e00-\u9fa5A-Za-z0-9_-]{2,10}[」”]?)[:：]/g, nameIdx: 1 },
-    { regex: /([\u4e00-\u9fa5A-Za-z0-9_-]{2,10})\s*[（(]([^)）]{2,8})[)）]/g, nameIdx: 1, posIdx: 2 },
+    { regex: /([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})\s*[（(]([^)）]{2,12})[)）]/g, nameIdx: 1, posIdx: 2 },
+    { regex: /[「“]([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]/g, nameIdx: 1 },
   ];
 
   patterns.forEach(({ regex, nameIdx, posIdx }) => {
@@ -700,35 +764,55 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
       const rawName = `${match[nameIdx] || ''}`.replace(/[「」“”]/g, '');
       const rawPos = posIdx ? `${match[posIdx] || ''}` : '';
       if (rawName.length < 2) continue;
-      if (/当前地点|系统|玩家|你在|继续行动|灵能|剧情|设置/.test(rawName)) continue;
-      pushSeed(rawName, rawPos);
-      if (seeds.length >= 3) break;
+      if (/当前地点|系统|玩家|你在|继续行动|灵能|剧情|设置|时间|地点|场景/.test(rawName)) continue;
+      pushSeed(rawName, rawPos, match[0] || '');
+      if (seeds.length >= 4) break;
     }
   });
 
-  return seeds.slice(0, 3);
+  return seeds.slice(0, 4);
+};
+
+const collectNearbyNpcSeeds = (texts: string[], existingNpcs: NPC[], currentLocation: string, factionName: string): NearbyNpcSeed[] => {
+  const locationKey = normalizeNpcNameKey(currentLocation);
+  const factionKey = normalizeNpcNameKey(factionName);
+  const merged: NearbyNpcSeed[] = [];
+  const seen = new Set<string>();
+
+  const pushSeed = (seed: NearbyNpcSeed) => {
+    const key = normalizeNpcNameKey(seed.name);
+    if (!key || seen.has(key)) return;
+    if (key === locationKey || key === factionKey) return;
+    seen.add(key);
+    merged.push({
+      ...seed,
+      position: seed.position || '待识别人物',
+      affiliation: seed.affiliation || '待识别来源',
+    });
+  };
+
+  texts.forEach(text => {
+    extractKnownNpcSeedsFromText(text, existingNpcs).forEach(pushSeed);
+    inferNearbyNpcSeedsFromMaintext(text).forEach(pushSeed);
+  });
+
+  return merged.slice(0, 6);
 };
 
 const buildAutoNearbyNpcsFromSeeds = (location: string, seeds: NearbyNpcSeed[]): NPC[] => {
   const loc = (location || '未知区域').trim() || '未知区域';
-  const sourceSeeds =
-    seeds.length > 0
-      ? seeds
-      : [
-          { name: '未登记目标-01', position: '可疑信号', gender: 'female' as const },
-          { name: '未登记目标-02', position: '可疑信号', gender: 'male' as const },
-        ];
+  if (seeds.length === 0) return [];
 
-  const list: NPC[] = sourceSeeds.slice(0, 3).map((seed, index) => {
+  const list: NPC[] = seeds.slice(0, 6).map((seed, index) => {
     const seedKey = `${loc}_${seed.name}_${index}`;
     const statusList: NPC['status'][] = ['online', 'busy', 'offline'];
     return {
-      id: `auto_nearby_${hashText(seedKey)}_${index + 1}`,
+      id: `${AUTO_NEARBY_NPC_ID_PREFIX}${hashText(seedKey)}_${index + 1}`,
       name: seed.name,
       gender: seed.gender,
       group: '',
-      position: seed.position || '未知身份',
-      affiliation: '待识别来源',
+      position: seed.position || '待识别人物',
+      affiliation: seed.affiliation || '待识别来源',
       location: loc,
       isContact: false,
       stats: ensurePlayerStatsSixDim({
@@ -1599,7 +1683,7 @@ const App: React.FC = () => {
   const floatIdCounter = useRef(0);
   const hasTriedLoadDefaultMapRef = useRef(false);
   const lastAutoMapSyncMessageIdRef = useRef('');
-  const autoNearbyInjectedLocationsRef = useRef<Set<string>>(new Set());
+  const lastNearbySyncSignatureRef = useRef('');
   const prevMobileRef = useRef<boolean | null>(null);
   const [autoMapSyncEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -2010,32 +2094,66 @@ const App: React.FC = () => {
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
 
+  const syncNearbyNpcsFromContext = useCallback(
+    (location: string, playerInput: string, narrativeText: string) => {
+      const normalizedLocation = (location || '未知区域').trim() || '未知区域';
+      setNpcs(prev => {
+        const seeds = collectNearbyNpcSeeds(
+          [playerInput, narrativeText].filter(text => `${text || ''}`.trim().length > 0),
+          prev,
+          normalizedLocation,
+          playerFaction.name,
+        );
+        const seedKeys = new Set(seeds.map(seed => normalizeNpcNameKey(seed.name)).filter(Boolean));
+        let next = prev.filter(npc => {
+          if (!isAutoNearbyNpc(npc) || npc.isContact || npc.temporaryStatus) return true;
+          if ((npc.location || '').trim() !== normalizedLocation) return true;
+          return seedKeys.has(normalizeNpcNameKey(npc.name));
+        });
+
+        seeds.forEach(seed => {
+          const seedKey = normalizeNpcNameKey(seed.name);
+          const existingIndex = next.findIndex(npc => normalizeNpcNameKey(npc.name) === seedKey);
+          if (existingIndex >= 0) {
+            const current = next[existingIndex];
+            next[existingIndex] = normalizeNpcForUi({
+              ...current,
+              name: seed.name,
+              position: seed.position || current.position || '待识别人物',
+              affiliation: seed.affiliation || current.affiliation || '待识别来源',
+              location: normalizedLocation,
+              temporaryStatus: undefined,
+              ...(current.isContact ? {} : { isContact: false }),
+            });
+            return;
+          }
+          const created = buildAutoNearbyNpcsFromSeeds(normalizedLocation, [seed])[0];
+          if (created) {
+            next = [created, ...next];
+          }
+        });
+
+        return normalizeNpcListForUi(next);
+      });
+    },
+    [playerFaction.name],
+  );
+
   useEffect(() => {
     if (gameStage !== 'game') return;
-    const location = (currentNarrativeLocation || '未知区域').trim() || '未知区域';
-    const hasNearbyNpc = npcs.some(
-      npc => !npc.isContact && !npc.temporaryStatus && (npc.location || '').trim() === location,
-    );
-    if (hasNearbyNpc) return;
-    if (autoNearbyInjectedLocationsRef.current.has(location)) return;
-    const parsedMaintext = parsePseudoLayer(activeLayerMessage?.content || '').maintext || '';
-    const inferredSeeds = inferNearbyNpcSeedsFromMaintext(parsedMaintext);
-    const autoGenerated = buildAutoNearbyNpcsFromSeeds(location, inferredSeeds);
-    if (!autoGenerated.length) return;
+    if (!activeLayerMessage?.content) return;
+    const layerSignature = `${activeLayerMessage.id}:${hashText(activeLayerMessage.content)}`;
+    if (layerSignature === lastNearbySyncSignatureRef.current) return;
+    lastNearbySyncSignatureRef.current = layerSignature;
 
-    autoNearbyInjectedLocationsRef.current.add(location);
-    setNpcs(prev => normalizeNpcListForUi([...autoGenerated, ...prev]));
-    setMessages(prev => [
-      ...prev,
-      {
-        id: `sys_auto_nearby_${Date.now()}`,
-        sender: 'System',
-        content: `侦测到附近出现 ${autoGenerated.length} 个可交互信号，已同步到「周围人物」。`,
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
-        type: 'narrative',
-      },
-    ]);
-  }, [gameStage, currentNarrativeLocation, npcs, activeLayerMessage]);
+    const parsedMaintext = sanitizeAiMaintext(parsePseudoLayer(activeLayerMessage.content).maintext || '');
+    const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
+    const playerTimeline = layerIndex >= 0 ? messages.slice(0, layerIndex) : messages;
+    const latestPlayerInput =
+      [...playerTimeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
+
+    syncNearbyNpcsFromContext(currentNarrativeLocation || '未知区域', latestPlayerInput, parsedMaintext);
+  }, [gameStage, currentNarrativeLocation, activeLayerMessage, messages, syncNearbyNpcsFromContext]);
 
   const identityLabel = useMemo(
     () => `${betaStatus.citizenId} · ${playerNeuralProtocol.toUpperCase()} · ${playerFaction.name}`,
@@ -2074,6 +2192,10 @@ const App: React.FC = () => {
       conversionRate: playerStats.psionic.conversionRate,
       recoveryRate: playerStats.psionic.recoveryRate,
       rank: playerStats.psionic.level,
+      protocol: playerNeuralProtocol,
+      citizenId: betaStatus.citizenId,
+      faction: playerFaction.name,
+      chips: playerChips.map(chip => chip.id),
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -2084,6 +2206,7 @@ const App: React.FC = () => {
         const root = vars.stat_data && typeof vars.stat_data === 'object' ? vars.stat_data : {};
         const world = root.world && typeof root.world === 'object' ? root.world : {};
         const player = root.player && typeof root.player === 'object' ? root.player : {};
+        const chipRoot = vars.chips && typeof vars.chips === 'object' && !Array.isArray(vars.chips) ? vars.chips : {};
         const coreStatusRaw = player.core_status;
         const hasCoreStatusObject = !!coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw);
         const coreStatus = hasCoreStatusObject ? coreStatusRaw : {};
@@ -2103,6 +2226,10 @@ const App: React.FC = () => {
         };
         const nextPlayer: Record<string, any> = {
           ...player,
+          gender: playerGender,
+          neural_protocol: playerNeuralProtocol,
+          citizen_id: betaStatus.citizenId,
+          has_beta_chip: hasBetaChip,
           psionic_rank: playerStats.psionic.level,
           reputation: betaStatus.creditScore,
           credits: playerStats.credits,
@@ -2144,8 +2271,24 @@ const App: React.FC = () => {
             ...world,
             current_time: effectiveGameTimeText,
             current_location: currentNarrativeLocation || world.current_location || '未知区域',
+            current_faction: playerFaction.name || world.current_faction || '未知势力',
           },
           player: nextPlayer,
+        };
+        nextVars.chips = {
+          ...chipRoot,
+          equipped: playerChips.map(chip => ({
+            id: chip.id,
+            name: chip.name,
+            type: chip.type,
+            rank: chip.rank,
+          })),
+          storage: storageChips.map(chip => ({
+            id: chip.id,
+            name: chip.name,
+            type: chip.type,
+            rank: chip.rank,
+          })),
         };
 
         tavernBridge.replaceVariables!(nextVars, { type: 'chat' });
@@ -2168,9 +2311,16 @@ const App: React.FC = () => {
     playerStats.psionic.level,
     playerStats.psionic.conversionRate,
     playerStats.psionic.recoveryRate,
+    playerGender,
+    playerNeuralProtocol,
+    betaStatus.citizenId,
     betaStatus.creditScore,
     effectiveGameTimeText,
     currentNarrativeLocation,
+    playerFaction.name,
+    hasBetaChip,
+    playerChips,
+    storageChips,
   ]);
   const visibleMessages = messages;
   const visibleLayerMessages = useMemo(
@@ -3265,7 +3415,7 @@ const App: React.FC = () => {
     const sysMsg: Message = {
       id: Date.now().toString(),
       sender: 'System',
-      content: `你使用了 [${item.name}]。${parsed.canFly ? '获得短距飞行能力。' : ''}`,
+      content: `已使用 [${item.name}]。${parsed.canFly ? '已获得短距飞行能力。' : ''}`,
       timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
       type: 'narrative',
     };
@@ -3324,7 +3474,8 @@ const App: React.FC = () => {
       dayPhase: nextGameDayPhase,
       sceneHint: nextGameSceneHint,
     });
-    const dialogueContextForRequest = buildDialogueContextFromMessages(requestTimeline);
+    const dialogueContextTimeline = appendPlayerMessage && visibleInput ? baseTimeline : requestTimeline;
+    const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
 
     let aborted = false;
     let requestSeq = 0;
@@ -3456,7 +3607,11 @@ const App: React.FC = () => {
       dayPhase: gameDayPhase,
       sceneHint: gameSceneHint,
     });
-    const dialogueContextForRequest = buildDialogueContextFromMessages(rerollTimeline);
+    const dialogueContextTimeline =
+      sourcePlayerMessageId && playerInput.trim()
+        ? rerollTimeline.filter(msg => msg.id !== sourcePlayerMessageId)
+        : rerollTimeline;
+    const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
 
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       setApiError('');
@@ -3713,6 +3868,7 @@ const App: React.FC = () => {
 
 
   const handleSetupComplete = (config: GameConfig) => {
+    const nextProtocol = config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none');
     const startRankConfig = RANK_CONFIG[config.startPsionicRank];
     const startMaxMp = getMaxMpByGenderAndRank(config.gender, config.startPsionicRank);
     const newStats: PlayerStats = {
@@ -3736,7 +3892,10 @@ const App: React.FC = () => {
     };
     setPlayerStats(newStats);
     setPlayerGender(config.gender);
-    setPlayerNeuralProtocol(config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none'));
+    setPlayerNeuralProtocol(nextProtocol);
+    setPlayerSkills([]);
+    setNpcs([]);
+    setContactGroups([]);
     setCoinVault({
       [Rank.Lv1]: config.startPsionicRank === Rank.Lv1 ? config.startCredits : 0,
       [Rank.Lv2]: config.startPsionicRank === Rank.Lv2 ? config.startCredits : 0,
@@ -3780,17 +3939,31 @@ const App: React.FC = () => {
     setAcceptedBetaTaskIds([]);
     setClaimableBetaTaskIds([]);
     setTaskDeadlines({});
-    setBetaStatus(prev => ({
-      ...prev,
-      taxOfficerUnlocked: !!config.installBetaChip,
+    setPendingUpgradeEvaluation(false);
+    setIsTaxOfficerPickerOpen(false);
+    setBetaStatus({
+      citizenId: config.citizenId,
+      creditScore: nextProtocol === 'beta' ? 65 : 60,
+      deductionHistory: [],
+      warnings: [],
+      taxDeadline: '',
+      taxAmount: 0,
+      betaLevel: 1,
+      betaTierName: getBetaTierTitle(1),
+      taxOfficerUnlocked: nextProtocol === 'beta',
       taxOfficerBoundId: null,
       taxOfficerName: '',
       taxOfficeAddress: '',
-      taxDeadline: prev.taxDeadline?.replaceAll('-', '.'),
-    }));
+    });
+    setStateLock({
+      lockTime: false,
+      lockLocation: false,
+      lockIdentity: false,
+    });
+    lastNearbySyncSignatureRef.current = '';
 
     if (config.gender === 'male' && config.hasRedString) {
-      setPlayerSkills(prev => [
+      setPlayerSkills([
         {
           id: 'ps_special_1',
           name: '灵弦：【本命】皇权回响',
@@ -3798,14 +3971,13 @@ const App: React.FC = () => {
           description: '领袖级特质，转化效率锁定为 300%。',
           rankColor: 'red',
         },
-        ...prev,
       ]);
     }
 
     const bootMsg: Message = {
       id: 'sys_init',
       sender: 'System',
-      content: `初始化完成：角色「${config.name}」已载入。当前势力：${config.factionName}；当前位置：${config.startingLocation}。请直接输入你的开局叙事或第一步行动。`,
+      content: `初始化完成：角色「${config.name}」已载入。当前势力：${config.factionName}；当前位置：${config.startingLocation}。`,
       timestamp: new Date().toLocaleTimeString('zh-CN'),
       type: 'narrative',
     };
@@ -4230,7 +4402,7 @@ const App: React.FC = () => {
       {
         id: `beta_tax_assign_${Date.now()}`,
         sender: 'System',
-        content: `Beta协议已生效：你被强制编入「${district.name}」，分配税务官「${district.officerName}」。`,
+        content: `Beta协议已生效：已编入「${district.name}」，分配税务官「${district.officerName}」。`,
         timestamp: new Date().toLocaleTimeString('zh-CN'),
         type: 'narrative',
       },

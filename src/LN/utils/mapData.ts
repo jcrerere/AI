@@ -191,7 +191,7 @@ export const mergeWorldNodeMap = (base: WorldNodeMapData, incoming: WorldNodeMap
 };
 
 export const MAP_OUTPUT_PROMPT = [
-  '你是地图数据生成器。输出 <MAP_PATCH> 包裹的 JSON，不要解释。',
+  '作为地图数据生成器，输出 <MAP_PATCH> 包裹的 JSON，不要解释。',
   '输出结构：{"map_patch":{"mode":"merge","map":{"regions":[...]}}}',
   '整图重建用 mode=replace，日常增量更新用 mode=merge。',
   'map 结构必须是 {"map":{"regions":[...]}} 或 {"regions":[...]}。',
@@ -204,4 +204,3 @@ export const AUTO_MAP_PATCH_PROTOCOL = [
   '补丁格式：<MAP_PATCH>{"map_patch":{"mode":"merge","map":{"regions":[...]}}}</MAP_PATCH>',
   '无地图变更时，不要输出 MAP_PATCH。',
 ].join('\n');
-

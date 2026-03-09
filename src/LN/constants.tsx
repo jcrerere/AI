@@ -35,7 +35,7 @@ export const RANK_CONFIG: Record<Rank, { maxMp: number, maxXp: number }> = {
 
 // Mock Player Data
 export const MOCK_PLAYER_STATUS: PlayerCivilianStatus = {
-  citizenId: 'NC-2077-74092-BETA',
+  citizenId: 'NC-2077-74092',
   creditScore: 65, // Scaled to 100
   deductionHistory: [
       { id: 'd1', reason: '在公共区域通过义眼非法扫描', amount: -2, timestamp: '2077-11-02', type: 'fine' },

@@ -1,11 +1,11 @@
 output_format:
   rule:
-    - 你必须在回复末尾输出变量更新块
-    - 变量更新块必须使用 <UpdateVariable> 包裹
-    - JSONPatch 必须是合法 JSON 数组
+    - 回复末尾需输出变量更新块
+    - 变量更新块需使用 <UpdateVariable> 包裹
+    - JSONPatch 需为合法 JSON 数组
     - 支持 op: replace, delta, insert, remove, move
     - 所有路径以 /stat_data 为根路径
-    - 玩家声明动作默认执行，变量层只结算代价/后果
+    - 玩家声明动作默认执行，变量层仅结算代价与后果
 
   format: |-
     <UpdateVariable>
