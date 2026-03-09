@@ -896,8 +896,8 @@ const extractMaintextFromApiOutput = (raw: string): string => {
 
   // Strict fallback:
   // If model mixed modules in one response and forgot <maintext>,
-  // only keep the prefix before <option>/<sum>/<UpdateVariable>.
-  const splitIndex = text.search(/<(?:option|sum|update(?:variable)?)\b/i);
+  // only keep the prefix before <sum>/<UpdateVariable>.
+  const splitIndex = text.search(/<(?:sum|update(?:variable)?)\b/i);
   if (splitIndex > 0) {
     const prefix = stripLeadingStatusLinesFromMaintext(text.slice(0, splitIndex));
     if (prefix) return prefix;
@@ -908,7 +908,6 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   const stripped = sanitizeAiMaintext(
     text
       .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '')
-      .replace(/<option\b[^>]*>[\s\S]*?<\/option>/gi, '')
       .replace(/<sum\b[^>]*>[\s\S]*?<\/sum>/gi, '')
       .replace(/<update(?:variable)?\b[^>]*>[\s\S]*?<\/update(?:variable)?>/gi, '')
       .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
@@ -1939,7 +1938,7 @@ const App: React.FC = () => {
     const sumMatch = sumText.match(/地点[:：]\s*([^|｜\n]+)/);
     if (sumMatch?.[1]?.trim()) return sumMatch[1].trim();
     const maintext = parsed.maintext || activeLayerMessage.content;
-    const mainMatch = maintext.match(/你在(.+?)继续行动/);
+    const mainMatch = maintext.match(/(?:你在|位于|身处)\s*([^，。,.\n]+?)(?:继续行动|行动|开展行动|。|，|\n)/);
     if (mainMatch?.[1]?.trim()) return mainMatch[1].trim();
     const locationLine = maintext.match(/当前地点[:：]\s*([^\n]+)/);
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();

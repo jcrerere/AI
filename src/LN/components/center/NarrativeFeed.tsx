@@ -130,7 +130,7 @@ const NarrativeFeed: React.FC<Props> = ({
             );
           }
 
-          const parsed = hasPseudoLayer(msg.content) ? parsePseudoLayer(msg.content) : { maintext: msg.content || '', options: [], sum: '' };
+          const parsed = hasPseudoLayer(msg.content) ? parsePseudoLayer(msg.content) : { maintext: msg.content || '', sum: '' };
           const openLayerMenu = (x: number, y: number) => {
             onLayerContextMenu?.({ x, y, messageId: msg.id, sender: 'System' });
           };
