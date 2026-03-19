@@ -6,7 +6,7 @@ interface CyberPanelProps {
   children: ReactNode;
   className?: string;
   title?: string;
-  variant?: 'default' | 'danger' | 'hologram' | 'gold';
+  variant?: 'default' | 'danger' | 'hologram' | 'gold' | 'terminal';
   noPadding?: boolean;
   allowExpand?: boolean; 
   collapsible?: boolean; 
@@ -44,6 +44,11 @@ const CyberPanel: React.FC<CyberPanelProps> = ({
     containerStyle = 'bg-[#1a1005]/80 border border-amber-600/40 shadow-[0_0_15px_rgba(217,119,6,0.15)] rounded-xl';
     headerStyle = 'border-b border-amber-600/30 bg-gradient-to-r from-amber-950/40 to-transparent';
     titleColor = 'text-amber-400';
+  } else if (variant === 'terminal') {
+    // Restricted/Intel terminal
+    containerStyle = 'bg-[#07110e]/90 border border-emerald-500/20 shadow-[0_0_18px_rgba(16,185,129,0.08)] rounded-md';
+    headerStyle = 'border-b border-emerald-500/20 bg-[linear-gradient(90deg,rgba(16,185,129,0.16),rgba(6,12,10,0.22)_55%,transparent)]';
+    titleColor = 'text-emerald-300';
   } else {
     // Default Slaanesh Purple (The "Normal" style)
     // Deep purple bg, elegant thin pink/purple border

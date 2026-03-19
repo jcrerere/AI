@@ -3,117 +3,116 @@ rules:
     engine: MVU
     root_path: stat_data
     patch_priority:
-      - combat_and_settlement
-      - resources_and_inventory
-      - status_and_affix
-      - task_and_location
+      - time_and_scene
+      - status_and_cost
+      - economy_and_assets
+      - identity_and_faction
 
   world.current_time:
     format: YYYY-MM-DD HH:mm
     check:
-      - 随剧情推进更新时间
-      - 回档/重掷时按当前楼层重算
+      - 必须与本轮剧情推进时间一致
+
+  world.current_period:
+    enum: [深夜, 夜晚, 清晨, 白天, 黄昏]
+    check:
+      - 必须与 current_time 对应
 
   world.current_location:
     type: string
     check:
-      - 必须与当前剧情场景一致
-      - 禁止回退到旧世界观地点（如“荒坂塔下层”）
+      - 必须与正文场景一致
+      - 禁止写入外世界地点名
 
-  world.exchange_rules.same_level_theoretical_rate:
-    type: number
-    fixed: 1.0
+  world.current_faction:
+    type: string
+    check:
+      - 势力变化时同步 player.faction
 
-  world.exchange_rules.cross_level_loss_rate:
-    type: number
-    fixed: 0.80
+  world.exchange_rules:
+    type: fixed_object
+    check:
+      - same_level_theoretical_rate 固定为 1.0
+      - cross_level_loss_rate 固定为 0.80
+      - 艾瑞拉/淬灵区: male=0.55, female=1.00
+      - 汐屿区: male=0.55, female=0.55
+      - 诺丝区: male=0.45, female=0.45
+      - 圣教区: exchange_enabled=false
 
-  world.exchange_rules.region_modifier:
+  player.identity.citizen_id / player.citizen_id:
+    type: string
+    check:
+      - 两个字段保持一致
+
+  player.identity.neural_protocol / player.neural_protocol:
+    type: enum
+    allowed: [none, beta]
+    check:
+      - 两个字段保持一致
+
+  player.core_status.*:
     type: object
     check:
-      - 艾瑞拉/淬灵区/汐屿区：male=0.55,female=0.55
-      - 诺丝区：male=0.45,female=0.45
-      - 圣教区：exchange_enabled=false
+      - hp/mp/sanity/reputation 的 current 必须钳制在 [0,max]
+      - player.status.* 与 player.core_status.* 保持同步
 
-  player.six_dim:
+  player.psionic.rank / player.psionic_rank:
+    type: rank
+    allowed: [Lv.1, Lv.2, Lv.3, Lv.4, Lv.5]
+    check:
+      - 两个字段保持一致
+
+  player.psionic.density_level:
+    type: integer
+    check:
+      - 默认与 rank 对应的等级一致
+
+  player.psionic.energy_value:
     type: object
-    range_each: 1~99
     check:
-      - free_points 只能在加点时减少
-      - 单项不得超过 cap
+      - current/max 与 player.core_status.mp.current/max 保持一致
 
-  player.checks:
-    type: formula
-    check:
-      - 玩家声明动作默认可执行，不做“失败拦截”
-      - 只结算代价与后果（MP/理智/信誉/伤势）
-      - weighted_sum 默认：主属性0.5 + 副属性0.3 + 副属性0.2
-      - cost_gap = max(0, DC - weighted_sum)
-
-  player.psionic.conversion_rate:
+  player.psionic.conversion_rate.current:
     type: number
     range:
       male: 0.15~0.30
       female: 0.80~1.20
     check:
-      - 作用于同级灵能值<->灵能币转换
-      - 作用于灵能值->灵能密度提升
+      - 以小数写入，不要写百分号字符串
 
-  player.psionic.recovery_rate:
+  player.psionic.recovery_rate.current:
     type: number
     range:
       male: 0.70~2.00
       female: 0.10~0.40
     check:
-      - 可被灵弦/装备/遗迹修正
+      - 以小数写入，不要写百分号字符串
 
-  player.psionic.base_daily_recovery:
-    type: object
-    fixed:
-      male: 120
-      female: 30
-
-  player.siphon.absorb_rate / player.siphon.leakage_rate:
-    type: number
-    min: 0
-    check:
-      - 允许超过 1.0（100%）
-      - final_rate = base(part,strength) + spirit_strings/equipment modifiers
-
-  player.siphon.settlement:
-    type: formula
-    check:
-      - drain_amount = base_drain_amount * absorb_rate * leakage_rate
-      - 先扣 energy_value
-      - 溢出后折算生命扣除：overflow * life_convert_coeff
-
-  player.lingshu_parts[*].status / player.core_status:
-    type: array
-    check:
-      - 每条状态至少包含 name/desc/type/source
-      - 过期状态要清理
-
-  content_generation.equipment:
-    type: generator
-    trigger: [loot_drop, merchant_refresh, relic_crafting]
-    check:
-      - 必含 rarity/slot/1-3 affixes
-      - 稀有度按 rarity_weight 分布
-
-  content_generation.spirit_beast:
-    type: generator
-    trigger: [explore_wild, hunt_event, quest_spawn]
-    check:
-      - 必含 tier/traits/drop/tame_difficulty
-
-  content_generation.relic:
-    type: generator
-    trigger: [ruin_explore, boss_clear, hidden_line_reward]
-    check:
-      - 必含至少 1 个正面效果
-
-  career.active_tasks:
+  player.assets.lcoin:
     type: object
     check:
-      - 接取任务包含 deadline/reward
-      - 完成/失败任务归档并移出 active
+      - 维护 lv1~lv5 与 total
+      - 同级货币优先写入当前 rank 对应层级
+
+  player.chip:
+    type: object
+    check:
+      - beta_equipped 为 true 且 tax_officer_id 为空时，应触发税务官分配
+      - assigned_district / tax_officer_id / tax_officer_name / tax_office_address 同步维护
+
+  player.status_tags / player.core_affixes:
+    type: list
+    check:
+      - 只记录当前仍生效的状态
+      - core_affixes 至少包含 name/desc/type/source
+
+  player.lingshu_parts[*].status:
+    type: list
+    check:
+      - 只记录该灵枢当前状态，不重复写全量世界规则
+
+  monthly_settlement:
+    type: process
+    check:
+      - 跨月时必须结算固定收支、关系漂移、区域事件
+      - 月结后的结果必须写回 stat_data，而非只写在正文中

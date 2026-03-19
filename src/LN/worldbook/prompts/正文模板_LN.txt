@@ -1,64 +1,50 @@
 [Template]
 name=LN剧情生成模板
-version=1.3.0
-description=适配灵能腐蚀项目的模块化输出模板
+version=1.4.0
+description=适配灵能世界 LN 伪0层与 MVU 变量写回的模块化输出模板
 
 [OutputOrder]
 1=<maintext>
 2=<npcdata> (optional)
-3=<sum> (optional)
+3=<sum>
 4=<UpdateVariable> (optional)
 
 [MainTextRules]
 required=true
-notes=只写可直接进入对话区的正文，不要把时间地点再重复写到正文首行
+notes=只写本轮可直接展示给玩家的正文，不重复解释系统规则，不输出思维过程
 
 [NPCDataRules]
 optional=true
 format=JSON array wrapped by <npcdata>
 required_fields=name,gender,affiliation,position
-notes=仅记录本轮正文里明确出现或被识别的NPC；未知字段宁缺勿滥
-schema_example=|-
-  <npcdata>
-  [
-    {
-      "name": "塞西莉亚",
-      "gender": "female",
-      "affiliation": "夜莺",
-      "position": "追猎者",
-      "location": "艾瑞拉-窄巷",
-      "psionic_rank": "Lv.1",
-      "perception": 14,
-      "status_tags": ["目标锁定", "近距追猎"],
-      "chip_modules": ["静音追踪模块"],
-      "body_parts": [
-        { "part": "r_leg", "spirit_strings": ["追猎步频"], "equipments": ["夜莺高跟靴"] },
-        { "part": "r_hand", "spirit_strings": [], "equipments": ["黑色短鞭"] }
-      ],
-      "core": {
-        "type": "奇点型",
-        "stored_souls": 2,
-        "notes": ["灵核空间稳定"]
-      }
-    }
-  ]
-  </npcdata>
-
-[NPCWorldRules]
-core_types=女性奇点型；男性发散型
-spirit_string_limit=普通NPC单部位通常0-3条，特殊个体才允许更多
-core_storage_rule=女性灵核空间存量通常0-10；普通人应偏低
-unknown_policy=未知的芯片、灵弦、装备、灵魂数量都不要硬编
+notes=只记录本轮正文里明确出现或被识别的 NPC；未知字段宁缺勿滥
 
 [SumRules]
-optional=true
-format=地点|行动|资源变化|下一节点
-length=1-2句
+required=true
+length=1-3句
+notes=只写回合事实摘要，至少覆盖时间/地点/结果中的两项，可补一句悬念
 
 [UpdateVariableRules]
 required=false
 format=JSONPatch
-must_sync=reputation,credits,current_location,active_tasks
+must_sync=world.current_time,world.current_location,player.core_status,player.assets.lcoin,player.core_affixes
+rules=所有路径以 /stat_data 开头；变量变更必须能从正文或摘要中追溯；可使用 replace/delta/insert/remove/move
+example=|-
+  <UpdateVariable>
+  <Analysis>(IN ENGLISH, <= 80 words)
+  - time elapsed:
+  - dramatic update allowed: yes/no
+  - variable impacts:
+  </Analysis>
+  <JSONPatch>
+  [
+    { "op": "replace", "path": "/stat_data/world/current_time", "value": "2077-11-03 21:10" },
+    { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环外街" },
+    { "op": "delta", "path": "/stat_data/player/core_status/reputation/current", "value": -2 },
+    { "op": "insert", "path": "/stat_data/player/core_affixes/-", "value": { "name": "状态：目标锁定", "desc": "夜莺开始追查玩家。", "type": "debuff", "source": "交涉后续" } }
+  ]
+  </JSONPatch>
+  </UpdateVariable>
 
 [HardGate]
-insufficient_ap_behavior=拒绝或降级结果
+forbidden=不要输出外世界地点/组织；不要伪造未出现的 NPC 详细数据；不要把 <sum> 写成思维链

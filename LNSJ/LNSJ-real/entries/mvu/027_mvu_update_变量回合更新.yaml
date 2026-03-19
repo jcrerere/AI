@@ -1,0 +1,34 @@
+```yaml
+[系统回合变量更新规范]
+每回合按下列顺序更新 stat_data，并保持与正文一致：
+
+A. 时间与场景
+- 更新 stat_data.world.current_time
+- 更新 stat_data.world.current_period（清晨/白天/黄昏/夜晚/深夜）
+- 如发生位移，更新 stat_data.world.current_location 与 stat_data.player.region
+
+B. 阵营与身份
+- 势力变化时更新 stat_data.world.current_faction 与 stat_data.player.faction
+- 禁止写入世界观外地名（如“荒坂塔”“夜之城”等）
+
+C. 状态结算
+- 生命变化 -> stat_data.player.core_status.hp.current
+- 灵能变化 -> stat_data.player.core_status.mp.current 与 stat_data.player.psionic.energy_value.current
+- 精神变化 -> stat_data.player.core_status.sanity.current
+- 信誉变化 -> stat_data.player.core_status.reputation.current
+- 所有 current 字段必须钳制在 [0,max]
+
+D. 经济与兑换
+- 灵能币写入 stat_data.player.assets.lcoin.*
+- 同级理论1:1，实际受 conversion_rate + region_modifier
+- 跨级损耗固定读取 stat_data.world.exchange_rules.cross_level_loss_rate
+- 圣教区 exchange_enabled=false 时，不执行兑换结果
+
+E. Beta税务官事件
+- beta_equipped=false 时 tax_officer_* 可为空
+- beta_equipped=true 且 tax_officer_id为空时，必须本回合分配税务官并写回 chip 字段
+
+F. 输出约束
+- 不得改名/拆分 stat_data 根结构
+- 不得并行创建冲突根字段
+```

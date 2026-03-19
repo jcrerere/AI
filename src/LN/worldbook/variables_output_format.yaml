@@ -1,63 +1,55 @@
 output_format:
   rule:
-    - 回复末尾如需改变量，必须输出变量更新块
-    - 变量更新块必须使用 <UpdateVariable> 包裹
-    - JSONPatch 必须是合法 JSON 数组
-    - 支持 op: replace, delta, insert, remove, move
-    - 所有路径以 /stat_data 为根路径
-    - 玩家声明动作默认执行，变量层只结算代价与后果
+    - 回复顺序固定为 <maintext>、<npcdata>(可选)、<sum>、<UpdateVariable>(可选)
+    - <sum> 只写 1~3 句回合事实摘要，不写思维过程
+    - <UpdateVariable> 必须包裹合法 JSONPatch 数组
+    - 所有路径必须以 /stat_data 开头
+    - 允许 op: replace, delta, insert, remove, move
+    - 变量变化必须能从本轮正文或摘要中追溯
 
   format: |-
+    <sum>
+    时间: 2077-11-03 21:10；地点: 艾瑞拉·中环外街。
+    结果: 玩家完成交涉，信誉-2，获得税务官夜巡名单。
+    悬念: 下一步可潜入税务分区或去黑市换证。
+    </sum>
     <UpdateVariable>
     <Analysis>(IN ENGLISH, <= 80 words)
     - time elapsed:
     - dramatic update allowed: yes/no
-    - checks triggered:
     - variable impacts:
     </Analysis>
     <JSONPatch>
     [
-      { "op": "delta", "path": "/stat_data/player/credits", "value": -30 },
-      { "op": "delta", "path": "/stat_data/player/psionic/energy_value", "value": -20 },
-      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉主城-夜市外环" },
-      { "op": "insert", "path": "/stat_data/player/core_status/-", "value": { "name": "状态：过载余震", "desc": "短时波动", "type": "debuff", "source": "战斗结算" } }
+      { "op": "replace", "path": "/stat_data/world/current_time", "value": "2077-11-03 21:10" },
+      { "op": "replace", "path": "/stat_data/world/current_period", "value": "夜晚" },
+      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环外街" },
+      { "op": "delta", "path": "/stat_data/player/core_status/reputation/current", "value": -2 },
+      { "op": "delta", "path": "/stat_data/player/assets/lcoin/lv1", "value": 120 },
+      { "op": "insert", "path": "/stat_data/player/core_affixes/-", "value": { "name": "状态：目标锁定", "desc": "夜莺已开始追查玩家行踪。", "type": "debuff", "source": "交涉后续" } }
     ]
     </JSONPatch>
     </UpdateVariable>
 
 npc_data_format:
   rule:
-    - 可选块，使用 <npcdata> 包裹
-    - 内容必须是合法 JSON 数组
-    - 只记录本轮正文中明确出现或被识别的 NPC
-    - 必填字段：name, gender, affiliation, position
-    - gender 只允许 female 或 male
-    - 灵核类型只有两种：女性=奇点型，男性=发散型
-    - body_parts[].spirit_strings 普通NPC单部位通常0到3条
-    - core.stored_souls 仅女性使用，通常0到10
-    - 未知字段用空数组或省略，不得照抄玩家状态栏
+    - <npcdata> 为可选块，内容必须是合法 JSON 数组
+    - 只记录本轮正文明确出现或被识别的 NPC
+    - 必填字段: name, gender, affiliation, position
+    - 未知字段可省略，不要照抄玩家状态栏
 
   format: |-
     <npcdata>
     [
       {
-        "name": "塞西莉亚",
+        "name": "岚绯",
         "gender": "female",
         "affiliation": "夜莺",
-        "position": "追猎者",
-        "location": "艾瑞拉-窄巷",
+        "position": "税务官",
+        "location": "艾瑞拉·北门分区",
         "psionic_rank": "Lv.1",
         "perception": 14,
-        "status_tags": ["目标锁定"],
-        "chip_modules": ["静音追踪模块"],
-        "body_parts": [
-          { "part": "r_leg", "spirit_strings": ["追猎步频"], "equipments": ["夜莺高跟靴"] }
-        ],
-        "core": {
-          "type": "奇点型",
-          "stored_souls": 2,
-          "notes": ["灵核空间稳定"]
-        }
+        "status_tags": ["目标锁定"]
       }
     ]
     </npcdata>

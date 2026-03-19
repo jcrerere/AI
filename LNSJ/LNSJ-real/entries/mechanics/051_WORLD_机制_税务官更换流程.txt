@@ -1,0 +1,23 @@
+<WORLD_机制_税务官更换流程>
+```yaml
+可触发方式:
+1. 行政申诉（合规路径）
+2. 势力交易（灰色路径）
+3. 事件夺权（冲突路径）
+
+通用限制:
+- 不可无限频繁更换，存在冷却期。
+- 更换必有代价（信誉、资源、关系、风险至少其一）。
+
+结算写入:
+- player.identity.tax_officer_id
+- player.identity.tax_officer_org
+- player.identity.assigned_district（若发生调区）
+- player.reputation（按路径增减）
+
+判定原则:
+- 行政路径代价低但慢；
+- 交易路径快但有额外债务；
+- 冲突路径收益高但高风险。
+```
+</WORLD_机制_税务官更换流程>

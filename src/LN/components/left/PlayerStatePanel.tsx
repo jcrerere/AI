@@ -23,9 +23,30 @@ interface Props {
   hasBetaChip?: boolean;
   onOpenSpiritCore?: () => void;
   gender?: 'male' | 'female';
+  race?: string;
+  statusTags?: string[];
+  chipCount?: number;
+  spiritStringCount?: number;
 }
 
-const PlayerStatePanel: React.FC<Props> = ({ stats, hasBetaChip, onOpenSpiritCore, gender = 'male' }) => {
+const spiritRaceCoreType = (race: string): string => {
+  if (/花妖/.test(race)) return '寄生型';
+  if (/蚁女/.test(race)) return '群巢型';
+  if (/蜘蛛新娘/.test(race)) return '茧网型';
+  if (/史莱姆|溶灵/.test(race)) return '液态型';
+  return '灵族型';
+};
+
+const PlayerStatePanel: React.FC<Props> = ({
+  stats,
+  hasBetaChip,
+  onOpenSpiritCore,
+  gender = 'male',
+  race = '',
+  statusTags = [],
+  chipCount = 0,
+  spiritStringCount = 0,
+}) => {
   const segments = 20;
   const activeSegments = Math.ceil((stats.formStability / 100) * segments);
 
@@ -41,6 +62,17 @@ const PlayerStatePanel: React.FC<Props> = ({ stats, hasBetaChip, onOpenSpiritCor
   const isFemale = gender === 'female';
   const conversionRate = stats.psionic.conversionRate;
   const isSovereignMale = !isFemale && conversionRate > 200;
+  const raceText = race.trim();
+  const isSpiritRace = /灵族|花妖|蚁女|蜘蛛新娘|史莱姆|溶灵/.test(raceText);
+  const detectorText = isSpiritRace ? '灵族灵枢检测' : isFemale ? '灵枢检测' : '灵核检测';
+  const coreTypeText = isSpiritRace
+    ? spiritRaceCoreType(raceText)
+    : isFemale
+      ? '奇点型'
+      : isSovereignMale
+        ? '领袖型'
+        : '发散型';
+  const normalizedStatusTags = (statusTags || []).map(tag => tag.trim()).filter(Boolean);
   const rankText = stats.psionic.level.replace('Lv.', '') + '级';
   const sixDim = {
     力量: stats.sixDim?.力量 ?? 8,
@@ -127,11 +159,11 @@ const PlayerStatePanel: React.FC<Props> = ({ stats, hasBetaChip, onOpenSpiritCor
           <div className="flex items-center gap-1">
             <Zap className={`w-3.5 h-3.5 ${isSovereignMale ? 'text-red-500' : 'text-amber-500'}`} />
             <span className={`text-[10px] font-bold ${isSovereignMale ? 'text-red-100' : 'text-amber-100 group-hover:text-amber-400'}`}>
-              {isFemale ? '灵枢检测' : '灵核检测'}
+              {detectorText}
             </span>
           </div>
           <span className={`text-[9px] border px-1 rounded bg-black/50 ${isSovereignMale ? 'text-red-400 border-red-500' : 'text-amber-500/80 border-amber-900/50'}`}>
-            {isFemale ? '奇点型' : isSovereignMale ? '领袖型' : '发散型'}
+            {coreTypeText}
           </span>
         </div>
 
@@ -182,6 +214,38 @@ const PlayerStatePanel: React.FC<Props> = ({ stats, hasBetaChip, onOpenSpiritCor
           查看灵核详情
         </button>
       </div>
+
+      {(raceText || normalizedStatusTags.length > 0 || chipCount > 0 || spiritStringCount > 0) && (
+        <div className="mt-3 mb-4 rounded-xl border border-slate-800 bg-black/30 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-slate-400 font-bold">种族与回路</div>
+            <div className="text-[10px] text-cyan-300 font-mono">{raceText || '未标注'}</div>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded border border-slate-800 bg-slate-950/40 p-1.5">
+              <div className="text-[9px] text-slate-500">灵弦</div>
+              <div className="text-[11px] text-fuchsia-300 font-mono">{spiritStringCount}</div>
+            </div>
+            <div className="rounded border border-slate-800 bg-slate-950/40 p-1.5">
+              <div className="text-[9px] text-slate-500">芯片</div>
+              <div className="text-[11px] text-cyan-300 font-mono">{chipCount}</div>
+            </div>
+            <div className="rounded border border-slate-800 bg-slate-950/40 p-1.5">
+              <div className="text-[9px] text-slate-500">状态</div>
+              <div className="text-[11px] text-amber-300 font-mono">{normalizedStatusTags.length}</div>
+            </div>
+          </div>
+          {normalizedStatusTags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {normalizedStatusTags.slice(0, 6).map(tag => (
+                <span key={tag} className="text-[9px] border border-slate-700 bg-slate-900/60 text-slate-300 px-1.5 py-0.5 rounded">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="w-full mb-4 px-1">
         <div className="flex justify-between items-center mb-1.5">

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Briefcase, CircleDot, Plus, Trash2 } from 'lucide-react';
 import { CareerNode, CareerTrack } from '../../types';
 
@@ -55,6 +55,18 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
     [activeCareerTrack, selectedNodeId],
   );
 
+  useEffect(() => {
+    if (!tracks.length) return;
+    const nextTrack = tracks.find(track => track.id === activeTrackId) || tracks[0];
+    if (nextTrack.id !== activeTrackId) {
+      setActiveTrackId(nextTrack.id);
+    }
+    const nextNodeId = nextTrack.rootNodeId || nextTrack.nodes[0]?.id || '';
+    if (!nextTrack.nodes.some(node => node.id === selectedNodeId)) {
+      setSelectedNodeId(nextNodeId);
+    }
+  }, [activeTrackId, selectedNodeId, tracks]);
+
   const updateActiveTrack = (patch: Partial<CareerTrack>) => {
     if (!activeCareerTrack) return;
     onChangeTracks(tracks.map(track => (track.id === activeCareerTrack.id ? { ...track, ...patch } : track)));
@@ -110,6 +122,7 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
       setSelectedNodeId(selectedCareerNode.links[direction]!);
       return;
     }
+
     const nextX = direction === 'left' ? selectedCareerNode.x - GRID_STEP : direction === 'right' ? selectedCareerNode.x + GRID_STEP : selectedCareerNode.x;
     const nextY = direction === 'up' ? selectedCareerNode.y - GRID_STEP : direction === 'down' ? selectedCareerNode.y + GRID_STEP : selectedCareerNode.y;
     const occupied = activeCareerTrack.nodes.find(node => node.x === nextX && node.y === nextY);
@@ -117,6 +130,7 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
       setSelectedNodeId(occupied.id);
       return;
     }
+
     const newNode = createNode(nextX, nextY, 'side');
     const reverseDirection = oppositeDirection[direction];
     onChangeTracks(
@@ -176,7 +190,7 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
       <div className="w-[95vw] max-w-[1400px] border border-amber-900/50 bg-[#070507] rounded-lg overflow-hidden max-h-[90vh] flex flex-col">
         <div className="h-12 border-b border-amber-900/40 flex items-center justify-between px-4 shrink-0">
           <div className="text-sm font-bold text-amber-300 flex items-center gap-2">
-            <Briefcase className="w-4 h-4" /> 职业线路编辑器（管制协议）
+            <Briefcase className="w-4 h-4" /> 职业线编辑器
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white">关闭</button>
         </div>
@@ -204,7 +218,12 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
                 ))}
               </div>
               <div className="border-t border-slate-800 pt-3 space-y-2">
-                <input value={newTrackName} onChange={e => setNewTrackName(e.target.value)} placeholder="新增职业名" className="w-full bg-black border border-slate-700 px-2 py-1.5 text-xs text-white" />
+                <input
+                  value={newTrackName}
+                  onChange={e => setNewTrackName(e.target.value)}
+                  placeholder="新增职业名称"
+                  className="w-full bg-black border border-slate-700 px-2 py-1.5 text-xs text-white"
+                />
                 <button onClick={addCareerTrack} className="w-full border border-emerald-700 text-emerald-300 text-xs py-1.5 hover:bg-emerald-900/20 flex items-center justify-center gap-1">
                   <Plus className="w-3 h-3" /> 新增职业
                 </button>
@@ -266,7 +285,7 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
                 </div>
               </div>
 
-              <div className="text-[10px] text-slate-500">提示：支持上下左右新增支点，后续可继续做技能树风格美化。</div>
+              <div className="text-[10px] text-slate-500">提示：支持上下左右扩展节点，先把线路结构搭出来，后续再细化奖励与节点文案。</div>
             </div>
 
             <div className="border border-slate-800 rounded p-3 bg-black/30 space-y-3">
@@ -314,7 +333,7 @@ const CareerLineEditorModal: React.FC<Props> = ({ open, onClose, tracks, onChang
                     </div>
                   )}
 
-                  <input value={selectedCareerNode.name} onChange={e => updateSelectedCareerNode({ name: e.target.value })} className="w-full bg-black border border-slate-700 px-2 py-1.5 text-xs text-white" placeholder="事件名" />
+                  <input value={selectedCareerNode.name} onChange={e => updateSelectedCareerNode({ name: e.target.value })} className="w-full bg-black border border-slate-700 px-2 py-1.5 text-xs text-white" placeholder="事件名称" />
                   <select value={selectedCareerNode.lineType} onChange={e => updateSelectedCareerNode({ lineType: e.target.value as CareerNode['lineType'] })} className="w-full bg-black border border-slate-700 px-2 py-1.5 text-xs text-white">
                     <option value="main">主线节点</option>
                     <option value="side">支线节点</option>

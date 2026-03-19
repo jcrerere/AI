@@ -4,6 +4,12 @@ export interface ParsedPseudoLayer {
   npcdata: string;
 }
 
+export interface PseudoLayerParts {
+  maintext: string;
+  sum?: string;
+  npcdata?: string;
+}
+
 const readTag = (content: string, tag: string): string => {
   const reg = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i');
   const match = content.match(reg);
@@ -19,9 +25,39 @@ export const parsePseudoLayer = (content: string): ParsedPseudoLayer => {
   return { maintext, sum, npcdata };
 };
 
+export const buildPseudoLayerFromParts = ({ maintext, sum, npcdata }: PseudoLayerParts): string => {
+  const blocks = [`<maintext>\n${maintext.trim()}\n</maintext>`];
+
+  if ((npcdata || '').trim()) {
+    blocks.push(`<npcdata>\n${npcdata!.trim()}\n</npcdata>`);
+  }
+
+  if ((sum || '').trim()) {
+    blocks.push(`<sum>${sum!.trim()}</sum>`);
+  }
+
+  return blocks.join('\n\n');
+};
+
 export const replaceMaintext = (content: string, nextMaintext: string): string => {
   if (!hasPseudoLayer(content)) return content;
   return content.replace(/<maintext>[\s\S]*?<\/maintext>/i, `<maintext>\n${nextMaintext.trim()}\n</maintext>`);
+};
+
+export const replaceSum = (content: string, nextSum: string): string => {
+  if (!hasPseudoLayer(content)) return content;
+  const trimmed = nextSum.trim();
+  const block = trimmed ? `<sum>${trimmed}</sum>` : '';
+
+  if (/<sum>[\s\S]*?<\/sum>/i.test(content)) {
+    if (!block) {
+      return content.replace(/\n*\s*<sum>[\s\S]*?<\/sum>\s*\n*/i, '\n').trim();
+    }
+    return content.replace(/<sum>[\s\S]*?<\/sum>/i, block);
+  }
+
+  if (!block) return content;
+  return `${content.trim()}\n\n${block}`;
 };
 
 export const replaceNpcData = (content: string, nextNpcData: string): string => {
@@ -56,8 +92,8 @@ export interface BuildLayerInput {
 export const buildPseudoLayer = (input: BuildLayerInput): string => {
   const cleanInput = input.playerInput.trim();
   const maintext = [
-    cleanInput ? `已记录玩家动作：${cleanInput}。` : '已收到基于当前上下文的续写请求。',
-    '当前为系统占位正文，仅用于保持楼层结构连续。',
+    cleanInput ? `本轮输入已记录：${cleanInput}` : '当前楼层已建立，等待新的正文写入。',
+    '如果本层仍显示这段占位文本，说明模型回复没有成功写回 maintext。',
     input.sceneHint ? `场景参考：${input.sceneHint}` : '',
   ]
     .filter(Boolean)
@@ -66,9 +102,12 @@ export const buildPseudoLayer = (input: BuildLayerInput): string => {
   const sumParts = [
     `地点:${input.location}`,
     `时间:${input.gameTime || '未知'}`,
-    cleanInput ? `行动:${cleanInput}` : '',
+    cleanInput ? `输入:${cleanInput}` : '',
     `状态:信誉${input.reputation}/币${input.credits}`,
   ].filter(Boolean);
 
-  return `<maintext>\n${maintext}\n</maintext>\n\n<sum>${sumParts.join(' | ')}</sum>`;
+  return buildPseudoLayerFromParts({
+    maintext,
+    sum: sumParts.join(' | '),
+  });
 };

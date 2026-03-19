@@ -1,0 +1,115 @@
+```yaml
+---
+# 灵能世界：变量初始化 + 回合更新总规则（唯一主条目）
+# 根路径固定：stat_data
+
+stat_data:
+  world:
+    current_time: "2077-11-03 20:30"
+    current_period: "夜晚"
+    current_location: "开局地点"
+    current_faction: "无"
+    recent_events: {}
+    exchange_rules:
+      same_level_theoretical_rate: 1.0
+      cross_level_loss_rate: 0.80
+      region_modifier:
+        艾瑞拉:
+          male: 0.55
+          female: 0.55
+        淬灵区:
+          male: 0.55
+          female: 0.55
+        汐屿区:
+          male: 0.55
+          female: 0.55
+        诺丝区:
+          male: 0.45
+          female: 0.45
+        圣教区:
+          exchange_enabled: false
+
+  player:
+    name: "未命名"
+    gender: male
+    region: "开局地点"
+    faction: "无"
+    occupation: "未定"
+    identity:
+      citizen_id: "待分配"
+      neural_protocol: "none"
+
+    core_status:
+      hp: { current: 100, max: 100 }
+      mp: { current: 200, max: 200 }
+      sanity: { current: 60, max: 120 }
+      reputation: { current: 60, max: 120 }
+
+    six_dim:
+      力量: 8
+      敏捷: 8
+      体质: 8
+      感知: 8
+      意志: 8
+      魅力: 8
+      free_points: 0
+      cap: 99
+
+    psionic:
+      rank: "Lv.1"
+      density_level: 1
+      energy_value:
+        current: 200
+        max: 200
+      conversion_rate:
+        current: 0.15
+        range:
+          male: [0.15, 0.30]
+          female: [0.80, 1.20]
+      recovery_rate:
+        current: 1.20
+        range:
+          male: [0.70, 2.00]
+          female: [0.10, 0.40]
+      base_daily_recovery:
+        male: 120
+        female: 30
+
+    siphon:
+      perception: 1.0
+      absorb_rate: 0.35
+      leakage_rate: 0.18
+      life_convert_coeff: 0.35
+
+    assets:
+      lcoin:
+        lv1: 1000
+        lv2: 0
+        lv3: 0
+        lv4: 0
+        lv5: 0
+
+    chip:
+      beta_equipped: false
+      assigned_district: ""
+      tax_officer_id: ""
+      tax_officer_name: ""
+      tax_rate: 0.00
+      switch_cooldown_round: 0
+
+    flags:
+      opening_locked: true
+      narration_owner: "player"
+      allow_auto_opening: false
+
+    lingshu_parts: []
+    core_affixes: []
+
+[回合更新约束]
+1) 时间推进：每回合默认推进5~30分钟；必须同步更新 current_time 与 current_period。
+2) 地点阵营：位移必须更新 world.current_location 与 player.region；势力变化同步 world.current_faction 与 player.faction。
+3) 状态资源：受伤/治疗改 hp；灵能消耗/恢复改 mp 与 psionic.energy_value.current；精神冲击改 sanity；所有 current 必须在 [0,max]。
+4) 兑换规则：同级理论1:1；实际受 conversion_rate 与 region_modifier 影响；跨级固定损耗 cross_level_loss_rate；圣教区禁止兑换。
+5) Beta税务官：beta_equipped=true 且 tax_officer_id 为空时，必须触发分配事件并写入 assigned_district/tax_officer_id/tax_officer_name/tax_rate。
+6) 开局主导：flags.opening_locked=true 时，AI只给环境与入口，不得替玩家预写既成开局。
+```

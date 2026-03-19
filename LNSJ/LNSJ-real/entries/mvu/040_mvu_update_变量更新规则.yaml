@@ -1,0 +1,46 @@
+```yaml
+---
+变量更新规则:
+  meta:
+    engine: MVU
+    root_path: stat_data
+    patch_priority: [time_and_scene, status_and_cost, economy_and_assets, identity_and_faction]
+
+  world.current_time:
+    format: YYYY-MM-DD HH:mm
+    check:
+      - 必须与本轮剧情经过时间一致
+
+  world.current_location:
+    type: string
+    check:
+      - 必须与正文场景一致
+      - 禁止外世界词（荒坂塔/夜之城/NCPD等）
+
+  player.checks:
+    type: principle
+    check:
+      - 玩家声明动作默认执行
+      - 只结算代价与后果，不做硬失败拦截
+
+  player.psionic.conversion_rate.current:
+    range:
+      male: 0.15~0.30
+      female: 0.80~1.20
+
+  player.psionic.recovery_rate.current:
+    range:
+      male: 0.70~2.00
+      female: 0.10~0.40
+
+  player.siphon.settlement:
+    formula:
+      - drain_amount = base_drain_amount * absorb_rate * leakage_rate
+      - 先扣 mp 与 energy_value
+      - 不足部分按 life_convert_coeff 折算到 hp
+
+  player.core_affixes / player.lingshu_parts[*].status:
+    check:
+      - 条目至少包含 name/desc/type/source
+      - 过期状态要清理
+```

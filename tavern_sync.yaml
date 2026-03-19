@@ -26,14 +26,16 @@ user名称: 青空黎
     # 你也可以直接删去下面一行不填, 则默认会导出到本地文件路径的同目录下
     导出文件路径: 示例/角色卡示例/角色卡示例
 
-  灵能世界_大前端:
+  LNSJ-real:
     类型: 世界书
     酒馆中的名称: 灵能世界
-    本地文件路径: tavern_live/worldbook/灵能世界/index
-    导出文件路径: tavern_live/worldbook/灵能世界/灵能世界
+    本地文件路径: LNSJ/LNSJ-real/index.yaml
+    导出文件路径: LNSJ/LNSJ-real/LNSJ-real
 
-  灵能世界_小前端备份:
-    类型: 世界书
-    酒馆中的名称: 灵能世界小前端
-    本地文件路径: tavern_live/worldbook/灵能世界小前端/index
-    导出文件路径: tavern_live/worldbook/灵能世界小前端/灵能世界小前端
+  # LNSJ-back 仅作为本地备份目录命名保留，不默认绑定酒馆世界书。
+  # 如果以后你在酒馆里单独维护一份备份世界书，再新增下面这类配置：
+  # LNSJ-back:
+  #   类型: 世界书
+  #   酒馆中的名称: 你的备份世界书名称
+  #   本地文件路径: LNSJ/LNSJ-back/index.yaml
+  #   导出文件路径: LNSJ/LNSJ-back/LNSJ-back

@@ -88,18 +88,29 @@ const NarrativeFeed: React.FC<Props> = ({
 
   if (pseudoLayerMode) {
     const timeline = messages.filter(msg => msg.sender === 'Player' || (msg.sender === 'System' && hasPseudoLayer(msg.content)));
-    if (timeline.length === 0) {
+    const currentLayer =
+      (focusLayerId ? timeline.find(msg => msg.id === focusLayerId && msg.sender === 'System') : undefined)
+      || [...timeline].reverse().find(msg => msg.sender === 'System');
+
+    if (!currentLayer) {
       return (
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar relative z-10 font-sans text-sm">
-          <div className="border border-slate-800 bg-black/30 p-4 text-slate-400">暂无可显示楼层。先发送一条行动开始流程。</div>
+          <div className="border border-slate-800 bg-black/30 p-4 text-slate-400">当前还没有正文楼层。先完成开局，或发送第一条推进内容。</div>
         </div>
       );
     }
 
+    const currentIndex = timeline.findIndex(msg => msg.id === currentLayer.id);
+    const latestPlayerInput =
+      currentIndex > 0
+        ? [...timeline.slice(0, currentIndex)].reverse().find(msg => msg.sender === 'Player') || null
+        : null;
+    const displayMessages = latestPlayerInput ? [latestPlayerInput, currentLayer] : [currentLayer];
+
     return (
       <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar relative z-10 font-sans text-sm">
         <div className="sticky top-0 h-6 bg-gradient-to-b from-[#080408] to-transparent pointer-events-none z-20" />
-        {timeline.map(msg => {
+        {displayMessages.map(msg => {
           if (msg.sender === 'Player') {
             const openPlayerMenu = (x: number, y: number) => {
               onLayerContextMenu?.({ x, y, messageId: msg.id, sender: 'Player' });
@@ -159,7 +170,7 @@ const NarrativeFeed: React.FC<Props> = ({
           };
 
           return (
-            <div key={msg.id} className="animate-in fade-in slide-in-from-left-2 duration-200">
+            <div key={msg.id} className="animate-in fade-in slide-in-from-left-2 duration-200 space-y-3">
               <div
                 className={`border bg-[#09040c]/90 p-4 cursor-context-menu ${
                   focusLayerId === msg.id ? 'border-fuchsia-500/60' : 'border-fuchsia-900/40'
@@ -174,6 +185,12 @@ const NarrativeFeed: React.FC<Props> = ({
                   {renderParagraphs(parsed.maintext || '（该层缺少 <maintext>）')}
                 </div>
               </div>
+              {!!parsed.sum && (
+                <div className="border border-cyan-900/40 bg-cyan-950/10 px-4 py-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-cyan-400 mb-1">Layer Summary</div>
+                  <div className="text-xs text-slate-300 leading-6 break-words">{parsed.sum}</div>
+                </div>
+              )}
             </div>
           );
         })}

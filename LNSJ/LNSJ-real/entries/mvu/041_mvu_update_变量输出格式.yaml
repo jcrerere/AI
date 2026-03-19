@@ -1,0 +1,25 @@
+```yaml
+---
+变量输出格式:
+  rule:
+    - 回复必须包含: <maintext><sum><UpdateVariable>
+    - <sum> 是“楼层摘要模块”，用于伪0层读档/编年史，不是思维链
+    - <sum> 只写 1~3 句，记录：本回合地点变化、关键后果、下一步悬念
+    - <UpdateVariable> 必须在回复末尾
+    - JSONPatch 必须是合法 JSON 数组
+    - 所有路径必须以 /stat_data 开头
+  format: |-
+    <sum>
+    时间: 2077-11-03 21:10；地点: 艾瑞拉-中环外街。
+    结果: 玩家完成交涉并损失信誉2点，获得线索“税务官夜巡名单”。
+    悬念: 下一步可潜入税务分区或黑市换证。
+    </sum>
+    <UpdateVariable>
+    <Analysis>(IN ENGLISH, <= 80 words)</Analysis>
+    <JSONPatch>
+    [
+      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉-中环外街" }
+    ]
+    </JSONPatch>
+    </UpdateVariable>
+```

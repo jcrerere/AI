@@ -37,6 +37,7 @@ export interface Item {
 
 export interface Message {
   id: string;
+  chatMessageId?: number;
   sender: 'System' | 'Player' | 'NPC';
   name?: string;
   content: string;
@@ -114,7 +115,7 @@ export interface DeductionRecord {
 
 export interface PlayerCivilianStatus {
   citizenId: string;
-  creditScore: number; // 0 - 100
+  creditScore: number; // 0 - 120
   warningLevel?: 'Low' | 'Medium' | 'Purge';
   deductionHistory: DeductionRecord[];
   warnings: string[];
@@ -126,6 +127,22 @@ export interface PlayerCivilianStatus {
   taxOfficerBoundId?: string | null;
   taxOfficerName?: string;
   taxOfficeAddress?: string;
+}
+
+export interface MonthlySettlementRecord {
+  id: string;
+  cycleLabel: string;
+  monthCount: number;
+  checkpointMonthKey: string;
+  processedMonthKey: string;
+  baseAllowance: number;
+  taxDue: number;
+  maintenanceCost: number;
+  penaltyCost: number;
+  netDelta: number;
+  status: 'processed' | 'arrears';
+  processedAt: string;
+  notes: string[];
 }
 
 export interface BetaTask {
@@ -174,12 +191,132 @@ export interface SocialComment {
     sender: string;
     content: string;
     timestamp: string;
+    isPlayer?: boolean;
+}
+
+export type SocialPlatform = 'native' | 'instagram' | 'x' | 'twitter' | 'rednote' | 'custom';
+
+export interface SocialSourceMeta {
+  platform: SocialPlatform;
+  authorHandle?: string;
+  authorName?: string;
+  profileUrl?: string;
+  postUrl?: string;
+  importedAt?: string;
+  note?: string;
+}
+
+export interface SocialPost {
+  id: string;
+  content: string;
+  timestamp: string;
+  image?: string;
+  comments: SocialComment[];
+  visibility?: 'public' | 'mutual' | 'premium';
+  unlockPrice?: number;
+  unlockedByPlayer?: boolean;
+  likedByPlayer?: boolean;
+  likeCount?: number;
+  tipsReceived?: number;
+  location?: string;
+  source?: SocialSourceMeta;
+}
+
+export interface DirectMessage {
+  id: string;
+  sender: 'player' | 'npc' | 'system';
+  content: string;
+  timestamp: string;
+  amount?: number;
+  kind?: 'text' | 'transfer' | 'tip' | 'unlock';
+}
+
+export interface NpcGalleryImage {
+  id: string;
+  src: string;
+  title?: string;
+  caption?: string;
+  sourceLabel?: string;
+  unlockLevel?: number;
+}
+
+export interface NpcDossierSection {
+  id: string;
+  title: string;
+  content: string;
+  unlockLevel?: number;
+}
+
+export type NpcDarknetRisk = 'low' | 'medium' | 'high' | 'sealed';
+
+export type NpcDarknetRecordKind = 'intel' | 'leak' | 'transaction' | 'sighting' | 'contract';
+
+export interface NpcDarknetRecord {
+  id: string;
+  title: string;
+  content: string;
+  timestamp: string;
+  source?: string;
+  location?: string;
+  risk?: NpcDarknetRisk;
+  kind?: NpcDarknetRecordKind;
+  unlockLevel?: number;
+  tags?: string[];
+  image?: string;
+}
+
+export interface NpcDarknetProfile {
+  handle?: string;
+  alias?: string;
+  summary?: string;
+  accessTier?: string;
+  marketVector?: string;
+  riskRating?: number;
+  bounty?: string;
+  tags?: string[];
+  knownAssociates?: string[];
+  lastSeen?: string;
+  intelRecords?: NpcDarknetRecord[];
+}
+
+export interface NpcUnlockState {
+  dossierLevel?: number;
+  albumUnlockedCount?: number;
+  socialUnlocked?: boolean;
+  darknetLevel?: number;
+  darknetUnlocked?: boolean;
+  intelUnlockedCount?: number;
+}
+
+export interface NpcAiPromptBlock {
+  label: string;
+  lines: string[];
+}
+
+export interface NpcAiDirectorCard {
+  enabled?: boolean;
+  lookupTokens?: string[];
+  summary?: string;
+  publicMask?: string[];
+  hiddenTruths?: string[];
+  voiceGuide?: string[];
+  motivations?: string[];
+  taboos?: string[];
+  relationHooks?: string[];
+  sceneHooks?: string[];
+  doNotReveal?: string[];
+  improvNotes?: string[];
+  customBlocks?: NpcAiPromptBlock[];
+  keepAliveTurns?: number;
 }
 
 export interface NPC {
   id: string;
   name: string;
   gender: 'female' | 'male';
+  race?: string; // e.g. 人类 / 灵族_花妖 / 灵族_史莱姆
+  raceClass?: string; // e.g. 灵族-植物种 / 灵族-液态种
+  statusTags?: string[]; // e.g. ['催眠侵入', '灵核游移']
   group: string; // Contact group name
   position: string; // Job title
   affiliation: string;
@@ -205,13 +342,23 @@ export interface NPC {
   avatarUrl: string;
   status: 'online' | 'busy' | 'offline';
   inventory: Item[];
-  socialFeed: {
-    id: string;
-    content: string;
-    timestamp: string;
-    image?: string;
-    comments: SocialComment[];
-  }[];
+  socialHandle?: string;
+  socialBio?: string;
+  playerFollows?: boolean;
+  followsPlayer?: boolean;
+  followerCount?: number;
+  followingCount?: number;
+  walletTag?: string;
+  citizenId?: string;
+  chipSummary?: string[];
+  clueNotes?: string[];
+  dossierSections?: NpcDossierSection[];
+  gallery?: NpcGalleryImage[];
+  darknetProfile?: NpcDarknetProfile;
+  unlockState?: NpcUnlockState;
+  aiDirectorCard?: NpcAiDirectorCard;
+  dmThread?: DirectMessage[];
+  socialFeed: SocialPost[];
 }
 
 export interface Quest {
@@ -436,6 +583,7 @@ export interface GameConfig {
     installBetaChip: boolean;
     selectedBoard: Chip; // The motherboard determining capacity
     selectedChips: Chip[];
+    availableChipPool?: Chip[];
     selectedItems: Item[];
     factionName: string;
     startingLocation: string; // Specific Zone or Landmark

@@ -1,7 +1,7 @@
 ﻿import React, { useState } from 'react';
 import { Skill, Rank, RuntimeAffix } from '../../types';
 import { getRankColor } from '../../constants';
-import { X, AlertTriangle, Sparkles, Trash2, Atom, Lock, Brain, Infinity, Gauge, RefreshCw, Sigma, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, AlertTriangle, Sparkles, Trash2, Atom, Lock, Brain, Infinity as InfinityIcon, Gauge, RefreshCw, Sigma, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface Props {
   skills: Skill[];
@@ -127,7 +127,7 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
         <div className={`flex justify-between items-start p-4 border-b ${borderColor} relative z-10 bg-black/40`}>
           <div className="flex items-center gap-3">
             <div className={`w-12 h-12 rounded-full border-2 ${isFemale ? 'border-fuchsia-500' : 'border-amber-500'} flex items-center justify-center bg-black/50 shadow-[0_0_15px_currentColor] relative ${coreColor}`}>
-              {isFemale ? <Infinity className="w-6 h-6 animate-pulse" /> : <Atom className="w-6 h-6 animate-spin-slow" />}
+              {isFemale ? <InfinityIcon className="w-6 h-6 animate-pulse" /> : <Atom className="w-6 h-6 animate-spin-slow" />}
               <div className={`absolute inset-0 rounded-full border ${isFemale ? 'border-fuchsia-500/50' : 'border-amber-500/50'} animate-ping opacity-50`} />
             </div>
             <div>

@@ -1,0 +1,13 @@
+```yaml
+【统一写回协议】
+涉及灵弦/芯片变更时，在回复末尾输出：
+<ASSET_UPDATE>
+target: player | npc:<id>
+action: add | remove | replace | set
+asset_type: 灵弦 | 芯片
+asset_name: <名称>
+source: 开局池 | 剧情 | 交易 | 改造 | 任务
+reason: <原因>
+</ASSET_UPDATE>
+说明：仅解析结构块写变量；普通叙事文本不直接改变量。
+```

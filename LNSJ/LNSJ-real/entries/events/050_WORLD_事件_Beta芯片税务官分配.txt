@@ -1,0 +1,19 @@
+<WORLD_事件_Beta芯片税务官分配>
+```yaml
+触发条件:
+1. 玩家完成“佩戴/激活 Beta芯片”事件。
+2. 当前所在区域为艾瑞拉可管辖区。
+
+事件效果:
+1. 系统强制为玩家分配艾瑞拉分区（A/B/C/D其一）。
+2. 根据分区自动绑定一名夜莺税务官。
+3. 写入变量:
+   - player.identity.assigned_district
+   - player.identity.tax_officer_id
+   - player.identity.tax_officer_org = 夜莺
+
+叙事要求:
+- 该分配为制度性强制，不经玩家投票。
+- 可在后续通过“税务官更换流程”变更。
+```
+</WORLD_事件_Beta芯片税务官分配>

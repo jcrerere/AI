@@ -1,0 +1,27 @@
+<WORLD_机制_玩家状态栏>
+```yaml
+状态栏读取源: stat_data（前端仅显示，不自行创造规则）
+
+与前端开局的关系:
+1. 开局角色、开局区域由前端选择结果写入 stat_data。
+2. 世界书负责定义字段语义与更新规则，保证AI每回合一致维护。
+3. 玩家种族字段为可选；若未提供 race，则沿用既有角色设定或默认人类，不强制新增前端“种族选择”步骤。
+
+每回合展示字段（固定顺序）:
+1. 时间: world.current_time
+2. 地点: world.current_location
+3. 生命: player.core_status.hp.current/max
+4. 灵能: player.core_status.mp.current/max
+5. 理智: player.core_status.sanity.current/max
+6. 密度等级: player.psionic.density_level
+7. 转化率/回复率: player.psionic.conversion_rate / recovery_rate
+8. 资产: player.assets.lcoin.lv1~lv5
+9. 关键状态: player.status_tags
+
+显示原则:
+- 状态栏只显示结构化结果，不输出推理过程。
+- 正文与变量冲突时，以 <UpdateVariable> 为最终落盘。
+- 灵族与汐屿族（玩家/NPC）默认无芯片；芯片位默认显示为 0 或空槽。仅当剧情明确写明“已装配芯片”后，才显示对应芯片数量与效果。
+- 若存在 race 字段则按种族规则渲染芯片栏；race 缺失时保持原有显示逻辑。
+```
+</WORLD_机制_玩家状态栏>

@@ -2,20 +2,49 @@
 import CyberPanel from './components/ui/CyberPanel';
 import PlayerStatePanel from './components/left/PlayerStatePanel';
 import ChipPanel from './components/left/ChipPanel';
+import PsionicEconomyPanel from './components/left/PsionicEconomyPanel';
+import StatusPenaltyPanel from './components/left/StatusPenaltyPanel';
+import LingshuStatusPanel from './components/left/LingshuStatusPanel';
 import SpiritNexus from './components/right/SpiritNexus';
 import NPCProfile from './components/right/NPCProfile';
 import ContactList from './components/right/ContactList';
+import LingnetPhonePanel, { SocialImportDraft } from './components/right/LingnetPhonePanel';
+import MonthlySettlementPanel from './components/right/MonthlySettlementPanel';
+import TaxDossierPanel from './components/right/TaxDossierPanel';
 import NarrativeFeed from './components/center/NarrativeFeed';
 import ItemDetailView from './components/ui/ItemDetailView';
 import InventoryModal from './components/ui/InventoryModal';
 import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
-import ActionMenu from './components/center/ActionMenu';
+import LocationControlHint from './components/ui/LocationControlHint';
 import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
 import GameSetup from './components/flow/GameSetup';
-import { Message, NPC, Item, GameConfig, PlayerStats, Chip, PlayerFaction, Rank, Skill, PlayerCivilianStatus, BetaTask, CareerTrack, WorldNodeMapData, MapRuntimeData, LingshuPart, RuntimeAffix, BodyPart } from './types';
-import { buildPseudoLayer, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData } from './utils/pseudoLayer';
+import {
+  Message,
+  NPC,
+  Item,
+  GameConfig,
+  PlayerStats,
+  Chip,
+  PlayerFaction,
+  Rank,
+  Skill,
+  PlayerCivilianStatus,
+  BetaTask,
+  CareerTrack,
+  WorldNodeMapData,
+  MapRuntimeData,
+  LingshuPart,
+  RuntimeAffix,
+  BodyPart,
+  DirectMessage,
+  SocialPost,
+  MonthlySettlementRecord,
+  NpcDarknetProfile,
+  NpcDarknetRecord,
+} from './types';
+import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum } from './utils/pseudoLayer';
 import {
   MOCK_MESSAGES,
   MOCK_CHIPS,
@@ -28,14 +57,22 @@ import {
 } from './constants';
 import { mergeWorldNodeMap, normalizeWorldNodeMap, tryParseMapFromText, tryParseMapPatchFromText } from './utils/mapData';
 import { createEmptyWorldMap, isWorldMapEmpty, loadDefaultQilingMap } from './utils/mapLoader';
-import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen } from 'lucide-react';
+import { pullPseudoLayerMessagesFromTavern, resolveTavernChatBridge } from './utils/tavernChat';
+import { buildDefaultSetupPack, cloneCareerTracks, cloneChipList } from './data/setupPack';
+import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTurns, getNpcDirectorLookupTokens } from './data/npcCodex';
+import { resolveNpcCodexAccessState } from './utils/npcCodex';
+import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
-const LN_ARCHIVES_KEY = 'ln_archives_v1';
-const LN_LAST_ARCHIVE_ID_KEY = 'ln_last_archive_id_v1';
+type LeftModuleTab = 'chips' | 'economy' | 'lingshu' | 'inventory';
+type RightPanelTab = 'contacts' | 'phone' | 'system' | 'settings';
+const LN_ARCHIVES_KEY_PREFIX = 'ln_archives_v2';
+const LN_LAST_ARCHIVE_ID_KEY_PREFIX = 'ln_last_archive_id_v2';
 const LN_API_CONFIG_KEY = 'ln_api_config_v1';
 const LN_AUTO_ARCHIVE_ID = 'archive_auto_latest_v1';
 const MAX_ARCHIVE_SLOTS = 20;
+const LN_DEFAULT_ARCHIVE_SCOPE = 'global';
+const LN_DEFAULT_PLAYER_NAME = '未命名接入者';
 
 const getBetaTierTitle = (level: number) => {
   if (level >= 5) return '秩序代行体';
@@ -119,28 +156,7 @@ const BETA_PROFESSIONS: BetaProfession[] = [
   },
 ];
 
-const DEFAULT_CAREER_TRACKS: CareerTrack[] = [
-  {
-    id: 'career_track_core',
-    name: '基础劳服线',
-    entryRequirement: '开局完成身份鉴定',
-    description: '默认线路，用于搭建事件节点模板。',
-    nodes: [
-      {
-        id: 'career_node_core_root',
-        name: '鉴定登记',
-        unlockRequirement: '无',
-        eventTask: '在登记处完成资质鉴定并领取身份标签。',
-        eventReward: '开启职业线路编辑权限。',
-        lineType: 'main',
-        x: 0,
-        y: 0,
-        links: {},
-      },
-    ],
-    rootNodeId: 'career_node_core_root',
-  },
-];
+const DEFAULT_CAREER_TRACKS: CareerTrack[] = buildDefaultSetupPack().careerTracks;
 
 interface FloatingText {
   id: number;
@@ -151,7 +167,8 @@ interface FloatingText {
 }
 
 interface LnSaveData {
-  version: 1;
+  version: 1 | 2;
+  playerName?: string;
   messages: Message[];
   playerStats: PlayerStats;
   playerGender: 'male' | 'female';
@@ -163,7 +180,7 @@ interface LnSaveData {
   playerInventory: Item[];
   playerLingshu: GameConfig['selectedLingshu'];
   playerFaction: PlayerFaction;
-  leftModuleTab: 'chips' | 'lingshu' | 'inventory';
+  leftModuleTab: LeftModuleTab;
   playerNeuralProtocol: 'none' | 'beta';
   careerTracks: CareerTrack[];
   betaStatus: PlayerCivilianStatus;
@@ -179,6 +196,8 @@ interface LnSaveData {
   playerSoulLedger?: Partial<Record<Rank, number>>;
   coinVault?: Partial<Record<Rank, number>>;
   playerCoreAffixes?: RuntimeAffix[];
+  monthlySettlementLog?: MonthlySettlementRecord[];
+  settlementCheckpointMonth?: string | null;
   stateLock?: StateLockConfig;
 }
 
@@ -197,6 +216,27 @@ interface LnApiConfig {
   apiKey: string;
   model: string;
 }
+
+type ApiRuntimeMode = 'disabled' | 'tavern' | 'external';
+
+const normalizeArchiveScopeId = (raw: unknown): string => {
+  const text = `${raw ?? ''}`.trim();
+  return text || LN_DEFAULT_ARCHIVE_SCOPE;
+};
+
+const resolveCurrentTavernChatScope = (): string => {
+  try {
+    if (typeof SillyTavern?.getCurrentChatId === 'function') {
+      return normalizeArchiveScopeId(SillyTavern.getCurrentChatId());
+    }
+  } catch {
+    // Ignore cross-frame access errors and fall back to a global scope.
+  }
+  return LN_DEFAULT_ARCHIVE_SCOPE;
+};
+
+const buildScopedStorageKey = (prefix: string, scopeId: string): string =>
+  `${prefix}::${encodeURIComponent(normalizeArchiveScopeId(scopeId))}`;
 
 interface StateLockConfig {
   lockTime: boolean;
@@ -379,6 +419,27 @@ const getExchangeRegionFactor = (location: string, gender: 'male' | 'female'): n
   return 1.0;
 };
 
+const LCOIN_BUCKET_KEYS = ['lv1', 'lv2', 'lv3', 'lv4', 'lv5'] as const;
+type LcoinBucketKey = typeof LCOIN_BUCKET_KEYS[number];
+const RANK_TO_LCOIN_KEY: Record<Rank, LcoinBucketKey> = {
+  [Rank.Lv1]: 'lv1',
+  [Rank.Lv2]: 'lv2',
+  [Rank.Lv3]: 'lv3',
+  [Rank.Lv4]: 'lv4',
+  [Rank.Lv5]: 'lv5',
+};
+const DEFAULT_STAT_EXCHANGE_RULES = {
+  same_level_theoretical_rate: 1.0,
+  cross_level_loss_rate: 0.8,
+  region_modifier: {
+    艾瑞拉: { male: 0.55, female: 1.0 },
+    淬灵区: { male: 0.55, female: 1.0 },
+    汐屿区: { male: 0.55, female: 0.55 },
+    诺丝区: { male: 0.45, female: 0.45 },
+    圣教区: { exchange_enabled: false },
+  },
+};
+
 const GAME_CLOCK_BASE = new Date('2077-11-03T20:30:00');
 
 const formatGameTime = (elapsedMinutes: number): string => {
@@ -389,6 +450,51 @@ const formatGameTime = (elapsedMinutes: number): string => {
   const hh = `${d.getHours()}`.padStart(2, '0');
   const mm = `${d.getMinutes()}`.padStart(2, '0');
   return `${y}-${m}-${day} ${hh}:${mm}`;
+};
+
+const getMonthKeyFromElapsedMinutes = (elapsedMinutes: number): string => {
+  const d = new Date(GAME_CLOCK_BASE.getTime() + elapsedMinutes * 60_000);
+  return `${d.getFullYear()}-${`${d.getMonth() + 1}`.padStart(2, '0')}`;
+};
+
+const monthKeyToIndex = (monthKey: string): number => {
+  const match = `${monthKey || ''}`.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return 0;
+  return Number(match[1]) * 12 + (Number(match[2]) - 1);
+};
+
+const monthKeyToLabel = (monthKey: string): string => {
+  const match = `${monthKey || ''}`.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return '未知月份';
+  return `${match[1]}年${Number(match[2])}月`;
+};
+
+const addMonthsToMonthKey = (monthKey: string, diff: number): string => {
+  const match = `${monthKey || ''}`.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return monthKey;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, 1);
+  date.setMonth(date.getMonth() + diff);
+  return `${date.getFullYear()}-${`${date.getMonth() + 1}`.padStart(2, '0')}`;
+};
+
+const getMonthDiff = (fromMonthKey: string, toMonthKey: string): number => {
+  return Math.max(0, monthKeyToIndex(toMonthKey) - monthKeyToIndex(fromMonthKey));
+};
+
+const buildSettlementCycleLabel = (startMonthKey: string, monthCount: number): string => {
+  if (monthCount <= 0) return '当前未跨月';
+  if (monthCount === 1) return monthKeyToLabel(startMonthKey);
+  const endMonthKey = addMonthsToMonthKey(startMonthKey, monthCount - 1);
+  return `${monthKeyToLabel(startMonthKey)} - ${monthKeyToLabel(endMonthKey)}`;
+};
+
+const getMonthDeadlineText = (monthKey: string): string => {
+  const match = `${monthKey || ''}`.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return '';
+  const deadline = new Date(Number(match[1]), Number(match[2]), 0, 23, 59, 0, 0);
+  const mm = `${deadline.getMonth() + 1}`.padStart(2, '0');
+  const dd = `${deadline.getDate()}`.padStart(2, '0');
+  return `${deadline.getFullYear()}-${mm}-${dd} 23:59`;
 };
 
 const getDayPhase = (elapsedMinutes: number): '深夜' | '夜晚' | '清晨' | '白天' | '黄昏' => {
@@ -407,6 +513,56 @@ const getSceneHintByPhase = (phase: string): string => {
   if (phase === '清晨') return '秩序逐步恢复，清扫与通勤队伍开始出现。';
   if (phase === '黄昏') return '换班时段，警戒存在短时空隙。';
   return '公共区开放，常规交易与任务发放活跃。';
+};
+
+const buildLocationControlProfile = (
+  location: string,
+  phase: string,
+  protocol: 'none' | 'beta',
+  gender: 'male' | 'female',
+  creditScore: number,
+  sceneHint: string,
+) => {
+  const text = `${location || ''}`;
+  const riskTone: 'safe' | 'watch' | 'danger' =
+    creditScore <= 40 || (/艾瑞拉/.test(text) && protocol === 'none' && gender === 'male')
+      ? 'danger'
+      : /诺丝|圣教/.test(text)
+      ? 'watch'
+      : 'safe';
+  const regionFactor = getExchangeRegionFactor(text, gender);
+  const exchangeText =
+    regionFactor === null ? '本地禁兑' : `官方倍率 ${(regionFactor || 1).toFixed(2)}x`;
+  const hints = [sceneHint];
+
+  if (/艾瑞拉/.test(text)) {
+    hints.push(protocol === 'beta' ? '首都毒素已被协议抑制，但夜间检查更严。' : '首都存在男性毒素环境，无协议将持续承压。');
+    if (phase === '夜晚' || phase === '深夜') hints.push('夜间居住与出行更容易触发证件抽查。');
+  } else if (/淬灵/.test(text)) {
+    hints.push('这里是压缩与分解中枢，跨级换币更适合在官方设施完成。');
+    hints.push(gender === 'female' ? '女性在淬灵区享受标准兑换率。' : '男性在淬灵区仍受显著折损。');
+  } else if (/汐屿/.test(text)) {
+    hints.push('旅游与港口并行，夜莺更重视证件与边检而非当场镇压。');
+    hints.push('灵网、消费与轻社交事件更容易在本区触发。');
+  } else if (/诺丝/.test(text)) {
+    hints.push('诺丝区官方汇率更低，黑市与灰色网络更活跃。');
+    hints.push('直播、违禁芯片和地下经济会抬高风险暴露。');
+  } else if (/圣教/.test(text)) {
+    hints.push('教区禁兑灵能币，通行和言行都会被教义审查。');
+    hints.push('越界交易与公开欲望行为更容易触发高压追责。');
+  } else {
+    hints.push('当前区域规则未完全锁定，优先参考楼层小结与系统状态。');
+  }
+
+  if (creditScore <= 20) hints.push('信誉分已逼近崩溃线，后续处罚会明显升级。');
+  else if (creditScore <= 40) hints.push('信誉已落入高危区，税务和夜间巡查都会提高关注度。');
+
+  return {
+    headline: `${location || '未知区域'} · ${phase}管制提示`,
+    exchangeText,
+    riskTone,
+    hints: Array.from(new Set(hints)).slice(0, 4),
+  };
 };
 
 const OUT_OF_WORLD_TERMS = ['荒坂', '夜之城', 'NCPD', '赛博朋克', '荒坂塔', '军用义体公司'];
@@ -477,6 +633,14 @@ const sanitizeAiMaintext = (raw: string): string => {
 };
 
 const HIDDEN_CONTINUE_REQUEST = '请基于已有聊天记录直接给出下一条回复，不要复述本句。';
+const PSEUDO_LAYER_RESPONSE_RULES = [
+  '【输出格式要求】',
+  '只输出以下两个模块，禁止输出额外标题、解释、代码块或 Markdown 包裹：',
+  '<maintext>...</maintext>',
+  '<sum>...</sum>',
+  'maintext 只写正文推进与对白，不要在开头重复时间、地点、时段，不要输出选项。',
+  'sum 只写本层小总结，保持单行，尽量包含“地点 / 时间 / 状态”三个字段。',
+].join('\n');
 
 const resolveGenerateRequestInput = (raw: string): string => {
   const clean = sanitizeAiMaintext(raw);
@@ -579,6 +743,57 @@ const coerceGenerateResultToText = (value: unknown): string => {
   }
 };
 
+const resolveApiEndpoint = (raw: string) => {
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  if (!trimmed) return '';
+  if (/\/(?:chat\/completions|responses)$/i.test(trimmed)) return trimmed;
+
+  try {
+    const url = new URL(trimmed);
+    const pathname = url.pathname.replace(/\/+$/, '');
+    if (!pathname || pathname === '/') {
+      url.pathname = '/v1/chat/completions';
+      return url.toString().replace(/\/+$/, '');
+    }
+    if (pathname.endsWith('/v1')) {
+      url.pathname = `${pathname}/chat/completions`;
+      return url.toString().replace(/\/+$/, '');
+    }
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`;
+    return trimmed;
+  }
+};
+
+const isResponsesApiEndpoint = (endpoint: string): boolean => /\/responses$/i.test(endpoint.trim());
+
+const resolveApiRuntimeMode = (config: LnApiConfig): ApiRuntimeMode => {
+  if (config.useTavernApi) return 'tavern';
+  if (config.enabled) return 'external';
+  return 'disabled';
+};
+
+const getApiRuntimeModeLabel = (mode: ApiRuntimeMode): string => {
+  if (mode === 'tavern') return '酒馆接口';
+  if (mode === 'external') return '外部接口';
+  return '已关闭';
+};
+
+const validateExternalApiConfig = (config: LnApiConfig): string | null => {
+  const endpoint = resolveApiEndpoint(config.endpoint);
+  if (!endpoint) return '当前为外部接口模式，但未填写 endpoint。';
+  if (!/^https?:\/\//i.test(endpoint)) return '外部接口 endpoint 需要是 http/https 地址。';
+  if (!config.model.trim()) return '当前为外部接口模式，但未填写 model。';
+  return null;
+};
+
+const buildResponsesApiInput = (messages: Array<{ role: 'system' | 'user'; content: string }>) =>
+  messages.map(message => ({
+    role: message.role,
+    content: [{ type: 'input_text', text: message.content }],
+  }));
+
 const isLingshuEquipableItem = (item: Item): boolean => {
   if (!item || item.quantity <= 0) return false;
   if (item.category === 'equipment') return true;
@@ -590,21 +805,223 @@ const isLingshuEquipableItem = (item: Item): boolean => {
   return false;
 };
 
+const buildSocialHandleSeed = (npc: NPC): string =>
+  `${npc.name || npc.id || 'guest'}`
+    .replace(/[^\w\u4e00-\u9fa5]+/g, '')
+    .toLowerCase()
+    .slice(0, 18) || 'guest';
+
+const normalizeUniqueStrings = (values: string[] | undefined): string[] =>
+  Array.from(new Set((values || []).map(value => `${value || ''}`.trim()).filter(Boolean)));
+
+const normalizeUnlockCount = (value: unknown): number | undefined => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return undefined;
+  return Math.max(0, Math.floor(parsed));
+};
+
+const clampDarknetRiskRating = (value: unknown, fallback = 2): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.min(5, Math.max(1, Math.floor(fallback)));
+  return Math.min(5, Math.max(1, Math.round(parsed)));
+};
+
+const buildFallbackDarknetProfile = (npc: NPC): NpcDarknetProfile => {
+  const relation = npc.gender === 'female' ? npc.affection || 0 : npc.trust || 0;
+  const cleanTags = normalizeUniqueStrings(
+    [
+      npc.group || undefined,
+      npc.affiliation || undefined,
+      npc.position || undefined,
+      ...(npc.statusTags || []).filter(tag => tag !== '自动识别' && tag !== '待补全'),
+    ].filter((value): value is string => !!value),
+  ).slice(0, 5);
+
+  const intelRecords: NpcDarknetRecord[] =
+    (npc.clueNotes || []).length > 0
+      ? [
+          {
+            id: `darknet_auto_${npc.id}_1`,
+            title: '节点底稿',
+            content: `${(npc.clueNotes || []).slice(0, 2).join('；')}。当前仅建立了基础暗网索引，更多记录需要继续接触、交易或剧情推进后解锁。`,
+            timestamp: '未标注时间',
+            source: npc.affiliation || '未知来源',
+            location: npc.location || '未知区域',
+            risk: npc.isContact ? 'medium' : 'low',
+            kind: 'intel',
+            unlockLevel: 2,
+            tags: cleanTags.slice(0, 3),
+          },
+        ]
+      : [];
+
+  return {
+    handle: `dn://${buildSocialHandleSeed(npc)}`,
+    alias: npc.name ? `${npc.name} / 镜像条目` : '匿名节点',
+    summary: npc.isContact
+      ? `${npc.name} 已进入联系人观察名单，暗网侧保留了与 ${npc.affiliation || '未知来源'} 相关的基础检索骨架。`
+      : `${npc.name || '该人物'} 仅留下零散痕迹，目前仍处在边缘索引状态。`,
+    accessTier: npc.isContact ? '灰名单已校验' : '边缘索引',
+    marketVector: npc.position || npc.affiliation || '人物观察',
+    riskRating: clampDarknetRiskRating(1 + Math.floor(relation / 25) + (npc.isContact ? 1 : 0), 2),
+    bounty: relation >= 55 ? '内部关注对象' : '未挂牌',
+    tags: cleanTags,
+    knownAssociates: normalizeUniqueStrings([npc.affiliation || '', npc.group || '']).slice(0, 3),
+    lastSeen: npc.location || '未知区域',
+    intelRecords,
+  };
+};
+
+const normalizeDarknetRecord = (npc: NPC, record: NpcDarknetRecord, index: number): NpcDarknetRecord => ({
+  id: record?.id || `darknet_${npc.id}_${index + 1}`,
+  title: `${record?.title || `记录 ${index + 1}`}`.trim(),
+  content: `${record?.content || ''}`.trim() || '暗网节点未返回正文。',
+  timestamp: `${record?.timestamp || '未标注时间'}`.trim() || '未标注时间',
+  source: record?.source?.trim() || undefined,
+  location: `${record?.location || npc.location || ''}`.trim() || undefined,
+  risk:
+    record?.risk === 'sealed' || record?.risk === 'high' || record?.risk === 'medium' || record?.risk === 'low'
+      ? record.risk
+      : 'low',
+  kind:
+    record?.kind === 'contract' || record?.kind === 'leak' || record?.kind === 'sighting' || record?.kind === 'transaction'
+      ? record.kind
+      : 'intel',
+  unlockLevel: Number.isFinite(record?.unlockLevel) ? Math.min(4, Math.max(1, Math.floor(Number(record.unlockLevel)))) : 2,
+  tags: normalizeUniqueStrings(record?.tags),
+  image: record?.image?.trim() || undefined,
+});
+
+const normalizeDarknetProfile = (npc: NPC, profile: NpcDarknetProfile | undefined): NpcDarknetProfile => {
+  const fallback = buildFallbackDarknetProfile(npc);
+  const sourceRecords = Array.isArray(profile?.intelRecords) ? profile.intelRecords : fallback.intelRecords || [];
+  return {
+    ...fallback,
+    ...profile,
+    handle: profile?.handle?.trim() || fallback.handle,
+    alias: profile?.alias?.trim() || fallback.alias,
+    summary: profile?.summary?.trim() || fallback.summary,
+    accessTier: profile?.accessTier?.trim() || fallback.accessTier,
+    marketVector: profile?.marketVector?.trim() || fallback.marketVector,
+    riskRating: clampDarknetRiskRating(profile?.riskRating, fallback.riskRating || 2),
+    bounty: profile?.bounty?.trim() || fallback.bounty,
+    tags: normalizeUniqueStrings([...(fallback.tags || []), ...((profile?.tags || []) as string[])]),
+    knownAssociates: normalizeUniqueStrings([...(fallback.knownAssociates || []), ...((profile?.knownAssociates || []) as string[])]),
+    lastSeen: profile?.lastSeen?.trim() || fallback.lastSeen,
+    intelRecords: sourceRecords
+      .map((record, index) => normalizeDarknetRecord(npc, record, index))
+      .sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0) || a.id.localeCompare(b.id)),
+  };
+};
+
+const normalizeNpcUnlockState = (npc: NPC): NPC['unlockState'] => {
+  const access = resolveNpcCodexAccessState(npc);
+  return {
+    ...(npc.unlockState || {}),
+    dossierLevel: access.dossierLevel,
+    socialUnlocked: access.socialUnlocked,
+    darknetLevel: access.darknetLevel,
+    darknetUnlocked: access.darknetUnlocked,
+    albumUnlockedCount: normalizeUnlockCount(npc.unlockState?.albumUnlockedCount),
+    intelUnlockedCount: normalizeUnlockCount(npc.unlockState?.intelUnlockedCount),
+  };
+};
+
+const buildImportedDarknetRecord = (
+  draft: SocialImportDraft,
+  displayName: string,
+  timestamp: string,
+  fallbackLocation: string,
+): NpcDarknetRecord => ({
+  id: `darknet_import_${Date.now()}`,
+  title: `来源映射：${displayName}`,
+  content: `已接入来自 ${draft.platform.toUpperCase()} 的公开素材映射。原始发布者为 ${draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim() || '未标注来源'}，后续互动与关系推进全部转入 LN 本地链路。`,
+  timestamp,
+  source: `${draft.platform.toUpperCase()} 公开源`,
+  location: fallbackLocation || '灵网镜像节点',
+  risk: draft.visibility === 'premium' ? 'medium' : 'low',
+  kind: 'leak',
+  unlockLevel: draft.visibility === 'premium' ? 4 : 2,
+  tags: normalizeUniqueStrings([draft.platform.toUpperCase(), '来源映射', '公开素材导入']),
+  image: draft.imageUrl.trim() || undefined,
+});
+
+const normalizeSocialPost = (npc: NPC, post: SocialPost, index: number): SocialPost => ({
+  id: post?.id || `social_${npc.id}_${index + 1}`,
+  content: `${post?.content || ''}`.trim(),
+  timestamp: `${post?.timestamp || new Date().toISOString()}`,
+  image: post?.image || undefined,
+  comments: Array.isArray(post?.comments)
+    ? post.comments.map((comment, commentIndex) => ({
+        id: comment?.id || `comment_${npc.id}_${index + 1}_${commentIndex + 1}`,
+        sender: `${comment?.sender || '未知'}`,
+        content: `${comment?.content || ''}`,
+        timestamp: `${comment?.timestamp || new Date().toISOString()}`,
+        isPlayer: !!comment?.isPlayer,
+      }))
+    : [],
+  visibility: post?.visibility === 'premium' ? 'premium' : post?.visibility === 'mutual' ? 'mutual' : 'public',
+  unlockPrice: Number.isFinite(post?.unlockPrice) ? Math.max(1, Number(post.unlockPrice)) : undefined,
+  unlockedByPlayer: !!post?.unlockedByPlayer,
+  likedByPlayer: !!post?.likedByPlayer,
+  likeCount: Number.isFinite(post?.likeCount) ? Math.max(0, Number(post.likeCount)) : 0,
+  tipsReceived: Number.isFinite(post?.tipsReceived) ? Math.max(0, Number(post.tipsReceived)) : 0,
+  location: `${post?.location || npc.location || ''}`.trim(),
+  source: post?.source
+    ? {
+        platform: post.source.platform || 'native',
+        authorHandle: post.source.authorHandle?.trim() || undefined,
+        authorName: post.source.authorName?.trim() || undefined,
+        profileUrl: post.source.profileUrl?.trim() || undefined,
+        postUrl: post.source.postUrl?.trim() || undefined,
+        importedAt: post.source.importedAt?.trim() || undefined,
+        note: post.source.note?.trim() || undefined,
+      }
+    : undefined,
+});
+
+const normalizeDirectMessage = (message: DirectMessage, index: number): DirectMessage => ({
+  id: message?.id || `dm_${index + 1}`,
+  sender: message?.sender === 'player' || message?.sender === 'npc' ? message.sender : 'system',
+  content: `${message?.content || ''}`,
+  timestamp: `${message?.timestamp || new Date().toISOString()}`,
+  amount: Number.isFinite(message?.amount) ? Math.max(0, Number(message.amount)) : undefined,
+  kind: message?.kind || 'text',
+});
+
 const normalizeNpcForUi = (npc: NPC): NPC => {
-  if (isAutoNearbyNpc(npc) || (npc.statusTags || []).includes('自动识别')) {
+  const mergedNpc = applyNpcCodexOverlay(npc);
+  const normalizedUnlockState = normalizeNpcUnlockState(mergedNpc);
+  const normalizedDarknetProfile = normalizeDarknetProfile({ ...mergedNpc, unlockState: normalizedUnlockState }, mergedNpc.darknetProfile);
+
+  if (isAutoNearbyNpc(mergedNpc) || (mergedNpc.statusTags || []).includes('自动识别')) {
     return {
-      ...npc,
-      stats: ensurePlayerStatsSixDim(npc.stats || MOCK_PLAYER_STATS),
-      bodyParts: Array.isArray(npc.bodyParts) ? npc.bodyParts : [],
-      chips: Array.isArray(npc.chips) ? npc.chips : [],
-      inventory: Array.isArray(npc.inventory) ? npc.inventory : [],
-      socialFeed: Array.isArray(npc.socialFeed) ? npc.socialFeed : [],
+      ...mergedNpc,
+      stats: ensurePlayerStatsSixDim(mergedNpc.stats || MOCK_PLAYER_STATS),
+      bodyParts: Array.isArray(mergedNpc.bodyParts) ? mergedNpc.bodyParts : [],
+      chips: Array.isArray(mergedNpc.chips) ? mergedNpc.chips : [],
+      inventory: Array.isArray(mergedNpc.inventory) ? mergedNpc.inventory : [],
+      chipSummary: Array.isArray(mergedNpc.chipSummary) ? mergedNpc.chipSummary : [],
+      clueNotes: Array.isArray(mergedNpc.clueNotes) ? mergedNpc.clueNotes : [],
+      dossierSections: Array.isArray(mergedNpc.dossierSections) ? mergedNpc.dossierSections : [],
+      gallery: Array.isArray(mergedNpc.gallery) ? mergedNpc.gallery : [],
+      socialHandle: mergedNpc.socialHandle?.trim() || `@${buildSocialHandleSeed(mergedNpc)}`,
+      socialBio: mergedNpc.socialBio?.trim() || `${mergedNpc.affiliation || '未知来源'} · ${mergedNpc.position || '待识别人物'}`,
+      playerFollows: !!mergedNpc.playerFollows,
+      followsPlayer: !!mergedNpc.followsPlayer,
+      followerCount: Number.isFinite(mergedNpc.followerCount) ? Math.max(0, Number(mergedNpc.followerCount)) : 0,
+      followingCount: Number.isFinite(mergedNpc.followingCount) ? Math.max(0, Number(mergedNpc.followingCount)) : 0,
+      walletTag: mergedNpc.walletTag?.trim() || `LPAY-${buildSocialHandleSeed(mergedNpc).slice(0, 10).toUpperCase()}`,
+      unlockState: normalizedUnlockState,
+      darknetProfile: normalizedDarknetProfile,
+      dmThread: Array.isArray(mergedNpc.dmThread) ? mergedNpc.dmThread.map(normalizeDirectMessage) : [],
+      socialFeed: Array.isArray(mergedNpc.socialFeed) ? mergedNpc.socialFeed.map((post, index) => normalizeSocialPost(mergedNpc, post, index)) : [],
     };
   }
 
   const fallbackBoard = MOCK_CHIPS.find(chip => chip.type === 'board');
   const fallbackNormals = MOCK_CHIPS.filter(chip => chip.type === 'active' || chip.type === 'passive' || chip.type === 'process');
-  const sourceChips = Array.isArray(npc.chips) ? npc.chips : [];
+  const sourceChips = Array.isArray(mergedNpc.chips) ? mergedNpc.chips : [];
   const normalizedChips =
     sourceChips.length > 0
       ? sourceChips
@@ -612,12 +1029,12 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
           ...(fallbackBoard ? [{ ...fallbackBoard }] : []),
           ...(fallbackNormals.length > 0
             ? [
-                { ...fallbackNormals[hashTextToIndex(`${npc.id}_c1`, fallbackNormals.length)] },
-                { ...fallbackNormals[hashTextToIndex(`${npc.id}_c2`, fallbackNormals.length)] },
+                { ...fallbackNormals[hashTextToIndex(`${mergedNpc.id}_c1`, fallbackNormals.length)] },
+                { ...fallbackNormals[hashTextToIndex(`${mergedNpc.id}_c2`, fallbackNormals.length)] },
               ]
             : []),
         ];
-  const source = npc.bodyParts || [];
+  const source = mergedNpc.bodyParts || [];
   const used = new Set<number>();
   const findPartIndex = (tpl: (typeof LINGSHU_BODY_PART_TEMPLATE)[number]) => {
     const aliasSet = new Set([tpl.key, ...(tpl.aliases || [])].map(v => v.toLowerCase()));
@@ -644,7 +1061,7 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
     const from = matchIndex >= 0 ? source[matchIndex] : null;
     if (matchIndex >= 0) used.add(matchIndex);
     return {
-      id: from?.id || `npc_${npc.id}_${tpl.key}_${idx + 1}`,
+      id: from?.id || `npc_${mergedNpc.id}_${tpl.key}_${idx + 1}`,
       key: tpl.key,
       name: tpl.name,
       rank: from?.rank || levelToRank(tpl.level),
@@ -663,14 +1080,32 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
     .filter((_, idx) => !used.has(idx))
     .map((part, idx) => ({
       ...part,
-      id: part.id || `npc_${npc.id}_extra_${idx + 1}`,
+      id: part.id || `npc_${mergedNpc.id}_extra_${idx + 1}`,
       equippedItems: part.equippedItems || [],
       skills: part.skills || [],
       maxSkillSlots: part.maxSkillSlots || 3,
       maxEquipSlots: part.maxEquipSlots || DEFAULT_LINGSHU_EQUIP_SLOTS,
     }));
 
-  return { ...npc, bodyParts: [...normalized, ...extras], chips: normalizedChips };
+  const normalizedNpc: NPC = { ...mergedNpc, bodyParts: [...normalized, ...extras], chips: normalizedChips };
+  return {
+    ...normalizedNpc,
+    chipSummary: Array.isArray(normalizedNpc.chipSummary) ? normalizedNpc.chipSummary : [],
+    clueNotes: Array.isArray(normalizedNpc.clueNotes) ? normalizedNpc.clueNotes : [],
+    dossierSections: Array.isArray(normalizedNpc.dossierSections) ? normalizedNpc.dossierSections : [],
+    gallery: Array.isArray(normalizedNpc.gallery) ? normalizedNpc.gallery : [],
+    socialHandle: normalizedNpc.socialHandle?.trim() || `@${buildSocialHandleSeed(normalizedNpc)}`,
+    socialBio: normalizedNpc.socialBio?.trim() || `${normalizedNpc.affiliation || '未知来源'} · ${normalizedNpc.position || '灵网账号'}`,
+    playerFollows: !!normalizedNpc.playerFollows,
+    followsPlayer: normalizedNpc.followsPlayer ?? !!normalizedNpc.isContact,
+    followerCount: Number.isFinite(normalizedNpc.followerCount) ? Math.max(0, Number(normalizedNpc.followerCount)) : 120 + (hashText(normalizedNpc.id) % 900),
+    followingCount: Number.isFinite(normalizedNpc.followingCount) ? Math.max(0, Number(normalizedNpc.followingCount)) : 20 + (hashText(`${normalizedNpc.id}_f`) % 180),
+    walletTag: normalizedNpc.walletTag?.trim() || `LPAY-${buildSocialHandleSeed(normalizedNpc).slice(0, 10).toUpperCase()}`,
+    unlockState: normalizedUnlockState,
+    darknetProfile: normalizedDarknetProfile,
+    dmThread: Array.isArray(normalizedNpc.dmThread) ? normalizedNpc.dmThread.map(normalizeDirectMessage) : [],
+    socialFeed: Array.isArray(normalizedNpc.socialFeed) ? normalizedNpc.socialFeed.map((post, index) => normalizeSocialPost(normalizedNpc, post, index)) : [],
+  };
 };
 
 const normalizeNpcListForUi = (list: NPC[]): NPC[] => list.map(normalizeNpcForUi);
@@ -1528,6 +1963,32 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   return stripLeadingStatusLinesFromMaintext(stripped || text);
 };
 
+const extractTaggedTextFromApiOutput = (raw: string, tags: string[]): string | null => {
+  const text = sanitizeAiMaintext(raw);
+  if (!text || tags.length === 0) return null;
+  const escapedTags = tags.map(tag => tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const tagPattern = escapedTags.join('|');
+
+  const matchTaggedBlock = (source: string): string | null => {
+    const direct = source.match(new RegExp(`<(${tagPattern})\\b[^>]*>([\\s\\S]*?)<\\/\\1>`, 'i'));
+    const inner = direct?.[2]?.trim();
+    return inner ? sanitizeAiMaintext(inner) : null;
+  };
+
+  const direct = matchTaggedBlock(text);
+  if (direct) return direct;
+
+  const fencedBlocks = [...text.matchAll(/```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```/g)].map(match => match[1] || '');
+  for (const block of fencedBlocks) {
+    const picked = matchTaggedBlock(block);
+    if (picked) return picked;
+  }
+
+  return null;
+};
+
+const extractSumFromApiOutput = (raw: string): string | null => extractTaggedTextFromApiOutput(raw, ['sum', 'summary', 'recap']);
+
 type VariablePatchOperation =
   | { op: 'replace'; path: string; value: unknown }
   | { op: 'delta'; path: string; value: number }
@@ -1537,6 +1998,7 @@ type VariablePatchOperation =
 
 type ParsedApiOutput = {
   maintext: string | null;
+  sum: string | null;
   npcDataRecords: NearbyNpcRecord[];
   npcDataParseError: string | null;
   patchOperations: VariablePatchOperation[];
@@ -1567,6 +2029,159 @@ const deepClonePlainData = <T,>(value: T): T => {
     return value;
   }
 };
+
+const toFiniteNumber = (value: unknown): number | undefined => {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : undefined;
+};
+
+const runtimePercentToStatRate = (value: number): number => {
+  const normalized = Math.max(0, value) / 100;
+  return Math.round(normalized * 1000) / 1000;
+};
+
+const statRateToRuntimePercent = (value: unknown): number | undefined => {
+  const next = toFiniteNumber(value);
+  if (next === undefined) return undefined;
+  return Math.abs(next) <= 3 ? next * 100 : next;
+};
+
+const createEmptyLcoinBuckets = (): Record<LcoinBucketKey, number> => ({
+  lv1: 0,
+  lv2: 0,
+  lv3: 0,
+  lv4: 0,
+  lv5: 0,
+});
+
+const readLcoinBucketsFromStat = (raw: unknown): {
+  buckets: Record<LcoinBucketKey, number>;
+  total: number;
+  hasAny: boolean;
+} => {
+  const buckets = createEmptyLcoinBuckets();
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { buckets, total: 0, hasAny: false };
+  }
+
+  let total = 0;
+  let hasAny = false;
+  LCOIN_BUCKET_KEYS.forEach(key => {
+    const next = Math.max(0, toFiniteNumber((raw as Record<string, unknown>)[key]) ?? 0);
+    buckets[key] = next;
+    total += next;
+    if (next > 0) hasAny = true;
+  });
+
+  const explicitTotal = Math.max(0, toFiniteNumber((raw as Record<string, unknown>).total) ?? 0);
+  return {
+    buckets,
+    total: explicitTotal > 0 ? explicitTotal : total,
+    hasAny: hasAny || explicitTotal > 0,
+  };
+};
+
+const buildLcoinBucketsFromVault = (
+  vault: Partial<Record<Rank, number>>,
+  fallbackCredits: number,
+  currentRank: Rank,
+): Record<LcoinBucketKey, number> => {
+  const buckets = createEmptyLcoinBuckets();
+  LCOIN_BUCKET_KEYS.forEach((_, index) => {
+    const rank = levelToRank(index + 1);
+    buckets[RANK_TO_LCOIN_KEY[rank]] = Math.max(0, toFiniteNumber(vault?.[rank]) ?? 0);
+  });
+  const total = Object.values(buckets).reduce((sum, value) => sum + value, 0);
+  if (total <= 0 && fallbackCredits > 0) {
+    buckets[RANK_TO_LCOIN_KEY[currentRank]] = Math.max(0, fallbackCredits);
+  }
+  return buckets;
+};
+
+const normalizeRuntimeAffixList = (raw: unknown, prefix: string): RuntimeAffix[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry, index) => {
+      if (!entry) return null;
+      if (typeof entry === 'string') {
+        const name = entry.trim();
+        if (!name) return null;
+        return {
+          id: `${prefix}_${index + 1}_${hashText(name)}`,
+          name,
+          description: name,
+          type: 'neutral' as const,
+          source: '变量同步',
+        };
+      }
+      if (typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const name = `${record.name ?? record.title ?? ''}`.trim();
+      if (!name) return null;
+      const description = `${record.description ?? record.desc ?? record.detail ?? name}`.trim() || name;
+      const typeRaw = `${record.type ?? 'neutral'}`.trim().toLowerCase();
+      const type =
+        typeRaw === 'buff' || typeRaw === 'debuff' || typeRaw === 'neutral'
+          ? (typeRaw as RuntimeAffix['type'])
+          : 'neutral';
+      return {
+        id: `${record.id ?? `${prefix}_${index + 1}_${hashText(`${name}_${description}`)}`}`,
+        name,
+        description,
+        type,
+        source: `${record.source ?? '变量同步'}`.trim() || '变量同步',
+        stacks: Math.max(1, Math.round(toFiniteNumber(record.stacks) ?? 1)),
+      };
+    })
+    .filter((entry): entry is RuntimeAffix => !!entry);
+};
+
+const toStatAffixRecord = (affix: RuntimeAffix) => ({
+  name: affix.name,
+  desc: affix.description || affix.name,
+  description: affix.description || affix.name,
+  type: affix.type || 'neutral',
+  source: affix.source || '前端同步',
+  stacks: affix.stacks ?? 1,
+});
+
+const normalizeStatLingshuParts = (raw: unknown): GameConfig['selectedLingshu'] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const name = `${record.name ?? record.key ?? record.id ?? ''}`.trim();
+      if (!name) return null;
+      const rank = coerceRankFromValue(record.rank ?? record.level ?? record.lv, Rank.Lv1);
+      const level = Math.max(1, Math.round(toFiniteNumber(record.level) ?? rankToLevel(rank)));
+      return {
+        id: `${record.id ?? record.key ?? `stat_lingshu_${index + 1}`}`,
+        key: `${record.key ?? record.id ?? `part_${index + 1}`}`,
+        name,
+        rank,
+        level,
+        strengthProgress: Math.max(0, Math.min(100, Math.round(toFiniteNumber(record.strengthProgress) ?? 0))),
+        description: `${record.description ?? `${name}灵枢节点`}`.trim() || `${name}灵枢节点`,
+        statusAffixes: normalizeRuntimeAffixList(record.status ?? record.statusAffixes, `lingshu_${index + 1}`),
+        equippedItems: [],
+        spiritSkills: [],
+      };
+    })
+    .filter((entry): entry is GameConfig['selectedLingshu'][number] => !!entry);
+};
+
+const toStatLingshuPartRecord = (part: GameConfig['selectedLingshu'][number], index: number) => ({
+  id: part.id,
+  key: part.key || part.id || `part_${index + 1}`,
+  name: part.name,
+  rank: part.rank,
+  level: part.level || rankToLevel(part.rank),
+  lingshu_strength: part.level || rankToLevel(part.rank),
+  strengthProgress: Math.max(0, Math.min(100, Math.round(part.strengthProgress ?? 0))),
+  description: part.description || `${part.name}灵枢节点`,
+  status: (part.statusAffixes || []).map(toStatAffixRecord),
+});
 
 const unwrapCodeFence = (raw: string): string => {
   const text = sanitizeAiMaintext(raw);
@@ -1739,6 +2354,7 @@ const parseApiOutputPayload = (raw: string): ParsedApiOutput => {
   const { operations, error } = parsePatchOperationsFromText(clean);
   return {
     maintext,
+    sum: extractSumFromApiOutput(clean),
     npcDataRecords: npcDataParsed.records,
     npcDataParseError: npcDataParsed.error,
     patchOperations: operations,
@@ -2098,13 +2714,19 @@ const buildDialogueContextFromMessages = (timeline: Message[], maxMessages = 8):
   return `【最近对话记录】\n${lines.join('\n')}`;
 };
 
+const textMatchesNpcLookupToken = (text: string, token: string): boolean => {
+  const source = `${text || ''}`.toLowerCase();
+  const normalizedToken = `${token || ''}`.trim().toLowerCase();
+  if (!source || !normalizedToken || normalizedToken.length <= 1) return false;
+  return source.includes(normalizedToken);
+};
+
 const App: React.FC = () => {
-  type LeftModuleTab = 'chips' | 'lingshu' | 'inventory';
   const [gameStage, setGameStage] = useState<GameStage>('start');
-  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [selectedNPC, setSelectedNPC] = useState<NPC | null>(null);
-  const [activeTab, setActiveTab] = useState<'contacts' | 'settings'>('contacts');
+  const [activeTab, setActiveTab] = useState<RightPanelTab>('contacts');
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
@@ -2122,6 +2744,7 @@ const App: React.FC = () => {
   const gameSceneHint = useMemo(() => getSceneHintByPhase(gameDayPhase), [gameDayPhase]);
 
   const [playerStats, setPlayerStats] = useState<PlayerStats>(MOCK_PLAYER_STATS);
+  const [playerName, setPlayerName] = useState<string>(LN_DEFAULT_PLAYER_NAME);
   const [playerGender, setPlayerGender] = useState<'male' | 'female'>('male');
   const [playerSkills, setPlayerSkills] = useState<Skill[]>([
     { id: 'ps1', name: '灵弦：野性直觉', level: 1, description: '被动增强感知能力。' },
@@ -2156,7 +2779,7 @@ const App: React.FC = () => {
   const [playerFaction, setPlayerFaction] = useState<PlayerFaction>(MOCK_PLAYER_FACTION);
   const [leftModuleTab, setLeftModuleTab] = useState<LeftModuleTab>('chips');
   const [playerNeuralProtocol, setPlayerNeuralProtocol] = useState<'none' | 'beta'>('none');
-  const [careerTracks, setCareerTracks] = useState<CareerTrack[]>(DEFAULT_CAREER_TRACKS);
+  const [careerTracks, setCareerTracks] = useState<CareerTrack[]>(() => cloneCareerTracks(DEFAULT_CAREER_TRACKS));
   const [isCareerEditorOpen, setIsCareerEditorOpen] = useState(false);
   const [focusedLayerId, setFocusedLayerId] = useState<string | null>(null);
   const [isEditLayerOpen, setIsEditLayerOpen] = useState(false);
@@ -2169,6 +2792,7 @@ const App: React.FC = () => {
   const [archiveSlots, setArchiveSlots] = useState<ArchiveSlot[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState<string>('');
   const [archiveNameInput, setArchiveNameInput] = useState('');
+  const [archiveScopeId, setArchiveScopeId] = useState<string>(() => resolveCurrentTavernChatScope());
   const [apiConfig, setApiConfig] = useState<LnApiConfig>({
     enabled: true,
     useTavernApi: true,
@@ -2180,6 +2804,10 @@ const App: React.FC = () => {
   const [apiError, setApiError] = useState('');
   const apiAbortControllerRef = useRef<AbortController | null>(null);
   const apiRequestSeqRef = useRef(0);
+  const activeNpcDirectorCacheRef = useRef<{ ids: string[]; turnsRemaining: number }>({
+    ids: [],
+    turnsRemaining: 0,
+  });
 
   const [betaStatus, setBetaStatus] = useState<PlayerCivilianStatus>({
     ...MOCK_PLAYER_STATUS,
@@ -2202,6 +2830,8 @@ const App: React.FC = () => {
     lockLocation: false,
     lockIdentity: false,
   });
+  const [monthlySettlementLog, setMonthlySettlementLog] = useState<MonthlySettlementRecord[]>([]);
+  const [settlementCheckpointMonth, setSettlementCheckpointMonth] = useState<string | null>(null);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -2214,6 +2844,10 @@ const App: React.FC = () => {
   const lastProtocolRef = useRef<'none' | 'beta' | null>(null);
   const lastPulledSyncSignatureRef = useRef('');
   const lastPushedSyncSignatureRef = useRef('');
+  const lastTavernSyncSignatureRef = useRef('');
+  const archiveScopeReloadRef = useRef<string>(archiveScopeId);
+  const archiveStorageKey = useMemo(() => buildScopedStorageKey(LN_ARCHIVES_KEY_PREFIX, archiveScopeId), [archiveScopeId]);
+  const lastArchiveStorageKey = useMemo(() => buildScopedStorageKey(LN_LAST_ARCHIVE_ID_KEY_PREFIX, archiveScopeId), [archiveScopeId]);
 
   const taxOfficerCandidates = useMemo<TaxOfficerCandidate[]>(() => {
     const list = npcs
@@ -2284,7 +2918,7 @@ const App: React.FC = () => {
   }, [isMobileViewport]);
 
   useEffect(() => {
-    setLeftModuleTab(prev => (prev === 'chips' || prev === 'lingshu' || prev === 'inventory' ? prev : 'chips'));
+    setLeftModuleTab(prev => (prev === 'chips' || prev === 'economy' || prev === 'lingshu' || prev === 'inventory' ? prev : 'chips'));
   }, [playerGender]);
 
   useEffect(() => {
@@ -2298,6 +2932,56 @@ const App: React.FC = () => {
       setSelectedNPC(next);
     }
   }, [npcs, selectedNPC]);
+
+  const buildNpcDirectorContextForRequest = useCallback(
+    (input: string, dialogueContext: string): string => {
+      const searchText = [input, dialogueContext].filter(Boolean).join('\n');
+      const matched = new Map<string, NPC>();
+
+      if (selectedNPC) {
+        const liveSelected = npcs.find(npc => npc.id === selectedNPC.id) || selectedNPC;
+        if (buildNpcDirectorPrompt(liveSelected)) {
+          matched.set(liveSelected.id, liveSelected);
+        }
+      }
+
+      npcs.forEach(npc => {
+        if (!buildNpcDirectorPrompt(npc)) return;
+        const tokens = getNpcDirectorLookupTokens(npc);
+        if (tokens.some(token => textMatchesNpcLookupToken(searchText, token))) {
+          matched.set(npc.id, npc);
+        }
+      });
+
+      let picked = Array.from(matched.values()).slice(0, 2);
+      if (picked.length > 0) {
+        const keepAliveTurns = Math.max(...picked.map(getNpcDirectorKeepAliveTurns), 3);
+        activeNpcDirectorCacheRef.current = {
+          ids: picked.map(npc => npc.id),
+          turnsRemaining: keepAliveTurns,
+        };
+      } else if (activeNpcDirectorCacheRef.current.turnsRemaining > 0) {
+        picked = activeNpcDirectorCacheRef.current.ids
+          .map(id => npcs.find(npc => npc.id === id))
+          .filter((npc): npc is NPC => !!npc)
+          .filter(npc => !!buildNpcDirectorPrompt(npc))
+          .slice(0, 2);
+        activeNpcDirectorCacheRef.current = {
+          ids: picked.map(npc => npc.id),
+          turnsRemaining: Math.max(0, activeNpcDirectorCacheRef.current.turnsRemaining - 1),
+        };
+      }
+
+      const blocks = picked.map(buildNpcDirectorPrompt).filter(Boolean);
+      if (blocks.length === 0) return '';
+      return [
+        '【当前关键人物隐藏参考】',
+        '以下内容只用于稳定扮演，不要整段复述，不要一上来全盘自曝；仅在合理时机通过语气、动作、回避、暗示或局部透露体现。',
+        blocks.join('\n\n'),
+      ].join('\n');
+    },
+    [npcs, selectedNPC],
+  );
 
   useEffect(() => {
     if (!playerLingshu || playerLingshu.length === 0) return;
@@ -2338,23 +3022,61 @@ const App: React.FC = () => {
   }, [playerLingshu]);
 
   useEffect(() => {
+    const syncScope = (nextScope?: string) => {
+      setArchiveScopeId(normalizeArchiveScopeId(nextScope || resolveCurrentTavernChatScope()));
+    };
+
+    syncScope();
+    if (typeof eventOn !== 'function' || typeof tavern_events === 'undefined') {
+      return;
+    }
+
+    const subscription = eventOn(tavern_events.CHAT_CHANGED, nextChatId => {
+      syncScope(typeof nextChatId === 'string' ? nextChatId : undefined);
+    });
+
+    return () => {
+      subscription.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (archiveScopeReloadRef.current === archiveScopeId) return;
+    archiveScopeReloadRef.current = archiveScopeId;
+    window.location.reload();
+  }, [archiveScopeId]);
+
+  useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(LN_ARCHIVES_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as ArchiveSlot[];
-      if (!Array.isArray(parsed)) return;
-      const valid = parsed.filter(slot => slot?.id && slot?.name && slot?.data?.version === 1);
+      const raw = window.localStorage.getItem(archiveStorageKey);
+      const parsed = raw ? (JSON.parse(raw) as ArchiveSlot[]) : [];
+      const valid = Array.isArray(parsed)
+        ? parsed.filter(slot => slot?.id && slot?.name && slot?.data && (slot.data.version === 1 || slot.data.version === undefined))
+        : [];
       setArchiveSlots(valid);
-      const lastId = window.localStorage.getItem(LN_LAST_ARCHIVE_ID_KEY);
+
+      const lastId = window.localStorage.getItem(lastArchiveStorageKey);
       if (lastId && valid.some(slot => slot.id === lastId)) {
         setSelectedArchiveId(lastId);
-      } else if (valid[0]) {
-        setSelectedArchiveId(valid[0].id);
+        setArchiveNameInput(valid.find(slot => slot.id === lastId)?.name || '');
+        return;
       }
+
+      if (valid[0]) {
+        setSelectedArchiveId(valid[0].id);
+        setArchiveNameInput(valid[0].name);
+        return;
+      }
+
+      setSelectedArchiveId('');
+      setArchiveNameInput('');
     } catch (error) {
       console.warn('读取档案列表失败:', error);
+      setArchiveSlots([]);
+      setSelectedArchiveId('');
+      setArchiveNameInput('');
     }
-  }, []);
+  }, [archiveStorageKey, lastArchiveStorageKey]);
 
   useEffect(() => {
     if (hasTriedLoadDefaultMapRef.current) return;
@@ -2393,6 +3115,97 @@ const App: React.FC = () => {
     }
   }, [apiConfig]);
 
+  const syncMessagesFromTavern = useCallback(() => {
+    const pulledMessages = pullPseudoLayerMessagesFromTavern();
+    if (pulledMessages === null) return false;
+
+    const signature = pulledMessages.map(message => `${message.id}:${hashText(message.content || '')}`).join('|');
+    if (signature === lastTavernSyncSignatureRef.current) {
+      return pulledMessages.some(message => message.sender === 'System' && hasPseudoLayer(message.content));
+    }
+
+    lastTavernSyncSignatureRef.current = signature;
+    setMessages(pulledMessages);
+    setFocusedLayerId(prev => {
+      if (prev && pulledMessages.some(message => message.id === prev)) return prev;
+      const latestLayer = [...pulledMessages].reverse().find(message => message.sender === 'System' && hasPseudoLayer(message.content));
+      return latestLayer?.id || null;
+    });
+    return pulledMessages.some(message => message.sender === 'System' && hasPseudoLayer(message.content));
+  }, []);
+
+  const appendTavernChatMessage = useCallback(async (role: 'assistant' | 'user', message: string) => {
+    const bridge = resolveTavernChatBridge();
+    if (typeof bridge.createChatMessages !== 'function') return false;
+    await bridge.createChatMessages([{ role, message }], { refresh: 'none' });
+    return true;
+  }, []);
+
+  const replaceTavernChatMessage = useCallback(async (messageId: number, message: string) => {
+    const bridge = resolveTavernChatBridge();
+    if (typeof bridge.setChatMessages !== 'function') return false;
+    await bridge.setChatMessages([{ message_id: messageId, message }], { refresh: 'affected' });
+    return true;
+  }, []);
+
+  const deleteTavernChatMessageIds = useCallback(async (messageIds: number[]) => {
+    if (messageIds.length === 0) return true;
+    const bridge = resolveTavernChatBridge();
+    if (typeof bridge.deleteChatMessages !== 'function') return false;
+    await bridge.deleteChatMessages(messageIds, { refresh: 'affected' });
+    return true;
+  }, []);
+
+  const resetCurrentLnRun = useCallback(async () => {
+    const latestPulledMessages = pullPseudoLayerMessagesFromTavern() || [];
+    const runtimeMessages = [...latestPulledMessages, ...messages];
+    const runtimeChatIds = [...new Set(
+      runtimeMessages
+        .map(message => message.chatMessageId)
+        .filter((messageId): messageId is number => Number.isFinite(messageId)),
+    )];
+
+    if (runtimeChatIds.length > 0) {
+      try {
+        const deleted = await deleteTavernChatMessageIds(runtimeChatIds);
+        if (deleted) {
+          lastTavernSyncSignatureRef.current = '';
+          syncMessagesFromTavern();
+        }
+      } catch (error) {
+        console.warn('重开前清理酒馆楼层失败，回退为前端本地重置:', error);
+      }
+    }
+
+    lastTavernSyncSignatureRef.current = '';
+    setMessages([]);
+    setFocusedLayerId(null);
+    setSelectedNPC(null);
+    setLayerMenu(null);
+    setIsLayerPickerOpen(false);
+  }, [deleteTavernChatMessageIds, messages, syncMessagesFromTavern]);
+
+  useEffect(() => {
+    syncMessagesFromTavern();
+
+    if (typeof eventOn !== 'function' || typeof tavern_events === 'undefined') {
+      return;
+    }
+
+    const subscriptions = [
+      eventOn(tavern_events.CHAT_CHANGED, syncMessagesFromTavern),
+      eventOn(tavern_events.MESSAGE_SENT, syncMessagesFromTavern),
+      eventOn(tavern_events.MESSAGE_RECEIVED, syncMessagesFromTavern),
+      eventOn(tavern_events.MESSAGE_EDITED, syncMessagesFromTavern),
+      eventOn(tavern_events.MESSAGE_DELETED, syncMessagesFromTavern),
+      eventOn(tavern_events.MESSAGE_UPDATED, syncMessagesFromTavern),
+    ];
+
+    return () => {
+      subscriptions.forEach(subscription => subscription.stop());
+    };
+  }, [syncMessagesFromTavern]);
+
   const syncStateFromTavernVariables = useCallback(() => {
     const tavernBridge = resolveTavernVariableBridge();
     if (typeof tavernBridge.getVariables !== 'function') return;
@@ -2407,12 +3220,13 @@ const App: React.FC = () => {
     const stat = variables?.stat_data;
     if (!stat || typeof stat !== 'object') return;
 
-    const toNumber = (value: unknown): number | undefined => {
-      const next = Number(value);
-      return Number.isFinite(next) ? next : undefined;
-    };
-
+    const worldNode = stat?.world && typeof stat.world === 'object' && !Array.isArray(stat.world) ? stat.world : {};
     const playerNode = stat?.player && typeof stat.player === 'object' ? stat.player : {};
+    const identityRaw = playerNode?.identity;
+    const identity =
+      identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw)
+        ? identityRaw
+        : {};
     const coreStatusRaw = playerNode?.core_status;
     const coreStatus =
       coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw)
@@ -2433,31 +3247,113 @@ const App: React.FC = () => {
       assetsRaw && typeof assetsRaw === 'object' && !Array.isArray(assetsRaw)
         ? assetsRaw
         : {};
-    const lcoin = assets?.lcoin || {};
-    const lcoinTotal =
-      (toNumber(lcoin?.total) ?? 0) ||
-      ['lv1', 'lv2', 'lv3', 'lv4', 'lv5'].reduce((sum, key) => sum + (toNumber(lcoin?.[key]) ?? 0), 0);
+    const chipRaw = playerNode?.chip;
+    const chipNode =
+      chipRaw && typeof chipRaw === 'object' && !Array.isArray(chipRaw)
+        ? chipRaw
+        : {};
+    const sixDimRaw = playerNode?.six_dim;
+    const sixDim =
+      sixDimRaw && typeof sixDimRaw === 'object' && !Array.isArray(sixDimRaw)
+        ? sixDimRaw
+        : null;
+    const lcoinState = readLcoinBucketsFromStat(assets?.lcoin);
+    const rankRaw = `${psionic?.rank ?? playerNode?.psionic_rank ?? ''}`.trim();
+    const rankMatch = rankRaw.match(/Lv\.?\s*(\d+)/i);
+    const rankValue = rankMatch?.[1] ? levelToRank(Number(rankMatch[1])) : undefined;
+    const protocolRaw = `${identity?.neural_protocol ?? playerNode?.neural_protocol ?? ''}`.trim().toLowerCase();
+    const protocolValue = protocolRaw === 'beta' ? 'beta' : protocolRaw ? 'none' : null;
+    const citizenIdValue = `${identity?.citizen_id ?? playerNode?.citizen_id ?? ''}`.trim();
+    const factionValue = `${playerNode?.faction ?? worldNode?.current_faction ?? ''}`.trim();
+    const regionValue = `${playerNode?.region ?? worldNode?.current_location ?? ''}`.trim();
+    const coreAffixesFromStat = normalizeRuntimeAffixList(playerNode?.core_affixes, 'player_core');
+    const hasCoreAffixArray = Array.isArray(playerNode?.core_affixes);
+    const lingshuFromStat = normalizeStatLingshuParts(playerNode?.lingshu_parts);
+    const hasLingshuArray = Array.isArray(playerNode?.lingshu_parts);
+    const pulledCoinVault: Partial<Record<Rank, number>> = {
+      [Rank.Lv1]: lcoinState.buckets.lv1,
+      [Rank.Lv2]: lcoinState.buckets.lv2,
+      [Rank.Lv3]: lcoinState.buckets.lv3,
+      [Rank.Lv4]: lcoinState.buckets.lv4,
+      [Rank.Lv5]: lcoinState.buckets.lv5,
+    };
 
     const repCurrent =
-      toNumber(status?.reputation?.current) ??
-      toNumber(coreStatus?.reputation?.current) ??
-      toNumber(playerNode?.reputation) ??
-      toNumber(coreStatus?.credit_score);
-    const creditsFromStat = toNumber(assets?.credits) ?? toNumber(playerNode?.credits) ?? lcoinTotal;
+      toFiniteNumber(coreStatus?.reputation?.current) ??
+      toFiniteNumber(status?.reputation?.current) ??
+      toFiniteNumber(playerNode?.reputation) ??
+      toFiniteNumber(coreStatus?.credit_score);
+    const creditsFromStat =
+      toFiniteNumber(assets?.credits) ??
+      toFiniteNumber(playerNode?.credits) ??
+      (rankValue ? pulledCoinVault[rankValue] : undefined) ??
+      lcoinState.total;
     const syncSignature = JSON.stringify({
-      hpCurrent: toNumber(status?.hp?.current) ?? toNumber(coreStatus?.hp?.current) ?? null,
-      hpMax: toNumber(status?.hp?.max) ?? toNumber(coreStatus?.hp?.max) ?? null,
-      mpCurrent: toNumber(status?.mp?.current) ?? toNumber(coreStatus?.mp?.current) ?? null,
-      mpMax: toNumber(status?.mp?.max) ?? toNumber(coreStatus?.mp?.max) ?? null,
-      sanityCurrent: toNumber(status?.sanity?.current) ?? toNumber(coreStatus?.sanity?.current) ?? null,
-      sanityMax: toNumber(status?.sanity?.max) ?? toNumber(coreStatus?.sanity?.max) ?? null,
+      playerName: `${playerNode?.name ?? playerNode?.display_name ?? ''}`.trim() || null,
+      hpCurrent: toFiniteNumber(coreStatus?.hp?.current) ?? toFiniteNumber(status?.hp?.current) ?? null,
+      hpMax: toFiniteNumber(coreStatus?.hp?.max) ?? toFiniteNumber(status?.hp?.max) ?? null,
+      mpCurrent:
+        toFiniteNumber(coreStatus?.mp?.current) ??
+        toFiniteNumber(status?.mp?.current) ??
+        toFiniteNumber(psionic?.energy_value?.current) ??
+        toFiniteNumber(psionic?.energy_value) ??
+        null,
+      mpMax:
+        toFiniteNumber(coreStatus?.mp?.max) ??
+        toFiniteNumber(status?.mp?.max) ??
+        toFiniteNumber(psionic?.energy_value?.max) ??
+        toFiniteNumber(psionic?.energy_value_max) ??
+        null,
+      sanityCurrent: toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current) ?? null,
+      sanityMax: toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max) ?? null,
       credits: creditsFromStat ?? null,
+      lcoin: lcoinState.buckets,
       reputation: repCurrent ?? null,
-      conversionRate: toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate) ?? null,
-      recoveryRate: toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate) ?? null,
-      rank: `${playerNode?.psionic_rank ?? psionic?.rank ?? ''}`.trim() || null,
+      conversionRate: statRateToRuntimePercent(psionic?.conversion_rate?.current ?? psionic?.conversion_rate) ?? null,
+      recoveryRate: statRateToRuntimePercent(psionic?.recovery_rate?.current ?? psionic?.recovery_rate) ?? null,
+      rank: rankRaw || null,
+      protocol: protocolValue,
+      citizenId: citizenIdValue || null,
+      faction: factionValue || null,
+      region: regionValue || null,
+      coreAffixes: coreAffixesFromStat.map(affix => [affix.name, affix.description, affix.type, affix.source].join('|')),
+      lingshu: lingshuFromStat.map(part => [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|')),
+      taxOfficerId: `${chipNode?.tax_officer_id ?? ''}`.trim() || null,
     });
     lastPulledSyncSignatureRef.current = syncSignature;
+
+    const syncedPlayerName = `${playerNode?.name ?? playerNode?.display_name ?? ''}`.trim();
+    if (syncedPlayerName) {
+      setPlayerName(prev => (prev === syncedPlayerName ? prev : syncedPlayerName));
+    }
+    if (protocolValue) {
+      setPlayerNeuralProtocol(prev => (prev === protocolValue ? prev : protocolValue));
+    }
+    if (factionValue || regionValue) {
+      setPlayerFaction(prev => {
+        const next = {
+          ...prev,
+          name: factionValue || prev.name,
+          headquarters: regionValue || prev.headquarters,
+        };
+        return next.name === prev.name && next.headquarters === prev.headquarters ? prev : next;
+      });
+    }
+    if (lcoinState.hasAny) {
+      setCoinVault(prev => {
+        const same = (Object.values(Rank) as Rank[]).every(rank => (prev[rank] || 0) === (pulledCoinVault[rank] || 0));
+        return same ? prev : pulledCoinVault;
+      });
+    }
+    if (hasCoreAffixArray) {
+      setPlayerCoreAffixes(prev => {
+        const next = coreAffixesFromStat;
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+    }
+    if (hasLingshuArray) {
+      setPlayerLingshu(prev => (JSON.stringify(prev) === JSON.stringify(lingshuFromStat) ? prev : lingshuFromStat));
+    }
 
     setPlayerStats(prev => {
       const next: PlayerStats = {
@@ -2466,21 +3362,26 @@ const App: React.FC = () => {
         mp: { ...prev.mp },
         sanity: { ...prev.sanity },
         psionic: { ...prev.psionic },
+        sixDim: { ...prev.sixDim },
       };
       let changed = false;
 
-      const hpCurrent = toNumber(status?.hp?.current) ?? toNumber(coreStatus?.hp?.current);
-      const hpMax = toNumber(status?.hp?.max) ?? toNumber(coreStatus?.hp?.max);
-      const mpCurrent = toNumber(status?.mp?.current) ?? toNumber(coreStatus?.mp?.current);
-      const mpMax = toNumber(status?.mp?.max) ?? toNumber(coreStatus?.mp?.max);
-      const sanityCurrent = toNumber(status?.sanity?.current) ?? toNumber(coreStatus?.sanity?.current);
-      const sanityMax = toNumber(status?.sanity?.max) ?? toNumber(coreStatus?.sanity?.max);
-      const conversionRate = toNumber(psionic?.conversion_rate?.current) ?? toNumber(psionic?.conversion_rate);
-      const recoveryRate = toNumber(psionic?.recovery_rate?.current) ?? toNumber(psionic?.recovery_rate);
-
-      const rankRaw = `${playerNode?.psionic_rank ?? psionic?.rank ?? ''}`.trim();
-      const rankMatch = rankRaw.match(/Lv\.?\s*(\d+)/i);
-      const rankValue = rankMatch?.[1] ? levelToRank(Number(rankMatch[1])) : undefined;
+      const hpCurrent = toFiniteNumber(coreStatus?.hp?.current) ?? toFiniteNumber(status?.hp?.current);
+      const hpMax = toFiniteNumber(coreStatus?.hp?.max) ?? toFiniteNumber(status?.hp?.max);
+      const mpCurrent =
+        toFiniteNumber(coreStatus?.mp?.current) ??
+        toFiniteNumber(status?.mp?.current) ??
+        toFiniteNumber(psionic?.energy_value?.current) ??
+        toFiniteNumber(psionic?.energy_value);
+      const mpMax =
+        toFiniteNumber(coreStatus?.mp?.max) ??
+        toFiniteNumber(status?.mp?.max) ??
+        toFiniteNumber(psionic?.energy_value?.max) ??
+        toFiniteNumber(psionic?.energy_value_max);
+      const sanityCurrent = toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current);
+      const sanityMax = toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max);
+      const conversionRate = statRateToRuntimePercent(psionic?.conversion_rate?.current ?? psionic?.conversion_rate);
+      const recoveryRate = statRateToRuntimePercent(psionic?.recovery_rate?.current ?? psionic?.recovery_rate);
 
       if (hpCurrent !== undefined && hpCurrent !== prev.hp.current) {
         next.hp.current = Math.max(0, hpCurrent);
@@ -2522,15 +3423,61 @@ const App: React.FC = () => {
         next.psionic.level = rankValue;
         changed = true;
       }
+      if (sixDim) {
+        const sixDimNext = {
+          ...next.sixDim,
+          ...(sixDim as PlayerStats['sixDim']),
+        };
+        if (JSON.stringify(sixDimNext) !== JSON.stringify(prev.sixDim)) {
+          next.sixDim = sixDimNext;
+          changed = true;
+        }
+      }
 
       return changed ? ensurePlayerStatsSixDim(next) : prev;
     });
 
-    if (repCurrent !== undefined) {
-      setBetaStatus(prev =>
-        repCurrent === prev.creditScore ? prev : { ...prev, creditScore: Math.max(0, Math.min(120, repCurrent)) },
-      );
-    }
+    setBetaStatus(prev => {
+      const next = { ...prev };
+      let changed = false;
+
+      if (citizenIdValue && citizenIdValue !== prev.citizenId) {
+        next.citizenId = citizenIdValue;
+        changed = true;
+      }
+      if (repCurrent !== undefined && repCurrent !== prev.creditScore) {
+        next.creditScore = Math.max(0, Math.min(120, repCurrent));
+        changed = true;
+      }
+
+      const pulledOfficerId = `${chipNode?.tax_officer_id ?? ''}`.trim();
+      const pulledOfficerName = `${chipNode?.tax_officer_name ?? ''}`.trim();
+      const pulledOfficeAddress = `${chipNode?.tax_office_address ?? chipNode?.office_address ?? ''}`.trim();
+      const pulledTaxAmount = toFiniteNumber(chipNode?.tax_amount ?? chipNode?.taxAmount);
+
+      if ((protocolValue === 'beta' || chipNode?.beta_equipped === true) && !prev.taxOfficerUnlocked) {
+        next.taxOfficerUnlocked = true;
+        changed = true;
+      }
+      if (pulledOfficerId !== `${prev.taxOfficerBoundId ?? ''}`) {
+        next.taxOfficerBoundId = pulledOfficerId || null;
+        changed = true;
+      }
+      if (pulledOfficerName && pulledOfficerName !== prev.taxOfficerName) {
+        next.taxOfficerName = pulledOfficerName;
+        changed = true;
+      }
+      if (pulledOfficeAddress && pulledOfficeAddress !== prev.taxOfficeAddress) {
+        next.taxOfficeAddress = pulledOfficeAddress;
+        changed = true;
+      }
+      if (pulledTaxAmount !== undefined && pulledTaxAmount !== prev.taxAmount) {
+        next.taxAmount = Math.max(0, pulledTaxAmount);
+        changed = true;
+      }
+
+      return changed ? next : prev;
+    });
   }, []);
 
   useEffect(() => {
@@ -2600,6 +3547,7 @@ const App: React.FC = () => {
     [selectedBetaProfessionId],
   );
   const layerMessages = useMemo(() => messages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)), [messages]);
+  const hasExistingPseudoProgress = layerMessages.length > 0;
   const activeLayerMessage = useMemo(
     () => (focusedLayerId ? layerMessages.find(layer => layer.id === focusedLayerId) : undefined) || layerMessages[layerMessages.length - 1],
     [focusedLayerId, layerMessages],
@@ -2617,6 +3565,99 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+  const lingshuRuntimeAffixes = useMemo(
+    () => playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name }))),
+    [playerLingshu],
+  );
+  const mergedRuntimeAffixes = useMemo(() => {
+    const deduped = new Map<string, RuntimeAffix>();
+    [...playerCoreAffixes, ...lingshuRuntimeAffixes].forEach(affix => {
+      const key = affix.id || affix.name;
+      if (key) deduped.set(key, affix);
+    });
+    return [...deduped.values()];
+  }, [playerCoreAffixes, lingshuRuntimeAffixes]);
+  const runtimeStatusTags = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...mergedRuntimeAffixes.map(affix => affix.name),
+            ...(betaStatus.warnings || []).map(warning => `警告:${warning}`),
+          ]
+            .map(tag => `${tag || ''}`.trim())
+            .filter(Boolean),
+        ),
+      ),
+    [mergedRuntimeAffixes, betaStatus.warnings],
+  );
+  const chipCount = useMemo(() => playerChips.filter(chip => chip.type !== 'board' && chip.type !== 'beta').length, [playerChips]);
+  const spiritStringCount = useMemo(
+    () => playerLingshu.reduce((sum, part) => sum + (part.spiritSkills?.length || (part.spiritSkill ? 1 : 0)), 0),
+    [playerLingshu],
+  );
+  const currentMonthKey = useMemo(() => getMonthKeyFromElapsedMinutes(mapRuntime.elapsedMinutes || 0), [mapRuntime.elapsedMinutes]);
+  const locationControlProfile = useMemo(
+    () =>
+      buildLocationControlProfile(
+        currentNarrativeLocation || playerFaction.headquarters || '未知区域',
+        gameDayPhase,
+        playerNeuralProtocol,
+        playerGender,
+        betaStatus.creditScore,
+        gameSceneHint,
+      ),
+    [currentNarrativeLocation, playerFaction.headquarters, gameDayPhase, playerNeuralProtocol, playerGender, betaStatus.creditScore, gameSceneHint],
+  );
+  const monthlySettlementPreview = useMemo(() => {
+    const checkpointMonth = settlementCheckpointMonth || currentMonthKey;
+    const pendingMonths = getMonthDiff(checkpointMonth, currentMonthKey);
+    const upkeepBase = playerLingshu.length * 18 + playerChips.filter(chip => chip.type !== 'board').length * 12;
+    const debuffCost = mergedRuntimeAffixes.reduce((sum, affix) => sum + (affix.type === 'debuff' ? 18 : affix.type === 'neutral' ? 8 : 0), 0);
+    const warningCost = (betaStatus.warnings || []).length * 25;
+    const economyBaseline = Math.max(0, (playerFaction.economy.monthlyIncome || 0) - (playerFaction.economy.monthlyUpkeep || 0));
+    const baseAllowancePerMonth = Math.max(120, Math.round(economyBaseline * 0.12) + (betaStatus.betaLevel || 1) * 60);
+    const bonusPerMonth = betaStatus.creditScore >= 100 ? 120 : betaStatus.creditScore >= 80 ? 40 : 0;
+    const baseAllowance = pendingMonths * (baseAllowancePerMonth + bonusPerMonth);
+    const taxDue = pendingMonths * Math.max(0, betaStatus.taxAmount || 0);
+    const maintenanceCost = pendingMonths * upkeepBase;
+    const penaltyCost = pendingMonths * (debuffCost + warningCost);
+    const netDelta = baseAllowance - taxDue - maintenanceCost - penaltyCost;
+    return {
+      currentMonthLabel: monthKeyToLabel(currentMonthKey),
+      checkpointMonthLabel: monthKeyToLabel(checkpointMonth),
+      cycleLabel: buildSettlementCycleLabel(checkpointMonth, pendingMonths),
+      pendingMonths,
+      canSettle: pendingMonths > 0,
+      baseAllowance,
+      taxDue,
+      maintenanceCost,
+      penaltyCost,
+      netDelta,
+      notes: [
+        `基础津贴由派系月度净收入、Beta 等级和信誉补贴共同决定。`,
+        `灵枢部件、已装配芯片和异常状态会持续抬高维持费与风险扣款。`,
+        `若结算后余额不足，会记为欠缴并直接压低信誉值。`,
+      ],
+    };
+  }, [
+    settlementCheckpointMonth,
+    currentMonthKey,
+    playerLingshu.length,
+    playerChips,
+    mergedRuntimeAffixes,
+    betaStatus.warnings,
+    betaStatus.betaLevel,
+    betaStatus.creditScore,
+    betaStatus.taxAmount,
+    playerFaction.economy.monthlyIncome,
+    playerFaction.economy.monthlyUpkeep,
+  ]);
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    setSettlementCheckpointMonth(prev => prev || currentMonthKey);
+  }, [gameStage, currentMonthKey]);
 
   const syncNearbyNpcsFromContext = useCallback(
     (location: string, playerInput: string, narrativeText: string, structuredRecords: NearbyNpcRecord[] = []) => {
@@ -2712,8 +3753,8 @@ const App: React.FC = () => {
   }, [gameStage, currentNarrativeLocation, activeLayerMessage, messages, syncNearbyNpcsFromContext]);
 
   const identityLabel = useMemo(
-    () => `${betaStatus.citizenId} · ${playerNeuralProtocol.toUpperCase()} · ${playerFaction.name}`,
-    [betaStatus.citizenId, playerNeuralProtocol, playerFaction.name],
+    () => `${playerName} · ${betaStatus.citizenId} · ${playerNeuralProtocol.toUpperCase()} · ${playerFaction.name}`,
+    [playerName, betaStatus.citizenId, playerNeuralProtocol, playerFaction.name],
   );
   const effectiveNarrativeLocation = useMemo(
     () => (stateLock.lockLocation ? stateLock.lockedLocation || currentNarrativeLocation : currentNarrativeLocation),
@@ -2736,7 +3777,30 @@ const App: React.FC = () => {
     const tavernBridge = resolveTavernVariableBridge();
     if (typeof tavernBridge.getVariables !== 'function' || typeof tavernBridge.replaceVariables !== 'function') return;
 
+    const nextCoinBuckets = buildLcoinBucketsFromVault(coinVault, playerStats.credits, playerStats.psionic.level);
+    const nextCoinTotal = Object.values(nextCoinBuckets).reduce((sum, value) => sum + value, 0);
+    const nextCoreAffixes = playerCoreAffixes.map(toStatAffixRecord);
+    const nextStatusTags = Array.from(
+      new Set(
+        [
+          ...playerCoreAffixes.map(affix => affix.name),
+          ...playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => affix.name)),
+        ].filter(Boolean),
+      ),
+    );
+    const nextLingshuParts = playerLingshu.map(toStatLingshuPartRecord);
+    const nextSoulLedger = {
+      [Rank.Lv1]: Math.max(0, playerSoulLedger[Rank.Lv1] || 0),
+      [Rank.Lv2]: Math.max(0, playerSoulLedger[Rank.Lv2] || 0),
+      [Rank.Lv3]: Math.max(0, playerSoulLedger[Rank.Lv3] || 0),
+      [Rank.Lv4]: Math.max(0, playerSoulLedger[Rank.Lv4] || 0),
+      [Rank.Lv5]: Math.max(0, playerSoulLedger[Rank.Lv5] || 0),
+    };
+    const nextAssignedDistrict = betaStatus.taxOfficerBoundId
+      ? pickAirelaTaxDistrict(betaStatus.citizenId || '').name
+      : '';
     const nextSignature = JSON.stringify({
+      playerName,
       hpCurrent: playerStats.hp.current,
       hpMax: playerStats.hp.max,
       mpCurrent: playerStats.mp.current,
@@ -2751,6 +3815,10 @@ const App: React.FC = () => {
       protocol: playerNeuralProtocol,
       citizenId: betaStatus.citizenId,
       faction: playerFaction.name,
+      lcoin: nextCoinBuckets,
+      coreAffixes: nextCoreAffixes,
+      lingshu: nextLingshuParts.map(part => [part.key, part.level, part.rank].join('|')),
+      taxOfficerId: betaStatus.taxOfficerBoundId || null,
       chips: playerChips.map(chip => chip.id),
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
@@ -2764,31 +3832,65 @@ const App: React.FC = () => {
         const player = root.player && typeof root.player === 'object' ? root.player : {};
         const chipRoot = vars.chips && typeof vars.chips === 'object' && !Array.isArray(vars.chips) ? vars.chips : {};
         const coreStatusRaw = player.core_status;
-        const hasCoreStatusObject = !!coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw);
-        const coreStatus = hasCoreStatusObject ? coreStatusRaw : {};
+        const coreStatus =
+          coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw)
+            ? coreStatusRaw
+            : {};
         const statusRaw = player.status;
         const status = statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw) ? statusRaw : {};
         const psionic = player.psionic && typeof player.psionic === 'object' ? player.psionic : {};
         const assets = player.assets && typeof player.assets === 'object' ? player.assets : {};
+        const identityRaw = player.identity;
+        const identity =
+          identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw)
+            ? identityRaw
+            : {};
+        const chipStateRaw = player.chip;
+        const chipState =
+          chipStateRaw && typeof chipStateRaw === 'object' && !Array.isArray(chipStateRaw)
+            ? chipStateRaw
+            : {};
         const lcoin = assets.lcoin && typeof assets.lcoin === 'object' ? assets.lcoin : {};
         const normalizeRateField = (rawRate: unknown, current: number) => {
+          const nextCurrent = runtimePercentToStatRate(current);
           if (rawRate && typeof rawRate === 'object' && !Array.isArray(rawRate)) {
             return {
               ...(rawRate as Record<string, any>),
-              current,
+              current: nextCurrent,
             };
           }
-          return current;
+          return { current: nextCurrent };
         };
+        const worldExchangeRules =
+          world.exchange_rules && typeof world.exchange_rules === 'object' && !Array.isArray(world.exchange_rules)
+            ? world.exchange_rules
+            : {};
         const nextPlayer: Record<string, any> = {
           ...player,
+          name: playerName,
+          display_name: playerName,
           gender: playerGender,
+          region: currentNarrativeLocation || player.region || world.current_location || '未知区域',
+          faction: playerFaction.name || player.faction || world.current_faction || '未知势力',
+          occupation: player.occupation || '未定',
+          identity: {
+            ...identity,
+            citizen_id: betaStatus.citizenId,
+            neural_protocol: playerNeuralProtocol,
+          },
           neural_protocol: playerNeuralProtocol,
           citizen_id: betaStatus.citizenId,
           has_beta_chip: hasBetaChip,
           psionic_rank: playerStats.psionic.level,
           reputation: betaStatus.creditScore,
           credits: playerStats.credits,
+          core_status: {
+            ...coreStatus,
+            hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
+            mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+            sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
+            reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
+          },
           status: {
             ...status,
             hp: { ...(status.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
@@ -2796,29 +3898,63 @@ const App: React.FC = () => {
             sanity: { ...(status.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
             reputation: { ...(status.reputation || {}), current: betaStatus.creditScore, max: 120 },
           },
+          six_dim: {
+            ...((player.six_dim && typeof player.six_dim === 'object' && !Array.isArray(player.six_dim)) ? player.six_dim : {}),
+            ...playerStats.sixDim,
+          },
           psionic: {
             ...psionic,
+            rank: playerStats.psionic.level,
+            density_level: rankToLevel(playerStats.psionic.level),
+            energy_value: {
+              ...((psionic.energy_value && typeof psionic.energy_value === 'object' && !Array.isArray(psionic.energy_value))
+                ? psionic.energy_value
+                : {}),
+              current: playerStats.mp.current,
+              max: playerStats.mp.max,
+            },
+            energy_value_max: playerStats.mp.max,
             conversion_rate: normalizeRateField(psionic.conversion_rate, playerStats.psionic.conversionRate),
             recovery_rate: normalizeRateField(psionic.recovery_rate, playerStats.psionic.recoveryRate),
+            base_daily_recovery: {
+              ...((psionic.base_daily_recovery && typeof psionic.base_daily_recovery === 'object' && !Array.isArray(psionic.base_daily_recovery))
+                ? psionic.base_daily_recovery
+                : {}),
+              male: 120,
+              female: 30,
+            },
           },
           assets: {
             ...assets,
             credits: playerStats.credits,
             lcoin: {
               ...lcoin,
-              total: playerStats.credits,
+              ...nextCoinBuckets,
+              total: nextCoinTotal,
             },
           },
+          chip: {
+            ...chipState,
+            beta_equipped: hasBetaChip,
+            assigned_district: nextAssignedDistrict,
+            tax_officer_id: betaStatus.taxOfficerBoundId || '',
+            tax_officer_name: betaStatus.taxOfficerName || '',
+            tax_office_address: betaStatus.taxOfficeAddress || '',
+            tax_rate: toFiniteNumber(chipState.tax_rate) ?? 0,
+            tax_amount: betaStatus.taxAmount,
+            switch_cooldown_round: toFiniteNumber(chipState.switch_cooldown_round) ?? 0,
+          },
+          flags: {
+            ...((player.flags && typeof player.flags === 'object' && !Array.isArray(player.flags)) ? player.flags : {}),
+            opening_locked: false,
+            narration_owner: 'player',
+            allow_auto_opening: false,
+          },
+          status_tags: nextStatusTags,
+          core_affixes: nextCoreAffixes,
+          lingshu_parts: nextLingshuParts,
+          soul_ledger: nextSoulLedger,
         };
-        if (hasCoreStatusObject) {
-          nextPlayer.core_status = {
-            ...coreStatus,
-            hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
-            mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
-            sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
-            reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
-          };
-        }
 
         const nextVars = { ...vars };
         nextVars.stat_data = {
@@ -2826,8 +3962,19 @@ const App: React.FC = () => {
           world: {
             ...world,
             current_time: effectiveGameTimeText,
+            current_period: effectiveGameDayPhase,
             current_location: currentNarrativeLocation || world.current_location || '未知区域',
             current_faction: playerFaction.name || world.current_faction || '未知势力',
+            exchange_rules: {
+              ...DEFAULT_STAT_EXCHANGE_RULES,
+              ...worldExchangeRules,
+              region_modifier: {
+                ...DEFAULT_STAT_EXCHANGE_RULES.region_modifier,
+                ...((worldExchangeRules.region_modifier && typeof worldExchangeRules.region_modifier === 'object' && !Array.isArray(worldExchangeRules.region_modifier))
+                  ? worldExchangeRules.region_modifier
+                  : {}),
+              },
+            },
           },
           player: nextPlayer,
         };
@@ -2857,6 +4004,7 @@ const App: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [
     gameStage,
+    playerName,
     playerStats.hp.current,
     playerStats.hp.max,
     playerStats.mp.current,
@@ -2871,12 +4019,21 @@ const App: React.FC = () => {
     playerNeuralProtocol,
     betaStatus.citizenId,
     betaStatus.creditScore,
+    betaStatus.taxOfficerBoundId,
+    betaStatus.taxOfficerName,
+    betaStatus.taxOfficeAddress,
+    betaStatus.taxAmount,
     effectiveGameTimeText,
+    effectiveGameDayPhase,
     currentNarrativeLocation,
     playerFaction.name,
     hasBetaChip,
     playerChips,
     storageChips,
+    coinVault,
+    playerCoreAffixes,
+    playerLingshu,
+    playerSoulLedger,
   ]);
   const visibleMessages = messages;
   const visibleLayerMessages = useMemo(
@@ -2894,14 +4051,15 @@ const App: React.FC = () => {
 
   const persistArchives = (slots: ArchiveSlot[]) => {
     try {
-      window.localStorage.setItem(LN_ARCHIVES_KEY, JSON.stringify(slots));
+      window.localStorage.setItem(archiveStorageKey, JSON.stringify(slots));
     } catch (error) {
       console.warn('写入档案列表失败:', error);
     }
   };
 
   const buildSavePayload = (): LnSaveData => ({
-    version: 1,
+    version: 2,
+    playerName,
     messages,
     playerStats,
     playerGender,
@@ -2929,6 +4087,9 @@ const App: React.FC = () => {
     playerSoulLedger,
     coinVault,
     playerCoreAffixes,
+    monthlySettlementLog,
+    settlementCheckpointMonth,
+    stateLock,
   });
 
   const applySavePayload = (payload: LnSaveData) => {
@@ -2939,6 +4100,7 @@ const App: React.FC = () => {
       elapsedMinutes: payload.mapRuntime?.elapsedMinutes || 0,
     });
     setMessages(normalizedMessages);
+    setPlayerName(payload.playerName?.trim() || LN_DEFAULT_PLAYER_NAME);
     setPlayerStats(ensurePlayerStatsSixDim(payload.playerStats || MOCK_PLAYER_STATS));
     setPlayerGender(payload.playerGender || 'male');
     setPlayerSkills(payload.playerSkills || []);
@@ -2957,9 +4119,13 @@ const App: React.FC = () => {
           : [{ id: 'core_affix_f_1', name: '状态：奇点凝附', description: '提升灵海稳定与吸附能力。', type: 'buff', source: '初始' }]),
     );
     setPlayerFaction(payload.playerFaction || MOCK_PLAYER_FACTION);
-    setLeftModuleTab(payload.leftModuleTab || 'chips');
+    setLeftModuleTab(
+      payload.leftModuleTab === 'chips' || payload.leftModuleTab === 'economy' || payload.leftModuleTab === 'lingshu' || payload.leftModuleTab === 'inventory'
+        ? payload.leftModuleTab
+        : 'chips',
+    );
     setPlayerNeuralProtocol(payload.playerNeuralProtocol === 'beta' ? 'beta' : 'none');
-    setCareerTracks(payload.careerTracks?.length ? payload.careerTracks : DEFAULT_CAREER_TRACKS);
+    setCareerTracks(payload.careerTracks?.length ? cloneCareerTracks(payload.careerTracks) : cloneCareerTracks(DEFAULT_CAREER_TRACKS));
     const loadedStatus = payload.betaStatus || MOCK_PLAYER_STATUS;
     setBetaStatus({
       ...loadedStatus,
@@ -2988,6 +4154,15 @@ const App: React.FC = () => {
         logs: [],
       },
     );
+    setMonthlySettlementLog(payload.monthlySettlementLog || []);
+    setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
+    setStateLock(
+      payload.stateLock || {
+        lockTime: false,
+        lockLocation: false,
+        lockIdentity: false,
+      },
+    );
     setSelectedNPC(null);
     setGameStage('game');
   };
@@ -2997,8 +4172,9 @@ const App: React.FC = () => {
     const payload = buildSavePayload();
     const now = Date.now();
     const trimmedName = archiveNameInput.trim();
-    const fallbackName = new Date(now).toLocaleString('zh-CN');
-    const targetId = selectedArchiveId || `archive_${now}_${Math.random().toString(36).slice(2, 8)}`;
+    const fallbackName = playerName.trim() || new Date(now).toLocaleString('zh-CN');
+    const manualSelectedArchiveId = selectedArchiveId && selectedArchiveId !== LN_AUTO_ARCHIVE_ID ? selectedArchiveId : '';
+    const targetId = manualSelectedArchiveId || `archive_${now}_${Math.random().toString(36).slice(2, 8)}`;
     const nextName = trimmedName || archiveSlots.find(slot => slot.id === targetId)?.name || `档案 ${fallbackName}`;
     const existing = archiveSlots.find(slot => slot.id === targetId);
     const nextSlot: ArchiveSlot = {
@@ -3014,7 +4190,7 @@ const App: React.FC = () => {
     setArchiveSlots(merged);
     setSelectedArchiveId(targetId);
     setArchiveNameInput(nextName);
-    window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, targetId);
+    window.localStorage.setItem(lastArchiveStorageKey, targetId);
     persistArchives(merged);
     setMessages(prev => [
       ...prev,
@@ -3045,7 +4221,7 @@ const App: React.FC = () => {
       .slice(0, MAX_ARCHIVE_SLOTS);
     setArchiveSlots(merged);
     setSelectedArchiveId(LN_AUTO_ARCHIVE_ID);
-    window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, LN_AUTO_ARCHIVE_ID);
+    window.localStorage.setItem(lastArchiveStorageKey, LN_AUTO_ARCHIVE_ID);
     persistArchives(merged);
   };
 
@@ -3055,7 +4231,7 @@ const App: React.FC = () => {
     applySavePayload(slot.data);
     setSelectedArchiveId(slot.id);
     setArchiveNameInput(slot.name);
-    window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, slot.id);
+    window.localStorage.setItem(lastArchiveStorageKey, slot.id);
     setMessages(prev => [
       ...prev,
       {
@@ -3079,10 +4255,10 @@ const App: React.FC = () => {
     if (nextSelected) {
       const selected = next.find(slot => slot.id === nextSelected);
       setArchiveNameInput(selected?.name || '');
-      window.localStorage.setItem(LN_LAST_ARCHIVE_ID_KEY, nextSelected);
+      window.localStorage.setItem(lastArchiveStorageKey, nextSelected);
     } else {
       setArchiveNameInput('');
-      window.localStorage.removeItem(LN_LAST_ARCHIVE_ID_KEY);
+      window.localStorage.removeItem(lastArchiveStorageKey);
     }
     if (gameStage === 'game') {
       setMessages(prev => [
@@ -3098,26 +4274,16 @@ const App: React.FC = () => {
     }
   };
 
-  const resolveApiEndpoint = (raw: string) => {
-    const trimmed = raw.trim().replace(/\/+$/, '');
-    if (!trimmed) return '';
-    if (trimmed.endsWith('/chat/completions')) return trimmed;
-    if (trimmed.endsWith('/v1')) return `${trimmed}/chat/completions`;
-    return `${trimmed}/v1/chat/completions`;
-  };
-
   const requestApiMaintext = async (
     input: string,
     context?: { gameTime?: string; dayPhase?: string; location?: string; sceneHint?: string; dialogueContext?: string },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
-    const shouldUseApi = apiConfig.useTavernApi || apiConfig.enabled;
-    if (!shouldUseApi) return null;
+    const runtimeMode = resolveApiRuntimeMode(apiConfig);
+    if (runtimeMode === 'disabled') return null;
     const endpoint = resolveApiEndpoint(apiConfig.endpoint);
-    const canUseExternalApi = !apiConfig.useTavernApi && apiConfig.enabled && !!endpoint && !!apiConfig.model.trim();
 
-    // 外部端点未就绪时，自动回退到酒馆接口，避免整轮直接掉回伪0层模板。
-    if (!canUseExternalApi) {
+    if (runtimeMode === 'tavern') {
       const tavernGenerateList = resolveTavernGenerateList();
       if (tavernGenerateList.length === 0) {
         throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
@@ -3129,11 +4295,12 @@ const App: React.FC = () => {
             `location=${context.location || ''}`,
             context.sceneHint ? `scene=${context.sceneHint}` : '',
             '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
+            PSEUDO_LAYER_RESPONSE_RULES,
           ]
             .filter(Boolean)
             .join('\n')
             .concat('\n')
-        : '';
+        : `${PSEUDO_LAYER_RESPONSE_RULES}\n`;
       const dialoguePrefix = context?.dialogueContext?.trim()
         ? `${context.dialogueContext.trim()}\n`
         : '';
@@ -3176,6 +4343,11 @@ const App: React.FC = () => {
       return parseApiOutputPayload(text);
     }
 
+    const externalConfigError = validateExternalApiConfig(apiConfig);
+    if (externalConfigError) {
+      throw new Error(externalConfigError);
+    }
+
     const requestMessages = context
       ? [
           {
@@ -3186,6 +4358,7 @@ const App: React.FC = () => {
               `location=${context.location || ''}`,
               context.sceneHint ? `scene=${context.sceneHint}` : '',
               '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
+              PSEUDO_LAYER_RESPONSE_RULES,
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
             ]
               .filter(Boolean)
@@ -3193,7 +4366,10 @@ const App: React.FC = () => {
           },
           { role: 'user', content: input },
         ]
-      : [{ role: 'user', content: input }];
+      : [
+          { role: 'system', content: PSEUDO_LAYER_RESPONSE_RULES },
+          { role: 'user', content: input },
+        ];
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -3201,25 +4377,396 @@ const App: React.FC = () => {
       headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
     }
 
+    const requestBody = isResponsesApiEndpoint(endpoint)
+      ? {
+          model: apiConfig.model.trim(),
+          input: buildResponsesApiInput(requestMessages),
+          temperature: 0.85,
+        }
+      : {
+          model: apiConfig.model.trim(),
+          messages: requestMessages,
+          temperature: 0.85,
+        };
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers,
       signal,
-      body: JSON.stringify({
-        model: apiConfig.model.trim(),
-        messages: requestMessages,
-        temperature: 0.85,
-      }),
+      body: JSON.stringify(requestBody),
     });
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errorText = sanitizeAiMaintext(await response.text().catch(() => ''));
+      const summary = errorText ? `: ${errorText.slice(0, 180)}` : '';
+      throw new Error(`HTTP ${response.status}${summary}`);
     }
-    const json = await response.json();
-    return parseApiOutputPayload(sanitizeAiMaintext(coerceGenerateResultToText(json)));
+    const contentType = `${response.headers.get('content-type') || ''}`.toLowerCase();
+    const payload = contentType.includes('application/json')
+      ? await response.json()
+      : await response.text();
+    return parseApiOutputPayload(sanitizeAiMaintext(coerceGenerateResultToText(payload)));
   };
 
   const handleUpdateNpc = (npcId: string, updates: Partial<NPC>) => {
     setNpcs(prev => prev.map(n => (n.id === npcId ? normalizeNpcForUi({ ...n, ...updates }) : n)));
+  };
+
+  const handleToggleSocialFollow = (npcId: string) => {
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        const nextFollow = !npc.playerFollows;
+        const autoMutual = nextFollow && (npc.isContact || (npc.affection || npc.trust || 0) >= 45 || hashText(`${npc.id}_mutual`) % 3 === 0);
+        return normalizeNpcForUi({
+          ...npc,
+          playerFollows: nextFollow,
+          followsPlayer: nextFollow ? npc.followsPlayer || autoMutual : npc.followsPlayer,
+          unlockState: nextFollow
+            ? {
+                ...(npc.unlockState || {}),
+                dossierLevel: Math.max(autoMutual ? 4 : 3, npc.unlockState?.dossierLevel || 0),
+                darknetLevel: Math.max(autoMutual ? 4 : 2, npc.unlockState?.darknetLevel || 0),
+                darknetUnlocked: true,
+              }
+            : npc.unlockState,
+          dmThread:
+            nextFollow && autoMutual && (npc.dmThread || []).length === 0
+              ? [
+                  ...(npc.dmThread || []),
+                  {
+                    id: `dm_follow_${Date.now()}`,
+                    sender: 'npc',
+                    content: `${playerName || '接入者'}，我看到你的关注了。`,
+                    timestamp: new Date().toISOString(),
+                    kind: 'text',
+                  },
+                ]
+              : npc.dmThread,
+        });
+      }),
+    );
+  };
+
+  const handleAddSocialComment = (npcId: string, postId: string, content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        return normalizeNpcForUi({
+          ...npc,
+          socialFeed: npc.socialFeed.map(post =>
+            post.id === postId
+              ? {
+                  ...post,
+                  comments: [
+                    ...post.comments,
+                    {
+                      id: `comment_${Date.now()}`,
+                      sender: playerName || '玩家',
+                      content: trimmed,
+                      timestamp: new Date().toISOString(),
+                      isPlayer: true,
+                    },
+                  ],
+                }
+              : post,
+          ),
+        });
+      }),
+    );
+  };
+
+  const handleSendSocialDm = (npcId: string, content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.id !== npcId || !(npc.playerFollows && npc.followsPlayer)) return npc;
+        const nextThread: DirectMessage[] = [
+          ...(npc.dmThread || []),
+          {
+            id: `dm_player_${Date.now()}`,
+            sender: 'player',
+            content: trimmed,
+            timestamp: new Date().toISOString(),
+            kind: 'text',
+          },
+          {
+            id: `dm_npc_${Date.now() + 1}`,
+            sender: 'npc',
+            content: npc.status === 'busy' ? '我看到了，稍后回你。' : '收到，灵网里说。',
+            timestamp: new Date().toISOString(),
+            kind: 'text',
+          },
+        ];
+        return normalizeNpcForUi({ ...npc, dmThread: nextThread });
+      }),
+    );
+  };
+
+  const handleSpendOnSocial = ({
+    npcId,
+    amount,
+    kind,
+    note,
+    postId,
+  }: {
+    npcId: string;
+    amount: number;
+    kind: 'transfer' | 'tip' | 'unlock';
+    note?: string;
+    postId?: string;
+  }): { ok: boolean; message?: string } => {
+    if (!Number.isFinite(amount) || amount <= 0) return { ok: false, message: '金额无效。' };
+    if (playerStats.credits < amount) return { ok: false, message: '灵币不足。' };
+
+    const target = npcs.find(npc => npc.id === npcId);
+    if (!target) return { ok: false, message: '目标账号不存在。' };
+
+    setPlayerStats(prev => ({ ...prev, credits: Math.max(0, prev.credits - amount) }));
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        const nextFeed = npc.socialFeed.map(post => {
+          if (post.id !== postId) return post;
+          if (kind === 'unlock') {
+            return { ...post, unlockedByPlayer: true, tipsReceived: (post.tipsReceived || 0) + amount };
+          }
+          if (kind === 'tip') {
+            return { ...post, tipsReceived: (post.tipsReceived || 0) + amount };
+          }
+          return post;
+        });
+        const nextThread: DirectMessage[] = [
+          ...(npc.dmThread || []),
+          {
+            id: `dm_pay_${Date.now()}`,
+            sender: 'system',
+            content: note?.trim() || (kind === 'unlock' ? '已完成内容解锁。' : kind === 'tip' ? '已完成动态打赏。' : '已完成转账。'),
+            timestamp: new Date().toISOString(),
+            amount,
+            kind,
+          },
+        ];
+        return normalizeNpcForUi({
+          ...npc,
+          stats: {
+            ...npc.stats,
+            credits: (npc.stats?.credits || 0) + amount,
+          },
+          affection: npc.gender === 'female' ? Math.min(100, (npc.affection || 0) + Math.max(1, Math.floor(amount / 40))) : npc.affection,
+          trust: npc.gender === 'male' ? Math.min(100, (npc.trust || 0) + Math.max(1, Math.floor(amount / 40))) : npc.trust,
+          unlockState: {
+            ...(npc.unlockState || {}),
+            dossierLevel: Math.max(kind === 'unlock' ? 4 : 3, npc.unlockState?.dossierLevel || 0),
+            darknetLevel: Math.max(kind === 'unlock' ? 4 : amount >= 80 ? 3 : 2, npc.unlockState?.darknetLevel || 0),
+            darknetUnlocked: true,
+          },
+          dmThread: nextThread,
+          socialFeed: nextFeed,
+        });
+      }),
+    );
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `social_pay_${Date.now()}`,
+        sender: 'System',
+        content: `灵网支付完成：向 ${target.name} ${kind === 'tip' ? '打赏' : kind === 'unlock' ? '支付解锁' : '转账'} ${amount} 灵币。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    return { ok: true };
+  };
+
+  const handleImportSocialPost = (draft: SocialImportDraft) => {
+    const now = new Date().toISOString();
+    const existingTarget = draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
+    const displayName = draft.localName.trim() || existingTarget?.name || '新导入账号';
+    const importDarknetRecord = buildImportedDarknetRecord(draft, displayName, now, currentNarrativeLocation || '灵网镜像节点');
+    const importedPost: SocialPost = {
+      id: `social_import_${Date.now()}`,
+      content: draft.caption.trim(),
+      timestamp: now,
+      image: draft.imageUrl.trim(),
+      comments: [],
+      visibility: draft.visibility,
+      unlockPrice: draft.visibility === 'premium' ? Math.max(1, draft.unlockPrice || 88) : undefined,
+      unlockedByPlayer: draft.visibility !== 'premium',
+      likeCount: 0,
+      tipsReceived: 0,
+      location: currentNarrativeLocation || '灵网',
+      source: {
+        platform: draft.platform,
+        authorName: draft.originalAuthorName.trim() || undefined,
+        authorHandle: draft.originalAuthorHandle.trim() || undefined,
+        profileUrl: draft.profileUrl.trim() || undefined,
+        postUrl: draft.postUrl.trim() || undefined,
+        importedAt: now,
+        note: draft.note.trim() || undefined,
+      },
+    };
+
+    if (draft.targetNpcId && draft.targetNpcId !== '__new__') {
+      setNpcs(prev =>
+        prev.map(npc => {
+          if (npc.id !== draft.targetNpcId) return npc;
+          const nextGallery = draft.imageUrl.trim()
+            ? [
+                {
+                  id: `gallery_import_${Date.now()}`,
+                  src: draft.imageUrl.trim(),
+                  title: `${displayName} 导入图片`,
+                  caption: draft.caption.trim() || `${draft.platform.toUpperCase()} 公开素材导入`,
+                  sourceLabel: draft.platform.toUpperCase(),
+                  unlockLevel: draft.visibility === 'premium' ? 4 : 2,
+                },
+                ...(npc.gallery || []),
+              ]
+            : npc.gallery || [];
+          return normalizeNpcForUi({
+            ...npc,
+            avatarUrl: draft.imageUrl.trim() || npc.avatarUrl,
+            socialHandle: draft.socialHandle.trim() || npc.socialHandle,
+            socialBio: draft.socialBio.trim() || npc.socialBio,
+            clueNotes:
+              npc.clueNotes && npc.clueNotes.length > 0
+                ? npc.clueNotes
+                : [`已导入来自 ${draft.platform.toUpperCase()} 的公开资料映射。`],
+            dossierSections:
+              npc.dossierSections && npc.dossierSections.length > 0
+                ? npc.dossierSections
+                : [
+                    {
+                      id: 'social_import_origin',
+                      title: '来源映射',
+                      content: `该人物已绑定公开社交素材来源，当前导入平台为 ${draft.platform.toUpperCase()}。互动、评论与私信均在 LN 内本土化处理。`,
+                      unlockLevel: 2,
+                    },
+                  ],
+            gallery: nextGallery,
+            darknetProfile: {
+              ...(npc.darknetProfile || {}),
+              handle: npc.darknetProfile?.handle || `dn://${buildSocialHandleSeed({ ...npc, name: displayName })}`,
+              alias: npc.darknetProfile?.alias || `${displayName} / 镜像账号`,
+              summary:
+                npc.darknetProfile?.summary
+                || `${displayName} 已建立公开素材来源映射档。公开入口仍走灵网，但情报留痕、来源核验与后续扩写统一沉淀到暗网侧。`,
+              accessTier: npc.darknetProfile?.accessTier || '镜像归档节点',
+              marketVector: npc.darknetProfile?.marketVector || `${draft.platform.toUpperCase()} 来源镜像 / 灵网导流`,
+              riskRating: Math.max(2, npc.darknetProfile?.riskRating || 0),
+              bounty: npc.darknetProfile?.bounty || '未挂牌',
+              tags: normalizeUniqueStrings([...(npc.darknetProfile?.tags || []), draft.platform.toUpperCase(), '来源映射', '公开素材导入']),
+              knownAssociates: normalizeUniqueStrings([
+                ...(npc.darknetProfile?.knownAssociates || []),
+                draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim(),
+              ]),
+              lastSeen: currentNarrativeLocation || npc.location || '灵网镜像节点',
+              intelRecords: [importDarknetRecord, ...(npc.darknetProfile?.intelRecords || [])],
+            },
+            unlockState: {
+              ...(npc.unlockState || {}),
+              dossierLevel: Math.max(4, npc.unlockState?.dossierLevel || 0),
+              albumUnlockedCount: Math.max(nextGallery.length, npc.unlockState?.albumUnlockedCount || 0),
+              socialUnlocked: true,
+              darknetLevel: Math.max(4, npc.unlockState?.darknetLevel || 0),
+              darknetUnlocked: true,
+              intelUnlockedCount: Math.max((npc.darknetProfile?.intelRecords || []).length + 1, npc.unlockState?.intelUnlockedCount || 0),
+            },
+            socialFeed: [importedPost, ...npc.socialFeed],
+          });
+        }),
+      );
+    } else {
+      const npcId = `social_import_npc_${Date.now()}`;
+      const seedNpc = normalizeNpcForUi({
+        id: npcId,
+        name: displayName,
+        gender: draft.gender,
+        group: '',
+        position: '灵网博主',
+        affiliation: `${draft.platform.toUpperCase()} 来源映射`,
+        location: currentNarrativeLocation || '灵网',
+        isContact: false,
+        stats: buildAutoNearbyNpcStats(`${npcId}_${draft.localName}`, draft.gender),
+        affection: draft.gender === 'female' ? 18 : undefined,
+        trust: draft.gender === 'male' ? 18 : undefined,
+        bodyParts: draft.gender === 'female' ? buildAutoNearbyNpcBodyParts(npcId) : [],
+        spiritSkills: draft.gender === 'male' ? [] : undefined,
+        chips: buildAutoNearbyNpcChips(npcId, draft.gender),
+        avatarUrl: draft.imageUrl.trim(),
+        status: 'online',
+        inventory: [],
+        socialHandle: draft.socialHandle.trim(),
+        socialBio: draft.socialBio.trim() || `${draft.platform.toUpperCase()} 公开素材映射账号`,
+        playerFollows: false,
+        followsPlayer: false,
+        followerCount: 400 + (hashText(displayName) % 1800),
+        followingCount: 12 + (hashText(`${displayName}_f`) % 90),
+        walletTag: `LPAY-${displayName.trim().replace(/[^\w\u4e00-\u9fa5]+/g, '').slice(0, 10).toUpperCase() || 'IMPORT'}`,
+        clueNotes: [
+          `来自 ${draft.platform.toUpperCase()} 公开主页的素材映射账号。`,
+          '当前已本土化为 LN 灵网人物，可继续解锁人物志与相册。',
+        ],
+        dossierSections: [
+          {
+            id: 'social_import_origin',
+            title: '来源映射',
+            content: `该人物通过 ${draft.platform.toUpperCase()} 公开资料导入。当前账号仅保留公开图片与来源链接，互动与后续剧情均由 LN 内部系统接管。`,
+            unlockLevel: 2,
+          },
+        ],
+        gallery: draft.imageUrl.trim()
+          ? [
+              {
+                id: `gallery_import_${Date.now()}`,
+                src: draft.imageUrl.trim(),
+                title: `${displayName} 导入图片`,
+                caption: draft.caption.trim() || `${draft.platform.toUpperCase()} 公开素材导入`,
+                sourceLabel: draft.platform.toUpperCase(),
+                unlockLevel: draft.visibility === 'premium' ? 4 : 2,
+              },
+            ]
+          : [],
+        darknetProfile: {
+          handle: `dn://${displayName.trim().replace(/[^\w\u4e00-\u9fa5]+/g, '').toLowerCase().slice(0, 18) || npcId}`,
+          alias: `${displayName} / 镜像账号`,
+          summary: `该人物通过 ${draft.platform.toUpperCase()} 公开素材导入，公开互动留在灵网，来源映射与后续扩写则统一沉淀到暗网侧。`,
+          accessTier: '镜像归档节点',
+          marketVector: '公开素材导入 / 本地互动接管',
+          riskRating: draft.visibility === 'premium' ? 3 : 2,
+          bounty: '未挂牌',
+          tags: normalizeUniqueStrings([draft.platform.toUpperCase(), '来源映射', '导入账号']),
+          knownAssociates: normalizeUniqueStrings([draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim()]),
+          lastSeen: currentNarrativeLocation || '灵网镜像节点',
+          intelRecords: [importDarknetRecord],
+        },
+        unlockState: {
+          dossierLevel: 4,
+          albumUnlockedCount: 12,
+          socialUnlocked: true,
+          darknetLevel: 4,
+          darknetUnlocked: true,
+          intelUnlockedCount: 1,
+        },
+        dmThread: [],
+        socialFeed: [importedPost],
+      });
+      setNpcs(prev => [seedNpc, ...prev]);
+    }
+
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `social_import_${Date.now()}`,
+        sender: 'System',
+        content: `灵网素材已导入：${displayName} 的公开图片已本土化写入动态流。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
   };
 
   const handleRemoveGroup = (groupName: string) => {
@@ -4017,8 +5564,21 @@ const App: React.FC = () => {
     }
 
     const requestTimeline = playerMsg ? [...baseTimeline, playerMsg] : baseTimeline;
+    let wrotePlayerToTavern = false;
+    if (playerMsg) {
+      try {
+        wrotePlayerToTavern = await appendTavernChatMessage('user', visibleInput);
+      } catch (error) {
+        console.warn('写入酒馆用户楼层失败，回退为前端本地状态:', error);
+      }
+    }
+
     if (playerMsg || requestTimeline !== messages) {
-      setMessages(requestTimeline);
+      if (wrotePlayerToTavern) {
+        syncMessagesFromTavern();
+      } else {
+        setMessages(requestTimeline);
+      }
     }
 
     let layerContent = buildPseudoLayer({
@@ -4032,6 +5592,8 @@ const App: React.FC = () => {
     });
     const dialogueContextTimeline = appendPlayerMessage && visibleInput ? baseTimeline : requestTimeline;
     const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
+    const npcDirectorContextForRequest = buildNpcDirectorContextForRequest(requestInput, dialogueContextForRequest);
+    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest].filter(Boolean).join('\n\n');
 
     let aborted = false;
     let requestSeq = 0;
@@ -4050,12 +5612,15 @@ const App: React.FC = () => {
           dayPhase: nextGameDayPhase,
           location: currentNarrativeLocation || '未知区域',
           sceneHint: nextGameSceneHint,
-          dialogueContext: dialogueContextForRequest,
+          dialogueContext: requestSupportContext,
         }, controller.signal);
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
         } else {
           setApiError('本轮生成未提取到可用正文，已回退到系统伪0层正文模板。');
+        }
+        if (apiPayload?.sum) {
+          layerContent = replaceSum(layerContent, apiPayload.sum);
         }
         if (apiPayload?.npcDataRecords?.length) {
           layerContent = replaceNpcData(layerContent, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
@@ -4137,19 +5702,32 @@ const App: React.FC = () => {
       ...patchLines,
     ];
 
-    setMessages(prev => {
-      const next = [...prev, systemLayerMsg];
-      if (settlementLines.length > 0) {
-        next.push({
-          id: `settle_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          sender: 'System',
-          content: settlementLines.join('\n'),
-          timestamp: now,
-          type: 'narrative',
-        });
-      }
-      return next;
-    });
+    let wroteLayerToTavern = false;
+    try {
+      wroteLayerToTavern = await appendTavernChatMessage('assistant', layerContent);
+    } catch (error) {
+      console.warn('写入酒馆正文楼层失败，回退为前端本地状态:', error);
+    }
+
+    if (wroteLayerToTavern) {
+      syncMessagesFromTavern();
+      setFocusedLayerId(null);
+    } else {
+      setMessages(prev => {
+        const next = [...prev, systemLayerMsg];
+        if (settlementLines.length > 0) {
+          next.push({
+            id: `settle_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            sender: 'System',
+            content: settlementLines.join('\n'),
+            timestamp: now,
+            type: 'narrative',
+          });
+        }
+        return next;
+      });
+      setFocusedLayerId(systemLayerMsg.id);
+    }
     if (actionMinutes > 0) {
       setMapRuntime(prev => ({
         ...prev,
@@ -4157,7 +5735,6 @@ const App: React.FC = () => {
         logs: [...(prev.logs || []), `+${actionMinutes}min -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
       }));
     }
-    setFocusedLayerId(systemLayerMsg.id);
   };
 
   const rerollLayerWithApi = async (targetLayerId: string, playerInput: string, sourcePlayerMessageId?: string) => {
@@ -4178,6 +5755,8 @@ const App: React.FC = () => {
         ? rerollTimeline.filter(msg => msg.id !== sourcePlayerMessageId)
         : rerollTimeline;
     const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
+    const npcDirectorContextForRequest = buildNpcDirectorContextForRequest(requestInput, dialogueContextForRequest);
+    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest].filter(Boolean).join('\n\n');
 
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       setApiError('');
@@ -4188,12 +5767,15 @@ const App: React.FC = () => {
           dayPhase: gameDayPhase,
           location: currentNarrativeLocation || '未知区域',
           sceneHint: gameSceneHint,
-          dialogueContext: dialogueContextForRequest,
+          dialogueContext: requestSupportContext,
         });
         if (apiPayload?.maintext) {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);
         } else {
           setApiError('重roll 未提取到可用正文，已回退到系统伪0层正文模板。');
+        }
+        if (apiPayload?.sum) {
+          nextLayer = replaceSum(nextLayer, apiPayload.sum);
         }
         if (apiPayload?.npcDataRecords?.length) {
           nextLayer = replaceNpcData(nextLayer, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
@@ -4208,6 +5790,20 @@ const App: React.FC = () => {
     }
 
     const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const targetLayer = messages.find(msg => msg.id === targetLayerId);
+    if (typeof targetLayer?.chatMessageId === 'number') {
+      try {
+        const replaced = await replaceTavernChatMessage(targetLayer.chatMessageId, nextLayer);
+        if (replaced) {
+          syncMessagesFromTavern();
+          setFocusedLayerId(targetLayerId);
+          return;
+        }
+      } catch (error) {
+        console.warn('重写酒馆正文楼层失败，回退为前端本地状态:', error);
+      }
+    }
+
     setMessages(prev => {
       if (sourcePlayerMessageId) {
         const sourcePlayerIdx = prev.findIndex(msg => msg.id === sourcePlayerMessageId && msg.sender === 'Player');
@@ -4276,9 +5872,21 @@ const App: React.FC = () => {
     setIsEditLayerOpen(true);
   };
 
-  const saveEditActiveLayer = () => {
+  const saveEditActiveLayer = async () => {
     if (!activeLayerMessage) return;
     const nextContent = replaceMaintext(activeLayerMessage.content, editMaintextDraft);
+    if (typeof activeLayerMessage.chatMessageId === 'number') {
+      try {
+        const replaced = await replaceTavernChatMessage(activeLayerMessage.chatMessageId, nextContent);
+        if (replaced) {
+          syncMessagesFromTavern();
+          setIsEditLayerOpen(false);
+          return;
+        }
+      } catch (error) {
+        console.warn('保存正文到酒馆失败，回退为前端本地状态:', error);
+      }
+    }
     setMessages(prev => prev.map(msg => (msg.id === activeLayerMessage.id ? { ...msg, content: nextContent } : msg)));
     setIsEditLayerOpen(false);
   };
@@ -4291,16 +5899,51 @@ const App: React.FC = () => {
     setIsEditPlayerMessageOpen(true);
   };
 
-  const saveEditPlayerMessage = () => {
+  const saveEditPlayerMessage = async () => {
     if (!editPlayerMessageId) return;
     const trimmed = editPlayerMessageDraft.trim();
     if (!trimmed) return;
+    const target = messages.find(msg => msg.id === editPlayerMessageId);
+    if (typeof target?.chatMessageId === 'number') {
+      try {
+        const replaced = await replaceTavernChatMessage(target.chatMessageId, trimmed);
+        if (replaced) {
+          syncMessagesFromTavern();
+          setIsEditPlayerMessageOpen(false);
+          setEditPlayerMessageId(null);
+          return;
+        }
+      } catch (error) {
+        console.warn('保存玩家输入到酒馆失败，回退为前端本地状态:', error);
+      }
+    }
     setMessages(prev => prev.map(msg => (msg.id === editPlayerMessageId ? { ...msg, content: trimmed } : msg)));
     setIsEditPlayerMessageOpen(false);
     setEditPlayerMessageId(null);
   };
 
-  const rollbackToLayer = (layerId: string) => {
+  const rollbackToLayer = async (layerId: string) => {
+    const currentIndex = messages.findIndex(msg => msg.id === layerId);
+    if (currentIndex < 0) return;
+
+    const trailingIds = messages
+      .slice(currentIndex + 1)
+      .map(msg => msg.chatMessageId)
+      .filter((messageId): messageId is number => Number.isFinite(messageId));
+
+    if (trailingIds.length > 0) {
+      try {
+        const deleted = await deleteTavernChatMessageIds(trailingIds);
+        if (deleted) {
+          syncMessagesFromTavern();
+          setFocusedLayerId(layerId);
+          return;
+        }
+      } catch (error) {
+        console.warn('删除酒馆后续楼层失败，回退为前端本地状态:', error);
+      }
+    }
+
     setMessages(prev => {
       const idx = prev.findIndex(msg => msg.id === layerId);
       if (idx < 0) return prev;
@@ -4309,7 +5952,20 @@ const App: React.FC = () => {
     setFocusedLayerId(layerId);
   };
 
-  const deleteLayerById = (layerId: string) => {
+  const deleteLayerById = async (layerId: string) => {
+    const target = messages.find(msg => msg.id === layerId);
+    if (typeof target?.chatMessageId === 'number') {
+      try {
+        const deleted = await deleteTavernChatMessageIds([target.chatMessageId]);
+        if (deleted) {
+          syncMessagesFromTavern();
+          return;
+        }
+      } catch (error) {
+        console.warn('删除酒馆楼层失败，回退为前端本地状态:', error);
+      }
+    }
+
     const nextMessages = messages.filter(msg => msg.id !== layerId);
     setMessages(nextMessages);
     const nextLayers = nextMessages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content));
@@ -4386,8 +6042,8 @@ const App: React.FC = () => {
 
     if (rawInput === '/clearsave' || rawInput === '/清档') {
       try {
-        window.localStorage.removeItem(LN_ARCHIVES_KEY);
-        window.localStorage.removeItem(LN_LAST_ARCHIVE_ID_KEY);
+        window.localStorage.removeItem(archiveStorageKey);
+        window.localStorage.removeItem(lastArchiveStorageKey);
       } catch (error) {
         console.warn('清理本地存档失败:', error);
       }
@@ -4436,7 +6092,8 @@ const App: React.FC = () => {
   };
 
 
-  const handleSetupComplete = (config: GameConfig) => {
+  const handleSetupComplete = async (config: GameConfig) => {
+    const nextPlayerName = config.name.trim() || LN_DEFAULT_PLAYER_NAME;
     const nextProtocol = config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none');
     const startRankConfig = RANK_CONFIG[config.startPsionicRank];
     const startMaxMp = getMaxMpByGenderAndRank(config.gender, config.startPsionicRank);
@@ -4459,6 +6116,9 @@ const App: React.FC = () => {
           ? { 力量: 9, 敏捷: 10, 体质: 8, 感知: 11, 意志: 9, 魅力: 12, freePoints: 0, cap: 99 }
           : { 力量: 10, 敏捷: 9, 体质: 10, 感知: 8, 意志: 9, 魅力: 7, freePoints: 0, cap: 99 }),
     };
+    await resetCurrentLnRun();
+
+    setPlayerName(nextPlayerName);
     setPlayerStats(newStats);
     setPlayerGender(config.gender);
     setPlayerNeuralProtocol(nextProtocol);
@@ -4490,7 +6150,10 @@ const App: React.FC = () => {
     const equippedChips = [...(baseBoard ? [baseBoard] : []), ...(beta ? [beta] : []), ...config.selectedChips];
     setPlayerChips(equippedChips);
     const equippedChipIds = new Set(equippedChips.map(chip => chip.id));
-    setStorageChips(MOCK_STORAGE_CHIPS.filter(chip => !equippedChipIds.has(chip.id)));
+    const runtimeChipPool = config.availableChipPool?.length
+      ? cloneChipList(config.availableChipPool)
+      : cloneChipList(buildDefaultSetupPack().availableChips);
+    setStorageChips(runtimeChipPool.filter(chip => !equippedChipIds.has(chip.id)));
     setPlayerInventory([...config.selectedItems]);
     setPlayerLingshu(config.selectedLingshu || []);
     if (config.careerTracks && config.careerTracks.length > 0) {
@@ -4524,6 +6187,8 @@ const App: React.FC = () => {
       taxOfficerName: '',
       taxOfficeAddress: '',
     });
+    setMonthlySettlementLog([]);
+    setSettlementCheckpointMonth(getMonthKeyFromElapsedMinutes(0));
     setStateLock({
       lockTime: false,
       lockLocation: false,
@@ -4543,15 +6208,41 @@ const App: React.FC = () => {
       ]);
     }
 
-    const bootMsg: Message = {
-      id: 'sys_init',
+    const openingContent = buildPseudoLayerFromParts({
+      maintext: [
+        `身份校验完成，${nextPlayerName} 的神经连接已建立。`,
+        `${config.startingLocation} 的边缘光带刚刚亮起，${config.factionName} 的档案已经绑定到当前会话。`,
+        nextProtocol === 'beta'
+          ? 'Beta 协议处于在线状态，后续正文将继续沿当前楼层推进。'
+          : '当前会话运行标准协议，后续正文将继续沿当前楼层推进。',
+        '从这一层开始，前端只展示当前楼层正文；历史内容则通过每层小总结回溯。',
+      ].join('\n\n'),
+      sum: `地点:${config.startingLocation} | 时间:${formatGameTime(0)} | 状态:开局建立`,
+    });
+
+    const openingMsg: Message = {
+      id: `layer_init_${Date.now()}`,
       sender: 'System',
-      content: `初始化完成：角色「${config.name}」已载入。当前势力：${config.factionName}；当前位置：${config.startingLocation}。`,
+      content: openingContent,
       timestamp: new Date().toLocaleTimeString('zh-CN'),
       type: 'narrative',
     };
-    setMessages([bootMsg]);
-    setFocusedLayerId(null);
+
+    let wroteOpeningToTavern = false;
+    try {
+      wroteOpeningToTavern = await appendTavernChatMessage('assistant', openingContent);
+    } catch (error) {
+      console.warn('写入开局正文到酒馆失败，回退为前端本地状态:', error);
+    }
+
+    if (wroteOpeningToTavern) {
+      syncMessagesFromTavern();
+      setFocusedLayerId(null);
+    } else {
+      setMessages([openingMsg]);
+      setFocusedLayerId(openingMsg.id);
+    }
+
     setSelectedNPC(null);
     setIsLayerPickerOpen(false);
     setGameStage('game');
@@ -4832,6 +6523,7 @@ const App: React.FC = () => {
   }, [
     gameStage,
     messages,
+    playerName,
     playerStats,
     playerGender,
     playerSkills,
@@ -4858,16 +6550,26 @@ const App: React.FC = () => {
     playerSoulLedger,
     coinVault,
     playerCoreAffixes,
+    monthlySettlementLog,
+    settlementCheckpointMonth,
+    stateLock,
   ]);
 
   const handleContinueGame = () => {
-    const lastId = window.localStorage.getItem(LN_LAST_ARCHIVE_ID_KEY) || selectedArchiveId;
+    const lastId = window.localStorage.getItem(lastArchiveStorageKey) || selectedArchiveId;
     const target = archiveSlots.find(slot => slot.id === lastId) || archiveSlots[0];
-    if (!target) {
-      setGameStage('setup');
+    if (target) {
+      loadArchiveById(target.id);
       return;
     }
-    loadArchiveById(target.id);
+
+    if (hasExistingPseudoProgress) {
+      syncMessagesFromTavern();
+      setGameStage('game');
+      return;
+    }
+
+    setGameStage('setup');
   };
 
   const handleNewGame = () => {
@@ -4875,6 +6577,12 @@ const App: React.FC = () => {
     setFocusedLayerId(null);
     setLayerMenu(null);
     setIsLayerPickerOpen(false);
+    setMessages([]);
+    setInputText('');
+    setSelectedArchiveId('');
+    setArchiveNameInput('');
+    setMonthlySettlementLog([]);
+    setSettlementCheckpointMonth(null);
     setGameStage('setup');
   };
 
@@ -4888,6 +6596,75 @@ const App: React.FC = () => {
       type: 'narrative',
     };
     setMessages(prev => [...prev, navMsg]);
+  };
+
+  const handleRunMonthlySettlement = () => {
+    if (!monthlySettlementPreview.canSettle) return;
+
+    const processedAt = new Date().toLocaleString('zh-CN');
+    const shortfall = Math.max(0, -(playerStats.credits + monthlySettlementPreview.netDelta));
+    const record: MonthlySettlementRecord = {
+      id: `monthly_settlement_${Date.now()}`,
+      cycleLabel: monthlySettlementPreview.cycleLabel,
+      monthCount: monthlySettlementPreview.pendingMonths,
+      checkpointMonthKey: settlementCheckpointMonth || currentMonthKey,
+      processedMonthKey: currentMonthKey,
+      baseAllowance: monthlySettlementPreview.baseAllowance,
+      taxDue: monthlySettlementPreview.taxDue,
+      maintenanceCost: monthlySettlementPreview.maintenanceCost,
+      penaltyCost: monthlySettlementPreview.penaltyCost,
+      netDelta: monthlySettlementPreview.netDelta,
+      status: shortfall > 0 ? 'arrears' : 'processed',
+      processedAt,
+      notes: shortfall > 0 ? [...monthlySettlementPreview.notes, `本次仍有 ¥${shortfall.toLocaleString()} 未能完成缴付。`] : monthlySettlementPreview.notes,
+    };
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits + monthlySettlementPreview.netDelta),
+    }));
+    setSettlementCheckpointMonth(currentMonthKey);
+    setMonthlySettlementLog(prev => [record, ...prev].slice(0, 18));
+    setBetaStatus(prev => {
+      const filteredWarnings = (prev.warnings || []).filter(warning => !warning.startsWith('月结欠缴情形'));
+      const nextWarnings =
+        shortfall > 0 ? [`月结欠缴情形 · 缺口 ¥${shortfall.toLocaleString()}`, ...filteredWarnings].slice(0, 8) : filteredWarnings;
+      const nextScore = Math.max(0, Math.min(120, prev.creditScore + (shortfall > 0 ? -Math.max(8, monthlySettlementPreview.pendingMonths * 6) : Math.min(3, monthlySettlementPreview.pendingMonths))));
+      return {
+        ...prev,
+        creditScore: nextScore,
+        warnings: nextWarnings,
+        taxDeadline: getMonthDeadlineText(addMonthsToMonthKey(currentMonthKey, 1)),
+        deductionHistory: [
+          ...(prev.deductionHistory || []),
+          {
+            id: `monthly_log_${Date.now()}`,
+            reason: shortfall > 0 ? `月结欠缴情形 (${monthlySettlementPreview.cycleLabel})` : `月结完成 (${monthlySettlementPreview.cycleLabel})`,
+            amount: monthlySettlementPreview.netDelta,
+            timestamp: processedAt,
+            type: shortfall > 0 ? 'shame' : 'fine',
+          },
+        ].slice(-30),
+      };
+    });
+    setPlayerCoreAffixes(prev => {
+      const next = prev.filter(affix => affix.id !== 'monthly_arrears_affix');
+      if (shortfall <= 0) return next;
+      return [
+        ...next,
+        {
+          id: 'monthly_arrears_affix',
+          name: '状态：月结欠缴',
+          description: `存在 ¥${shortfall.toLocaleString()} 未结清税务与维持成本。`,
+          type: 'debuff',
+          source: '月结',
+        },
+      ];
+    });
+    spawnFloatingText(
+      `${monthlySettlementPreview.netDelta >= 0 ? '+' : '-'}¥${Math.abs(monthlySettlementPreview.netDelta).toLocaleString()}`,
+      monthlySettlementPreview.netDelta >= 0 ? 'text-emerald-300' : 'text-red-300',
+    );
   };
 
   const bindTaxOfficer = (candidate: TaxOfficerCandidate) => {
@@ -5101,6 +6878,7 @@ const App: React.FC = () => {
 
   const moduleTabs: { id: LeftModuleTab; label: string }[] = [
     { id: 'chips', label: '芯片模组' },
+    { id: 'economy', label: '铸币面板' },
     { id: 'lingshu', label: '灵枢' },
     { id: 'inventory', label: '物品栏' },
   ];
@@ -5109,10 +6887,28 @@ const App: React.FC = () => {
     return lv >= 5 ? null : levelToRank(lv + 1);
   }, [playerStats.psionic.level]);
   const nextRankCoin = nextRankForCross ? coinVault[nextRankForCross] || 0 : 0;
+  const apiRuntimeMode = resolveApiRuntimeMode(apiConfig);
+  const apiRuntimeLabel = getApiRuntimeModeLabel(apiRuntimeMode);
+  const normalizedApiEndpoint = resolveApiEndpoint(apiConfig.endpoint);
+  const externalApiConfigError = apiRuntimeMode === 'external' ? validateExternalApiConfig(apiConfig) : null;
+  const tavernGenerateReady = apiRuntimeMode === 'tavern' ? resolveTavernGenerateList().length > 0 : false;
+  const apiRuntimeDetail =
+    apiRuntimeMode === 'external'
+      ? externalApiConfigError || `${normalizedApiEndpoint || '未配置 endpoint'} · ${apiConfig.model.trim() || '未填写 model'}`
+      : apiRuntimeMode === 'tavern'
+        ? (tavernGenerateReady ? '已检测到 generate / generateRaw' : '未检测到 generate / generateRaw')
+        : '发送后仅使用伪0层模板，不请求任何接口';
+  const setApiMode = (mode: ApiRuntimeMode) => {
+    setApiConfig(prev => ({
+      ...prev,
+      useTavernApi: mode === 'tavern',
+      enabled: mode === 'external',
+    }));
+  };
 
   const renderContent = () => {
     if (gameStage === 'start') return <StartScreen onStart={() => setGameStage('splash')} />;
-    if (gameStage === 'splash') return <SplashScreen onNewGame={handleNewGame} onContinue={handleContinueGame} canContinue={archiveSlots.length > 0} />;
+    if (gameStage === 'splash') return <SplashScreen onNewGame={handleNewGame} onContinue={handleContinueGame} canContinue={hasExistingPseudoProgress || archiveSlots.length > 0} />;
     if (gameStage === 'setup') return <GameSetup onComplete={handleSetupComplete} />;
 
     return (
@@ -5170,12 +6966,29 @@ const App: React.FC = () => {
 
           <div className="flex-1 space-y-3 min-w-0 md:min-w-[320px] pb-4 px-4 pt-4">
             <CyberPanel title="生理监测" className="mb-2" noPadding variant="gold">
-              <PlayerStatePanel stats={effectivePlayerStats} hasBetaChip={hasBetaChip} onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)} gender={playerGender} />
+              <PlayerStatePanel
+                stats={effectivePlayerStats}
+                hasBetaChip={hasBetaChip}
+                onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)}
+                gender={playerGender}
+                statusTags={runtimeStatusTags}
+                chipCount={chipCount}
+                spiritStringCount={spiritStringCount}
+              />
             </CyberPanel>
+
+            <StatusPenaltyPanel
+              affixes={mergedRuntimeAffixes}
+              warnings={betaStatus.warnings || []}
+              taxAmount={betaStatus.taxAmount}
+              neuralProtocol={playerNeuralProtocol}
+              creditScore={betaStatus.creditScore}
+              sceneHint={gameSceneHint}
+            />
 
             <CyberPanel title="功能面板" className="mb-2" noPadding>
               <div className="p-3 bg-black/40 space-y-3">
-                <div className={`grid gap-2 ${moduleTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                <div className="grid grid-cols-2 gap-2">
                   {moduleTabs.map(tab => (
                     <button
                       key={tab.id}
@@ -5190,6 +7003,18 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('phone');
+                    setRightOpen(true);
+                    if (isMobileViewport) setLeftOpen(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 rounded-xl border border-cyan-500/25 bg-cyan-950/15 px-3 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-900/25"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  打开手机
+                </button>
               </div>
             </CyberPanel>
 
@@ -5207,24 +7032,41 @@ const App: React.FC = () => {
               />
             )}
 
+            {leftModuleTab === 'economy' && (
+              <PsionicEconomyPanel
+                stats={effectivePlayerStats}
+                currentLocation={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
+                gender={playerGender}
+                regionFactor={getExchangeRegionFactor(currentNarrativeLocation || playerFaction.headquarters || '', playerGender)}
+                coinVault={coinVault}
+                soulLedger={playerSoulLedger}
+                nextRankCoin={nextRankCoin}
+                onConvert={handleConversion}
+                onCrossLevelConvert={handleCrossLevelExchange}
+              />
+            )}
+
             {leftModuleTab === 'lingshu' && (
-              <CyberPanel title="灵枢系统" className="flex-1 min-h-[220px]" noPadding allowExpand collapsible>
-                <div className="p-3 bg-black/50 min-h-full">
-                  <SpiritNexus
-                    npc={playerSpiritNpc}
-                    isReadOnly={false}
-                    availableEquipItems={availableLingshuEquipItems}
-                    availableResonanceMaterials={availableResonanceMaterials}
-                    currentMp={playerStats.mp.current}
-                    onForgetSkill={handleForgetLingshuSkill}
-                    onLearnSkill={handleLearnLingshuSkill}
-                    onInjectEnergy={handleInjectLingshuEnergy}
-                    onEquipItem={handleEquipLingshuItem}
-                    onUnequipItem={handleUnequipLingshuItem}
-                    onRemoveAffix={handleRemoveLingshuAffix}
-                  />
-                </div>
-              </CyberPanel>
+              <div className="space-y-3">
+                <LingshuStatusPanel parts={playerLingshu} />
+                <CyberPanel title="灵枢系统" className="flex-1 min-h-[220px]" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/50 min-h-full">
+                    <SpiritNexus
+                      npc={playerSpiritNpc}
+                      isReadOnly={false}
+                      availableEquipItems={availableLingshuEquipItems}
+                      availableResonanceMaterials={availableResonanceMaterials}
+                      currentMp={playerStats.mp.current}
+                      onForgetSkill={handleForgetLingshuSkill}
+                      onLearnSkill={handleLearnLingshuSkill}
+                      onInjectEnergy={handleInjectLingshuEnergy}
+                      onEquipItem={handleEquipLingshuItem}
+                      onUnequipItem={handleUnequipLingshuItem}
+                      onRemoveAffix={handleRemoveLingshuAffix}
+                    />
+                  </div>
+                </CyberPanel>
+              </div>
             )}
 
             {leftModuleTab === 'inventory' && (
@@ -5260,38 +7102,46 @@ const App: React.FC = () => {
         </aside>
 
         <main className="flex-1 min-w-0 flex flex-col relative z-0 h-full w-full bg-[#080408]">
-          <div className="h-12 border-b border-white/5 flex items-center px-4 justify-between bg-black/40 shrink-0 backdrop-blur-sm">
-            <div className="md:hidden">
-              <button
-                onClick={() => {
-                  setLeftOpen(true);
-                  if (isMobileViewport) setRightOpen(false);
-                }}
-                className="p-2 text-fuchsia-500"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
+          <div className="border-b border-white/5 px-4 py-3 bg-black/40 shrink-0 backdrop-blur-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="md:hidden">
+                <button
+                  onClick={() => {
+                    setLeftOpen(true);
+                    if (isMobileViewport) setRightOpen(false);
+                  }}
+                  className="p-2 text-fuchsia-500"
+                >
+                  <Menu className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex flex-1 flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
+                <MapIcon className="w-4 h-4 text-fuchsia-500" />
+                <span>区域：</span>
+                <span className="text-white font-bold">{currentNarrativeLocation || '未知区域'}</span>
+                <span className="text-slate-600">|</span>
+                <span>时间：</span>
+                <span className="text-cyan-300 font-bold">{gameTimeText}</span>
+                <span className="text-amber-300">({gameDayPhase})</span>
+              </div>
+              <div className="md:hidden">
+                <button
+                  onClick={() => {
+                    setRightOpen(true);
+                    if (isMobileViewport) setLeftOpen(false);
+                  }}
+                  className="p-2 text-fuchsia-500"
+                >
+                  <Users className="w-5 h-5" />
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-xs font-mono text-slate-400">
-              <MapIcon className="w-4 h-4 text-fuchsia-500" />
-              <span>区域：</span>
-              <span className="text-white font-bold">{currentNarrativeLocation || '未知区域'}</span>
-              <span className="text-slate-600">|</span>
-              <span>时间：</span>
-              <span className="text-cyan-300 font-bold">{gameTimeText}</span>
-              <span className="text-amber-300">({gameDayPhase})</span>
-            </div>
-            <div className="md:hidden">
-              <button
-                onClick={() => {
-                  setRightOpen(true);
-                  if (isMobileViewport) setLeftOpen(false);
-                }}
-                className="p-2 text-fuchsia-500"
-              >
-                <Users className="w-5 h-5" />
-              </button>
-            </div>
+            <LocationControlHint
+              headline={locationControlProfile.headline}
+              exchangeText={locationControlProfile.exchangeText}
+              hints={locationControlProfile.hints}
+              riskTone={locationControlProfile.riskTone}
+            />
           </div>
 
           <NarrativeFeed
@@ -5304,13 +7154,6 @@ const App: React.FC = () => {
             }}
           />
 
-          <ActionMenu
-            stats={effectivePlayerStats}
-            onConvert={handleConversion}
-            onCrossLevelConvert={handleCrossLevelExchange}
-            nextRankCoin={nextRankCoin}
-          />
-
           <div className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md">
             <div className="flex gap-2">
               <span className="px-2 py-3 text-fuchsia-500 font-mono text-lg">{'>'}</span>
@@ -5319,7 +7162,7 @@ const App: React.FC = () => {
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && !isApiSending && handleSend()}
-                placeholder="输入行动指令（留空可直接续写）..."
+                placeholder="输入推进内容或对白（留空可直接续写）..."
                 className="flex-1 bg-transparent border-b border-slate-800 text-fuchsia-100 px-2 py-3 focus:outline-none focus:border-fuchsia-500 font-mono text-sm placeholder:text-slate-700"
               />
               <button
@@ -5329,6 +7172,14 @@ const App: React.FC = () => {
               >
                 {isApiSending ? <Square className="w-4 h-4 animate-pulse" /> : <Send className="w-4 h-4" />}
               </button>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
+              <div className={`${apiRuntimeMode === 'disabled' ? 'text-slate-500' : apiRuntimeMode === 'external' ? 'text-cyan-300' : 'text-fuchsia-300'}`}>
+                当前请求：{apiRuntimeLabel}
+              </div>
+              <div className={`truncate text-right ${apiRuntimeMode === 'external' && externalApiConfigError ? 'text-amber-300' : 'text-slate-500'}`}>
+                {apiRuntimeDetail}
+              </div>
             </div>
             {apiError && <div className="mt-2 text-[11px] text-red-400">{apiError}</div>}
           </div>
@@ -5345,11 +7196,13 @@ const App: React.FC = () => {
           <div className="flex border-b border-white/10 min-w-0 md:min-w-[380px]">
             {[
               { id: 'contacts', icon: <Users className="w-4 h-4" />, label: '标记人物' },
+              { id: 'phone', icon: <Smartphone className="w-4 h-4" />, label: '手机' },
+              { id: 'system', icon: <ScrollText className="w-4 h-4" />, label: '档案' },
               { id: 'settings', icon: <Settings className="w-4 h-4" />, label: '设置' },
             ].map(tab => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as 'contacts' | 'settings')}
+                onClick={() => setActiveTab(tab.id as RightPanelTab)}
                 className={`flex-1 py-3 text-xs font-bold uppercase flex flex-col items-center gap-1 transition-all ${
                   activeTab === tab.id ? 'text-fuchsia-400 bg-fuchsia-950/20 border-b-2 border-fuchsia-400' : 'text-slate-500 hover:text-slate-300'
                 }`}
@@ -5376,13 +7229,127 @@ const App: React.FC = () => {
                     currentLocation={currentNarrativeLocation || '未知区域'}
                   />
                 ) : (
-                  <NPCProfile npc={selectedNPC} onBack={() => setSelectedNPC(null)} />
+                  <NPCProfile
+                    npc={selectedNPC}
+                    onBack={() => setSelectedNPC(null)}
+                  />
                 )}
+              </div>
+            )}
+            {activeTab === 'phone' && (
+              <LingnetPhonePanel
+                npcs={npcs}
+                playerName={playerName}
+                playerCredits={playerStats.credits}
+                currentLocation={currentNarrativeLocation || '未知区域'}
+                onToggleFollow={handleToggleSocialFollow}
+                onAddComment={handleAddSocialComment}
+                onSendDm={handleSendSocialDm}
+                onSpendOnNpc={handleSpendOnSocial}
+                onImportPost={handleImportSocialPost}
+              />
+            )}
+            {activeTab === 'system' && (
+              <div className="space-y-4">
+                <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
+                <TaxDossierPanel
+                  status={betaStatus}
+                  playerName={playerName}
+                  factionName={playerFaction.name}
+                  currentLocation={currentNarrativeLocation || '未知区域'}
+                  neuralProtocol={playerNeuralProtocol}
+                  onNavigateToTax={handleNavToTax}
+                  onPickTaxOfficer={handleAddTaxOfficerContact}
+                  onOpenCareerIdentity={() => setIsCareerEditorOpen(true)}
+                />
               </div>
             )}
             {activeTab === 'settings' && (
               <div className="space-y-4">
-                <CyberPanel title="档案" noPadding allowExpand collapsible>
+                <CyberPanel title="对话接口" noPadding allowExpand collapsible>
+                  <div className="p-3 bg-black/40 space-y-3">
+                    <div className="text-xs text-slate-400">
+                      这里决定 LN 对话时走哪条生成链路。外部接口模式不会再静默退回酒馆接口，配置错了会直接报错。
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { mode: 'tavern' as ApiRuntimeMode, label: '酒馆接口' },
+                        { mode: 'external' as ApiRuntimeMode, label: '外部接口' },
+                        { mode: 'disabled' as ApiRuntimeMode, label: '关闭生成' },
+                      ].map(option => (
+                        <button
+                          key={option.mode}
+                          type="button"
+                          onClick={() => setApiMode(option.mode)}
+                          className={`px-2 py-2 text-xs border transition-colors ${
+                            apiRuntimeMode === option.mode
+                              ? 'border-fuchsia-500 text-white bg-fuchsia-950/40'
+                              : 'border-slate-700 text-slate-300 hover:text-white hover:border-fuchsia-700'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rounded border border-slate-800 bg-black/30 px-3 py-2 space-y-1">
+                      <div className="text-xs text-slate-300">当前模式：{apiRuntimeLabel}</div>
+                      <div className={`text-[11px] ${
+                        apiRuntimeMode === 'external' && externalApiConfigError
+                          ? 'text-amber-300'
+                          : apiRuntimeMode === 'tavern' && !tavernGenerateReady
+                            ? 'text-amber-300'
+                            : 'text-slate-500'
+                      }`}
+                      >
+                        {apiRuntimeDetail}
+                      </div>
+                    </div>
+                    {apiRuntimeMode === 'external' && (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          value={apiConfig.endpoint}
+                          onChange={e => setApiConfig(prev => ({ ...prev, endpoint: e.target.value }))}
+                          placeholder="endpoint，例如 https://api.openai.com/v1 或完整 /chat/completions /responses 地址"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="text"
+                          value={apiConfig.model}
+                          onChange={e => setApiConfig(prev => ({ ...prev, model: e.target.value }))}
+                          placeholder="model，例如 gpt-4o-mini"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                        <input
+                          type="password"
+                          value={apiConfig.apiKey}
+                          onChange={e => setApiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                          placeholder="API Key（可选，走代理时可留空）"
+                          className="w-full bg-black/50 border border-slate-700 px-2 py-2 text-xs text-white"
+                        />
+                        <div className="flex items-center justify-between gap-3 text-[11px]">
+                          <div className="text-slate-500 break-all">
+                            实际请求地址：{normalizedApiEndpoint || '未生成'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setApiConfig(prev => ({ ...prev, endpoint: '', apiKey: '', model: 'gpt-4o-mini' }))}
+                            className="shrink-0 border border-slate-700 px-2 py-1 text-slate-300 hover:text-white hover:border-fuchsia-700"
+                          >
+                            清空外部配置
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {apiRuntimeMode === 'tavern' && !tavernGenerateReady && (
+                      <div className="text-[11px] text-amber-300">
+                        当前未检测到酒馆的 generate / generateRaw。发送时会直接报错，请检查酒馆助手实时监听或宿主注入状态。
+                      </div>
+                    )}
+                  </div>
+                </CyberPanel>
+
+                <CyberPanel title="本地快照（可选）" noPadding allowExpand collapsible>
                   <div className="p-3 bg-black/40 space-y-3">
                     <div className="text-xs text-slate-400">刷新后默认回到开局界面，继续游戏会读取最近档案。</div>
                     <input
