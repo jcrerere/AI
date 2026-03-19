@@ -11,3 +11,11 @@ pnpm-debug.log*
 
 auto-imports.d.ts
 components.d.ts
+
+/tmp/
+/tmp_*
+/output_*
+/.workspace/
+
+/dist/**/*.map
+/dist/**/*.LICENSE.txt
