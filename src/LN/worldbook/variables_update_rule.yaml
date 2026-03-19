@@ -24,6 +24,19 @@ rules:
       - 必须与正文场景一致
       - 禁止写入外世界地点名
 
+  world.current_district:
+    type: string
+    check:
+      - 艾瑞拉场景应优先写官方分区名（北门分区 / 中环分区 / 南港分区）
+      - 非艾瑞拉场景可留空，不要沿用过期分区
+
+  world.current_site_type / world.current_site_id / world.current_site_label:
+    type: object
+    check:
+      - current_site_type 仅使用 x_station / hx_dorm / tax_office / 空字符串
+      - 进入 X号性控所、H系男奴公寓、分区税务局时，应同步维护完整 site 信息
+      - 若当前不在编号设施内，current_site_id / current_site_label 可清空
+
   world.current_faction:
     type: string
     check:
@@ -94,11 +107,19 @@ rules:
       - 维护 lv1~lv5 与 total
       - 同级货币优先写入当前 rank 对应层级
 
+  player.residence:
+    type: object
+    check:
+      - current_residence_id / current_residence_label 必须同步维护
+      - unlocked_residence_ids 应保留已获得住处，不要无故丢失
+      - 艾瑞拉若未明确搬迁，可默认沿用 assigned_hx_dorm_label 作为官方住册住处
+
   player.chip:
     type: object
     check:
       - beta_equipped 为 true 且 tax_officer_id 为空时，应触发税务官分配
-      - assigned_district / tax_officer_id / tax_officer_name / tax_office_address 同步维护
+      - assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* 需同步维护
+      - 艾瑞拉 Beta 管理链默认使用分区 + 编号设施，不要只写“X号性控所 / HX男奴公寓”而不给编号
 
   player.status_tags / player.core_affixes:
     type: list

@@ -10,7 +10,7 @@
     - 所有路径必须以 /stat_data 开头
   format: |-
     <sum>
-    时间: 2077-11-03 21:10；地点: 艾瑞拉-中环外街。
+    时间: 2077-11-03 21:10；地点: 艾瑞拉·中环分区·H18男奴公寓。
     结果: 玩家完成交涉并损失信誉2点，获得线索“税务官夜巡名单”。
     悬念: 下一步可潜入税务分区或黑市换证。
     </sum>
@@ -18,7 +18,12 @@
     <Analysis>(IN ENGLISH, <= 80 words)</Analysis>
     <JSONPatch>
     [
-      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉-中环外街" }
+      { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环分区·H18男奴公寓" },
+      { "op": "replace", "path": "/stat_data/world/current_district", "value": "艾瑞拉·中环分区" },
+      { "op": "replace", "path": "/stat_data/world/current_site_type", "value": "hx_dorm" },
+      { "op": "replace", "path": "/stat_data/world/current_site_id", "value": "H18" },
+      { "op": "replace", "path": "/stat_data/world/current_site_label", "value": "艾瑞拉·中环分区·H18男奴公寓" },
+      { "op": "replace", "path": "/stat_data/player/residence/current_residence_label", "value": "艾瑞拉·中环分区·H18男奴公寓" }
     ]
     </JSONPatch>
     </UpdateVariable>

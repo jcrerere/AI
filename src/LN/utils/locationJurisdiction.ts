@@ -33,7 +33,7 @@ const JURISDICTION_MAP: Array<{
   status: JurisdictionStatus;
 }> = [
   {
-    match: /(艾瑞拉|北门|中环|旧港|南港|首都)/,
+    match: /(艾瑞拉|北门|中环|旧港|南港|首都|X\d{1,2}性控所|H\d{1,3}男奴公寓)/,
     status: {
       key: 'aerila',
       regionLabel: '艾瑞拉法域',

@@ -19,6 +19,10 @@ export const MvuStatDataSchema = z.object({
     current_time: z.string(),
     current_period: z.enum(['深夜', '夜晚', '清晨', '白天', '黄昏']),
     current_location: z.string(),
+    current_district: z.string(),
+    current_site_type: z.string(),
+    current_site_id: z.string(),
+    current_site_label: z.string(),
     current_faction: z.string(),
     recent_events: z.record(z.string(), z.any()).default({}),
     exchange_rules: z.object({
@@ -43,6 +47,11 @@ export const MvuStatDataSchema = z.object({
     psionic_rank: RankSchema,
     reputation: z.number().min(0).max(120),
     credits: z.number().int().min(0),
+    residence: z.object({
+      current_residence_id: z.string(),
+      current_residence_label: z.string(),
+      unlocked_residence_ids: z.array(z.string()).default([]),
+    }),
     core_status: z.object({
       hp: GaugeSchema,
       mp: GaugeSchema,
@@ -95,6 +104,10 @@ export const MvuStatDataSchema = z.object({
     chip: z.object({
       beta_equipped: z.boolean(),
       assigned_district: z.string(),
+      assigned_x_station_id: z.string(),
+      assigned_x_station_label: z.string(),
+      assigned_hx_dorm_id: z.string(),
+      assigned_hx_dorm_label: z.string(),
       tax_officer_id: z.string(),
       tax_officer_name: z.string(),
       tax_office_address: z.string().optional(),

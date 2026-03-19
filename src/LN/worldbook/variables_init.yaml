@@ -7,6 +7,10 @@ world:
   current_time: "2077-11-03 20:30"
   current_period: "夜晚"
   current_location: "开局地点"
+  current_district: ""
+  current_site_type: ""
+  current_site_id: ""
+  current_site_label: ""
   current_faction: "无"
   recent_events: {}
   exchange_rules:
@@ -43,6 +47,10 @@ player:
   psionic_rank: "Lv.1"
   reputation: 60
   credits: 1000
+  residence:
+    current_residence_id: ""
+    current_residence_label: ""
+    unlocked_residence_ids: []
 
   core_status:
     hp: { current: 100, max: 100 }
@@ -106,6 +114,10 @@ player:
   chip:
     beta_equipped: false
     assigned_district: ""
+    assigned_x_station_id: ""
+    assigned_x_station_label: ""
+    assigned_hx_dorm_id: ""
+    assigned_hx_dorm_label: ""
     tax_officer_id: ""
     tax_officer_name: ""
     tax_office_address: ""

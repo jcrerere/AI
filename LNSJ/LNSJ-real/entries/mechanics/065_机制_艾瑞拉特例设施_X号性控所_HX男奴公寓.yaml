@@ -1,20 +1,33 @@
 ```yaml
 【适用范围】
-仅在区域=艾瑞拉时可触发本条；其他区域仅使用通用住所机制。
+仅在区域=艾瑞拉时触发本条；其他区域继续使用通用住所与法域机制。
 
-【X号性控所】
-1. 定位：艾瑞拉特有高压规训设施。
-2. 功能：可触发规训、改造、审讯、交易、拘束看护等高风险剧情。
-3. 代价倾向：信誉波动、精神/状态负面、关系撕裂概率提升。
-4. 允许低影响回合：若是日常维护/路过观察，可只给信息变化，不强制重惩罚。
+【设施体系性质】
+1. “X号性控所”不是单一地点，而是艾瑞拉官方性控所体系的统称；正式编号使用 X1~X5。
+2. “HX男奴公寓”不是单一楼名，而是艾瑞拉官方男奴公寓体系的统称；实际楼栋以 H10/H18/H27 这类编号落地。
+3. 正式命名优先写作：艾瑞拉·{分区}·Xn性控所 / 艾瑞拉·{分区}·Hnn男奴公寓。
+4. 民间可有别称，但税务、押送、点名、住册、审查、系统记录一律优先使用官方编号。
 
-【HX男奴公寓】
-1. 定位：艾瑞拉特有居住与管控复合空间。
-2. 功能：住宿、会面、交易、管理、冲突调解、关系事件触发。
-3. 作为住所时：可视作 current_residence 的合法值。
+【变量与状态约束】
+1. 区域位于艾瑞拉时，world.current_district 应维护当前官方分区名。
+2. 若场景位于编号设施，应同步维护：
+   - world.current_site_type = x_station / hx_dorm / tax_office
+   - world.current_site_id = X1 / H10 / 等正式编号
+   - world.current_site_label = 艾瑞拉·北门分区·H10男奴公寓 这类完整标签
+3. Beta 管理链启用时，player.chip 需同步维护：
+   - assigned_district
+   - assigned_x_station_id / assigned_x_station_label
+   - assigned_hx_dorm_id / assigned_hx_dorm_label
+4. 住所机制使用结构化字段：player.residence.current_residence_id / current_residence_label / unlocked_residence_ids。
+
+【叙事使用】
+1. X系更偏规训、抽样、审查、押送、改造与合法暴力接口。
+2. H系更偏住宿、点名、查房、会面、楼层管理与基层治理接口。
+3. 未明确进入编号设施时，不要把玩家强拉进 X/H 场景。
+4. 可写“北门住册默认去 H10”“中环押送默认转入 X2”这类官方分派语气，但不要把 X/H 写成浪漫地名。
 
 【AI执行约束】
-1. 不得把两处设施外溢到非艾瑞拉区域。
-2. 发生地点切换时，sum与变量要同步地点与住所。
+1. 不得把 X系 / H系设施外溢到非艾瑞拉区域。
+2. 发生地点切换时，sum 与变量要同步 current_location / current_district / current_site_* / current_residence_*。
 3. 若玩家未主动进入，不得强制拉入特例设施剧情。
 ```

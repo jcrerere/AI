@@ -258,32 +258,56 @@ interface TaxOfficerCandidate {
 interface AirelaTaxDistrict {
   id: string;
   name: string;
+  aliases: string[];
   officeAddress: string;
   officerName: string;
   officerAffiliation: string;
+  xStationId: string;
+  hxDormId: string;
+}
+
+interface AirelaFacilityBinding {
+  districtId: string;
+  districtName: string;
+  officeAddress: string;
+  xStationId: string;
+  xStationLabel: string;
+  hxDormId: string;
+  hxDormLabel: string;
+  residenceId: string;
+  residenceLabel: string;
 }
 
 const AIRELA_TAX_DISTRICTS: AirelaTaxDistrict[] = [
   {
     id: 'north_gate',
     name: '艾瑞拉·北门分区',
+    aliases: ['北门', '北门分区'],
     officeAddress: '艾瑞拉·北门分区税务局',
     officerName: '夜莺税务官·岚绯',
     officerAffiliation: '夜莺驻艾瑞拉税务署',
+    xStationId: 'X1',
+    hxDormId: 'H10',
   },
   {
     id: 'central_ring',
     name: '艾瑞拉·中环分区',
+    aliases: ['中环', '中环分区'],
     officeAddress: '艾瑞拉·中环税务局',
     officerName: '夜莺税务官·绫织',
     officerAffiliation: '夜莺驻艾瑞拉税务署',
+    xStationId: 'X2',
+    hxDormId: 'H18',
   },
   {
     id: 'south_dock',
     name: '艾瑞拉·南港分区',
+    aliases: ['南港', '南港分区'],
     officeAddress: '艾瑞拉·南港税务局',
     officerName: '夜莺税务官·璃棠',
     officerAffiliation: '夜莺驻艾瑞拉税务署',
+    xStationId: 'X4',
+    hxDormId: 'H27',
   },
 ];
 
@@ -301,13 +325,120 @@ const pickAirelaTaxDistrict = (citizenId: string): AirelaTaxDistrict => {
     return {
       id: 'fallback',
       name: '艾瑞拉·临时分区',
+      aliases: ['临时分区'],
       officeAddress: '艾瑞拉·临时税务局',
       officerName: '夜莺税务官·临时代理',
       officerAffiliation: '夜莺驻艾瑞拉税务署',
+      xStationId: 'X0',
+      hxDormId: 'H00',
     };
   }
   const index = hashText(citizenId || 'NO_ID') % list.length;
   return list[index];
+};
+
+const formatAirelaSiteLabel = (siteType: 'x_station' | 'hx_dorm', siteId: string, districtName?: string): string => {
+  const suffix = siteType === 'x_station' ? '性控所' : '男奴公寓';
+  return `${districtName ? `${districtName}·` : ''}${siteId}${suffix}`;
+};
+
+const findAirelaTaxDistrict = (value: string): AirelaTaxDistrict | null => {
+  const text = `${value || ''}`.trim();
+  if (!text) return null;
+  return (
+    AIRELA_TAX_DISTRICTS.find(
+      district =>
+        district.id === text ||
+        text.includes(district.name) ||
+        text.includes(district.officeAddress) ||
+        district.aliases.some(alias => text.includes(alias)) ||
+        text.includes(`${district.xStationId}性控所`) ||
+        text.includes(`${district.hxDormId}男奴公寓`) ||
+        text.includes(district.xStationId) ||
+        text.includes(district.hxDormId),
+    ) || null
+  );
+};
+
+const buildAirelaFacilityBinding = (district: AirelaTaxDistrict | null): AirelaFacilityBinding | null => {
+  if (!district) return null;
+  const xStationLabel = formatAirelaSiteLabel('x_station', district.xStationId, district.name);
+  const hxDormLabel = formatAirelaSiteLabel('hx_dorm', district.hxDormId, district.name);
+  return {
+    districtId: district.id,
+    districtName: district.name,
+    officeAddress: district.officeAddress,
+    xStationId: district.xStationId,
+    xStationLabel,
+    hxDormId: district.hxDormId,
+    hxDormLabel,
+    residenceId: `airela_${district.id}_${district.hxDormId.toLowerCase()}`,
+    residenceLabel: hxDormLabel,
+  };
+};
+
+const resolveAirelaFacilityBinding = (options: { districtHint?: string | null; citizenId?: string | null }): AirelaFacilityBinding | null => {
+  const directDistrict = findAirelaTaxDistrict(`${options.districtHint ?? ''}`.trim());
+  if (directDistrict) return buildAirelaFacilityBinding(directDistrict);
+  if (options.citizenId) return buildAirelaFacilityBinding(pickAirelaTaxDistrict(options.citizenId));
+  return null;
+};
+
+const resolveAirelaSceneState = (
+  location: string,
+  fallbackBinding: AirelaFacilityBinding | null,
+): {
+  currentDistrict: string;
+  currentSiteType: string;
+  currentSiteId: string;
+  currentSiteLabel: string;
+} => {
+  const text = `${location || ''}`.trim();
+  if (!text) {
+    return { currentDistrict: '', currentSiteType: '', currentSiteId: '', currentSiteLabel: '' };
+  }
+
+  const matchedDistrict = findAirelaTaxDistrict(text) ?? findAirelaTaxDistrict(fallbackBinding?.districtName || '');
+  const xMatch = text.match(/(X\d{1,2})\s*性控所/u) ?? (text.includes('性控所') ? text.match(/(X\d{1,2})/u) : null);
+  if (xMatch?.[1]) {
+    const siteId = xMatch[1].toUpperCase();
+    const siteDistrict = findAirelaTaxDistrict(siteId) ?? matchedDistrict;
+    return {
+      currentDistrict: siteDistrict?.name || fallbackBinding?.districtName || '',
+      currentSiteType: 'x_station',
+      currentSiteId: siteId,
+      currentSiteLabel: formatAirelaSiteLabel('x_station', siteId, siteDistrict?.name || fallbackBinding?.districtName),
+    };
+  }
+
+  const hMatch = text.match(/(H\d{1,3})\s*男奴公寓/u) ?? (text.includes('男奴公寓') ? text.match(/(H\d{1,3})/u) : null);
+  if (hMatch?.[1]) {
+    const siteId = hMatch[1].toUpperCase();
+    const siteDistrict = findAirelaTaxDistrict(siteId) ?? matchedDistrict;
+    return {
+      currentDistrict: siteDistrict?.name || fallbackBinding?.districtName || '',
+      currentSiteType: 'hx_dorm',
+      currentSiteId: siteId,
+      currentSiteLabel: formatAirelaSiteLabel('hx_dorm', siteId, siteDistrict?.name || fallbackBinding?.districtName),
+    };
+  }
+
+  if (matchedDistrict && text.includes('税务局')) {
+    return {
+      currentDistrict: matchedDistrict.name,
+      currentSiteType: 'tax_office',
+      currentSiteId: `${matchedDistrict.id}_tax`,
+      currentSiteLabel: matchedDistrict.officeAddress,
+    };
+  }
+
+  const isAirelaText = /(艾瑞拉|北门|中环|南港|X\d{1,2}性控所|H\d{1,3}男奴公寓)/u.test(text);
+  return {
+    currentDistrict: matchedDistrict?.name || (isAirelaText ? fallbackBinding?.districtName || '' : ''),
+    currentSiteType: '',
+    currentSiteId: '',
+    currentSiteLabel: '',
+  };
 };
 
 const ensurePseudoLayerOnLoad = (
@@ -2814,6 +2945,11 @@ const App: React.FC = () => {
     betaLevel: 1,
     betaTierName: getBetaTierTitle(1),
     taxOfficerUnlocked: false,
+    assignedDistrict: '',
+    assignedXStationId: '',
+    assignedXStationLabel: '',
+    assignedHXDormId: '',
+    assignedHXDormLabel: '',
     taxOfficerBoundId: null,
     taxOfficerName: '',
     taxOfficeAddress: '',
@@ -3288,6 +3424,11 @@ const App: React.FC = () => {
       toFiniteNumber(playerNode?.credits) ??
       (rankValue ? pulledCoinVault[rankValue] : undefined) ??
       lcoinState.total;
+    const pulledAssignedDistrict = `${chipNode?.assigned_district ?? ''}`.trim();
+    const pulledAssignedXStationId = `${chipNode?.assigned_x_station_id ?? ''}`.trim().toUpperCase();
+    const pulledAssignedXStationLabel = `${chipNode?.assigned_x_station_label ?? ''}`.trim();
+    const pulledAssignedHXDormId = `${chipNode?.assigned_hx_dorm_id ?? ''}`.trim().toUpperCase();
+    const pulledAssignedHXDormLabel = `${chipNode?.assigned_hx_dorm_label ?? ''}`.trim();
     const syncSignature = JSON.stringify({
       playerName: `${playerNode?.name ?? playerNode?.display_name ?? ''}`.trim() || null,
       hpCurrent: toFiniteNumber(coreStatus?.hp?.current) ?? toFiniteNumber(status?.hp?.current) ?? null,
@@ -3316,6 +3457,9 @@ const App: React.FC = () => {
       citizenId: citizenIdValue || null,
       faction: factionValue || null,
       region: regionValue || null,
+      assignedDistrict: pulledAssignedDistrict || null,
+      assignedXStationId: pulledAssignedXStationId || null,
+      assignedHXDormId: pulledAssignedHXDormId || null,
       coreAffixes: coreAffixesFromStat.map(affix => [affix.name, affix.description, affix.type, affix.source].join('|')),
       lingshu: lingshuFromStat.map(part => [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|')),
       taxOfficerId: `${chipNode?.tax_officer_id ?? ''}`.trim() || null,
@@ -3454,20 +3598,71 @@ const App: React.FC = () => {
       const pulledOfficerName = `${chipNode?.tax_officer_name ?? ''}`.trim();
       const pulledOfficeAddress = `${chipNode?.tax_office_address ?? chipNode?.office_address ?? ''}`.trim();
       const pulledTaxAmount = toFiniteNumber(chipNode?.tax_amount ?? chipNode?.taxAmount);
+      const hasAirelaBinding =
+        protocolValue === 'beta' ||
+        chipNode?.beta_equipped === true ||
+        !!pulledOfficerId ||
+        !!pulledAssignedDistrict ||
+        !!pulledAssignedXStationId ||
+        !!pulledAssignedHXDormId;
+      const derivedBinding = hasAirelaBinding
+        ? resolveAirelaFacilityBinding({
+            districtHint:
+              pulledAssignedDistrict ||
+              pulledAssignedXStationLabel ||
+              pulledAssignedHXDormLabel ||
+              pulledOfficeAddress ||
+              regionValue,
+            citizenId: citizenIdValue || prev.citizenId || '',
+          })
+        : null;
+      const nextAssignedDistrict = hasAirelaBinding ? pulledAssignedDistrict || derivedBinding?.districtName || '' : '';
+      const nextAssignedXStationId = hasAirelaBinding ? pulledAssignedXStationId || derivedBinding?.xStationId || '' : '';
+      const nextAssignedXStationLabel = hasAirelaBinding
+        ? pulledAssignedXStationLabel ||
+          (nextAssignedXStationId
+            ? formatAirelaSiteLabel('x_station', nextAssignedXStationId, derivedBinding?.districtName)
+            : '')
+        : '';
+      const nextAssignedHXDormId = hasAirelaBinding ? pulledAssignedHXDormId || derivedBinding?.hxDormId || '' : '';
+      const nextAssignedHXDormLabel = hasAirelaBinding
+        ? pulledAssignedHXDormLabel ||
+          (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, derivedBinding?.districtName) : '')
+        : '';
 
       if ((protocolValue === 'beta' || chipNode?.beta_equipped === true) && !prev.taxOfficerUnlocked) {
         next.taxOfficerUnlocked = true;
+        changed = true;
+      }
+      if (nextAssignedDistrict !== `${prev.assignedDistrict ?? ''}`) {
+        next.assignedDistrict = nextAssignedDistrict;
+        changed = true;
+      }
+      if (nextAssignedXStationId !== `${prev.assignedXStationId ?? ''}`) {
+        next.assignedXStationId = nextAssignedXStationId;
+        changed = true;
+      }
+      if (nextAssignedXStationLabel !== `${prev.assignedXStationLabel ?? ''}`) {
+        next.assignedXStationLabel = nextAssignedXStationLabel;
+        changed = true;
+      }
+      if (nextAssignedHXDormId !== `${prev.assignedHXDormId ?? ''}`) {
+        next.assignedHXDormId = nextAssignedHXDormId;
+        changed = true;
+      }
+      if (nextAssignedHXDormLabel !== `${prev.assignedHXDormLabel ?? ''}`) {
+        next.assignedHXDormLabel = nextAssignedHXDormLabel;
         changed = true;
       }
       if (pulledOfficerId !== `${prev.taxOfficerBoundId ?? ''}`) {
         next.taxOfficerBoundId = pulledOfficerId || null;
         changed = true;
       }
-      if (pulledOfficerName && pulledOfficerName !== prev.taxOfficerName) {
+      if (pulledOfficerName !== `${prev.taxOfficerName ?? ''}`) {
         next.taxOfficerName = pulledOfficerName;
         changed = true;
       }
-      if (pulledOfficeAddress && pulledOfficeAddress !== prev.taxOfficeAddress) {
+      if (pulledOfficeAddress !== `${prev.taxOfficeAddress ?? ''}`) {
         next.taxOfficeAddress = pulledOfficeAddress;
         changed = true;
       }
@@ -3796,8 +3991,24 @@ const App: React.FC = () => {
       [Rank.Lv4]: Math.max(0, playerSoulLedger[Rank.Lv4] || 0),
       [Rank.Lv5]: Math.max(0, playerSoulLedger[Rank.Lv5] || 0),
     };
-    const nextAssignedDistrict = betaStatus.taxOfficerBoundId
-      ? pickAirelaTaxDistrict(betaStatus.citizenId || '').name
+    const airelaBinding = hasBetaChip
+      ? resolveAirelaFacilityBinding({
+          districtHint: betaStatus.assignedDistrict || betaStatus.taxOfficeAddress || currentNarrativeLocation,
+          citizenId: betaStatus.citizenId || null,
+        })
+      : null;
+    const nextAssignedDistrict = hasBetaChip ? `${betaStatus.assignedDistrict ?? ''}`.trim() || airelaBinding?.districtName || '' : '';
+    const nextAssignedXStationId = hasBetaChip ? `${betaStatus.assignedXStationId ?? ''}`.trim().toUpperCase() || airelaBinding?.xStationId || '' : '';
+    const nextAssignedXStationLabel = hasBetaChip
+      ? `${betaStatus.assignedXStationLabel ?? ''}`.trim() ||
+        (nextAssignedXStationId
+          ? formatAirelaSiteLabel('x_station', nextAssignedXStationId, airelaBinding?.districtName)
+          : '')
+      : '';
+    const nextAssignedHXDormId = hasBetaChip ? `${betaStatus.assignedHXDormId ?? ''}`.trim().toUpperCase() || airelaBinding?.hxDormId || '' : '';
+    const nextAssignedHXDormLabel = hasBetaChip
+      ? `${betaStatus.assignedHXDormLabel ?? ''}`.trim() ||
+        (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, airelaBinding?.districtName) : '')
       : '';
     const nextSignature = JSON.stringify({
       playerName,
@@ -3815,6 +4026,9 @@ const App: React.FC = () => {
       protocol: playerNeuralProtocol,
       citizenId: betaStatus.citizenId,
       faction: playerFaction.name,
+      assignedDistrict: nextAssignedDistrict || null,
+      assignedXStationId: nextAssignedXStationId || null,
+      assignedHXDormId: nextAssignedHXDormId || null,
       lcoin: nextCoinBuckets,
       coreAffixes: nextCoreAffixes,
       lingshu: nextLingshuParts.map(part => [part.key, part.level, part.rank].join('|')),
@@ -3850,6 +4064,11 @@ const App: React.FC = () => {
           chipStateRaw && typeof chipStateRaw === 'object' && !Array.isArray(chipStateRaw)
             ? chipStateRaw
             : {};
+        const residenceRaw = player.residence;
+        const residenceState =
+          residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw)
+            ? residenceRaw
+            : {};
         const lcoin = assets.lcoin && typeof assets.lcoin === 'object' ? assets.lcoin : {};
         const normalizeRateField = (rawRate: unknown, current: number) => {
           const nextCurrent = runtimePercentToStatRate(current);
@@ -3865,12 +4084,35 @@ const App: React.FC = () => {
           world.exchange_rules && typeof world.exchange_rules === 'object' && !Array.isArray(world.exchange_rules)
             ? world.exchange_rules
             : {};
+        const nextNarrativeLocation = currentNarrativeLocation || world.current_location || '未知区域';
+        const nextSceneState = resolveAirelaSceneState(nextNarrativeLocation, hasBetaChip ? airelaBinding : null);
+        const currentResidenceId = `${residenceState.current_residence_id ?? ''}`.trim();
+        const currentResidenceLabel = `${residenceState.current_residence_label ?? ''}`.trim();
+        const unlockedResidenceIds = Array.isArray(residenceState.unlocked_residence_ids)
+          ? Array.from(
+              new Set(
+                residenceState.unlocked_residence_ids
+                  .map(value => `${value ?? ''}`.trim())
+                  .filter(Boolean),
+              ),
+            )
+          : [];
+        const nextResidenceId = currentResidenceId || (hasBetaChip ? airelaBinding?.residenceId || '' : '');
+        const nextResidenceLabel = currentResidenceLabel || (hasBetaChip ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : '');
+        const nextUnlockedResidenceIds = Array.from(
+          new Set([
+            ...unlockedResidenceIds,
+            ...(hasBetaChip && (airelaBinding?.residenceId || nextResidenceId)
+              ? [airelaBinding?.residenceId || nextResidenceId]
+              : []),
+          ].filter(Boolean)),
+        );
         const nextPlayer: Record<string, any> = {
           ...player,
           name: playerName,
           display_name: playerName,
           gender: playerGender,
-          region: currentNarrativeLocation || player.region || world.current_location || '未知区域',
+          region: nextNarrativeLocation || player.region || world.current_location || '未知区域',
           faction: playerFaction.name || player.faction || world.current_faction || '未知势力',
           occupation: player.occupation || '未定',
           identity: {
@@ -3884,6 +4126,12 @@ const App: React.FC = () => {
           psionic_rank: playerStats.psionic.level,
           reputation: betaStatus.creditScore,
           credits: playerStats.credits,
+          residence: {
+            ...residenceState,
+            current_residence_id: nextResidenceId,
+            current_residence_label: nextResidenceLabel,
+            unlocked_residence_ids: nextUnlockedResidenceIds,
+          },
           core_status: {
             ...coreStatus,
             hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
@@ -3937,6 +4185,10 @@ const App: React.FC = () => {
             ...chipState,
             beta_equipped: hasBetaChip,
             assigned_district: nextAssignedDistrict,
+            assigned_x_station_id: nextAssignedXStationId,
+            assigned_x_station_label: nextAssignedXStationLabel,
+            assigned_hx_dorm_id: nextAssignedHXDormId,
+            assigned_hx_dorm_label: nextAssignedHXDormLabel,
             tax_officer_id: betaStatus.taxOfficerBoundId || '',
             tax_officer_name: betaStatus.taxOfficerName || '',
             tax_office_address: betaStatus.taxOfficeAddress || '',
@@ -3963,7 +4215,11 @@ const App: React.FC = () => {
             ...world,
             current_time: effectiveGameTimeText,
             current_period: effectiveGameDayPhase,
-            current_location: currentNarrativeLocation || world.current_location || '未知区域',
+            current_location: nextNarrativeLocation,
+            current_district: nextSceneState.currentDistrict,
+            current_site_type: nextSceneState.currentSiteType,
+            current_site_id: nextSceneState.currentSiteId,
+            current_site_label: nextSceneState.currentSiteLabel,
             current_faction: playerFaction.name || world.current_faction || '未知势力',
             exchange_rules: {
               ...DEFAULT_STAT_EXCHANGE_RULES,
@@ -4019,6 +4275,11 @@ const App: React.FC = () => {
     playerNeuralProtocol,
     betaStatus.citizenId,
     betaStatus.creditScore,
+    betaStatus.assignedDistrict,
+    betaStatus.assignedXStationId,
+    betaStatus.assignedXStationLabel,
+    betaStatus.assignedHXDormId,
+    betaStatus.assignedHXDormLabel,
     betaStatus.taxOfficerBoundId,
     betaStatus.taxOfficerName,
     betaStatus.taxOfficeAddress,
@@ -4130,6 +4391,11 @@ const App: React.FC = () => {
     setBetaStatus({
       ...loadedStatus,
       taxOfficerUnlocked: loadedStatus.taxOfficerUnlocked ?? payload.playerNeuralProtocol === 'beta',
+      assignedDistrict: loadedStatus.assignedDistrict || '',
+      assignedXStationId: loadedStatus.assignedXStationId || '',
+      assignedXStationLabel: loadedStatus.assignedXStationLabel || '',
+      assignedHXDormId: loadedStatus.assignedHXDormId || '',
+      assignedHXDormLabel: loadedStatus.assignedHXDormLabel || '',
       taxOfficerBoundId: loadedStatus.taxOfficerBoundId ?? null,
       taxOfficerName: loadedStatus.taxOfficerName || '',
       taxOfficeAddress: loadedStatus.taxOfficeAddress || '',
@@ -6183,6 +6449,11 @@ const App: React.FC = () => {
       betaLevel: 1,
       betaTierName: getBetaTierTitle(1),
       taxOfficerUnlocked: nextProtocol === 'beta',
+      assignedDistrict: '',
+      assignedXStationId: '',
+      assignedXStationLabel: '',
+      assignedHXDormId: '',
+      assignedHXDormLabel: '',
       taxOfficerBoundId: null,
       taxOfficerName: '',
       taxOfficeAddress: '',
@@ -6668,9 +6939,18 @@ const App: React.FC = () => {
   };
 
   const bindTaxOfficer = (candidate: TaxOfficerCandidate) => {
+    const binding = resolveAirelaFacilityBinding({
+      districtHint: candidate.location || betaStatus.assignedDistrict || '',
+      citizenId: betaStatus.citizenId || '',
+    });
     setBetaStatus(prev => ({
       ...prev,
       taxOfficerUnlocked: true,
+      assignedDistrict: binding?.districtName || prev.assignedDistrict || '',
+      assignedXStationId: binding?.xStationId || prev.assignedXStationId || '',
+      assignedXStationLabel: binding?.xStationLabel || prev.assignedXStationLabel || '',
+      assignedHXDormId: binding?.hxDormId || prev.assignedHXDormId || '',
+      assignedHXDormLabel: binding?.hxDormLabel || prev.assignedHXDormLabel || '',
       taxOfficerBoundId: candidate.id,
       taxOfficerName: candidate.name,
       taxOfficeAddress: candidate.location,
@@ -6702,10 +6982,19 @@ const App: React.FC = () => {
 
   const forceAssignBetaTaxOfficer = (reason: 'activation' | 'fallback') => {
     const district = pickAirelaTaxDistrict(betaStatus.citizenId || '');
+    const binding = buildAirelaFacilityBinding(district);
     const officerId = `airela_tax_officer_${district.id}`;
     const boundAlready = !!betaStatus.taxOfficerBoundId && !!betaStatus.taxOfficerName;
     if (boundAlready && reason === 'activation') {
-      setBetaStatus(prev => ({ ...prev, taxOfficerUnlocked: true }));
+      setBetaStatus(prev => ({
+        ...prev,
+        taxOfficerUnlocked: true,
+        assignedDistrict: binding?.districtName || prev.assignedDistrict || '',
+        assignedXStationId: binding?.xStationId || prev.assignedXStationId || '',
+        assignedXStationLabel: binding?.xStationLabel || prev.assignedXStationLabel || '',
+        assignedHXDormId: binding?.hxDormId || prev.assignedHXDormId || '',
+        assignedHXDormLabel: binding?.hxDormLabel || prev.assignedHXDormLabel || '',
+      }));
       return;
     }
 
@@ -6738,6 +7027,11 @@ const App: React.FC = () => {
     setBetaStatus(prev => ({
       ...prev,
       taxOfficerUnlocked: true,
+      assignedDistrict: binding?.districtName || prev.assignedDistrict || '',
+      assignedXStationId: binding?.xStationId || prev.assignedXStationId || '',
+      assignedXStationLabel: binding?.xStationLabel || prev.assignedXStationLabel || '',
+      assignedHXDormId: binding?.hxDormId || prev.assignedHXDormId || '',
+      assignedHXDormLabel: binding?.hxDormLabel || prev.assignedHXDormLabel || '',
       taxOfficerBoundId: officerId,
       taxOfficerName: district.officerName,
       taxOfficeAddress: district.officeAddress,
@@ -6795,7 +7089,19 @@ const App: React.FC = () => {
       if (justActivated || !betaStatus.taxOfficerBoundId) {
         forceAssignBetaTaxOfficer(justActivated ? 'activation' : 'fallback');
       } else if (!betaStatus.taxOfficerUnlocked) {
-        setBetaStatus(prev => ({ ...prev, taxOfficerUnlocked: true }));
+        const binding = resolveAirelaFacilityBinding({
+          districtHint: betaStatus.assignedDistrict || betaStatus.taxOfficeAddress || '',
+          citizenId: betaStatus.citizenId || '',
+        });
+        setBetaStatus(prev => ({
+          ...prev,
+          taxOfficerUnlocked: true,
+          assignedDistrict: binding?.districtName || prev.assignedDistrict || '',
+          assignedXStationId: binding?.xStationId || prev.assignedXStationId || '',
+          assignedXStationLabel: binding?.xStationLabel || prev.assignedXStationLabel || '',
+          assignedHXDormId: binding?.hxDormId || prev.assignedHXDormId || '',
+          assignedHXDormLabel: binding?.hxDormLabel || prev.assignedHXDormLabel || '',
+        }));
       }
     }
     lastProtocolRef.current = currentProtocol;

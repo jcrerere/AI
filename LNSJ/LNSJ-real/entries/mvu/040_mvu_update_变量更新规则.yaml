@@ -17,6 +17,13 @@
       - 必须与正文场景一致
       - 禁止外世界词（荒坂塔/夜之城/NCPD等）
 
+  world.current_district / world.current_site_*:
+    type: object
+    check:
+      - 艾瑞拉场景应优先维护官方分区与编号设施信息
+      - current_site_type 仅使用 x_station / hx_dorm / tax_office / 空字符串
+      - 若不在编号设施内，current_site_id / current_site_label 可留空
+
   player.checks:
     type: principle
     check:
@@ -38,6 +45,18 @@
       - drain_amount = base_drain_amount * absorb_rate * leakage_rate
       - 先扣 mp 与 energy_value
       - 不足部分按 life_convert_coeff 折算到 hp
+
+  player.residence:
+    type: object
+    check:
+      - current_residence_id / current_residence_label 保持同步
+      - unlocked_residence_ids 不得无故丢失既有住处
+
+  player.chip:
+    type: object
+    check:
+      - Beta 激活后，assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* 同步维护
+      - 不要只写“X号性控所 / HX男奴公寓”而不给正式编号
 
   player.core_affixes / player.lingshu_parts[*].status:
     check:

@@ -124,6 +124,11 @@ export interface PlayerCivilianStatus {
   betaLevel?: number;
   betaTierName?: string;
   taxOfficerUnlocked?: boolean;
+  assignedDistrict?: string;
+  assignedXStationId?: string;
+  assignedXStationLabel?: string;
+  assignedHXDormId?: string;
+  assignedHXDormLabel?: string;
   taxOfficerBoundId?: string | null;
   taxOfficerName?: string;
   taxOfficeAddress?: string;

@@ -8,6 +8,10 @@ stat_data:
     current_time: "2077-11-03 20:30"
     current_period: "夜晚"
     current_location: "开局地点"
+    current_district: ""
+    current_site_type: ""
+    current_site_id: ""
+    current_site_label: ""
     current_faction: "无"
     recent_events: {}
     exchange_rules:
@@ -38,6 +42,10 @@ stat_data:
     identity:
       citizen_id: "待分配"
       neural_protocol: "none"
+    residence:
+      current_residence_id: ""
+      current_residence_label: ""
+      unlocked_residence_ids: []
 
     core_status:
       hp: { current: 100, max: 100 }
@@ -92,6 +100,10 @@ stat_data:
     chip:
       beta_equipped: false
       assigned_district: ""
+      assigned_x_station_id: ""
+      assigned_x_station_label: ""
+      assigned_hx_dorm_id: ""
+      assigned_hx_dorm_label: ""
       tax_officer_id: ""
       tax_officer_name: ""
       tax_rate: 0.00
@@ -110,6 +122,7 @@ stat_data:
 2) 地点阵营：位移必须更新 world.current_location 与 player.region；势力变化同步 world.current_faction 与 player.faction。
 3) 状态资源：受伤/治疗改 hp；灵能消耗/恢复改 mp 与 psionic.energy_value.current；精神冲击改 sanity；所有 current 必须在 [0,max]。
 4) 兑换规则：同级理论1:1；实际受 conversion_rate 与 region_modifier 影响；跨级固定损耗 cross_level_loss_rate；圣教区禁止兑换。
-5) Beta税务官：beta_equipped=true 且 tax_officer_id 为空时，必须触发分配事件并写入 assigned_district/tax_officer_id/tax_officer_name/tax_rate。
-6) 开局主导：flags.opening_locked=true 时，AI只给环境与入口，不得替玩家预写既成开局。
+5) 艾瑞拉编号设施：若进入 X/H 编号设施，应同步 world.current_district / current_site_type / current_site_id / current_site_label。
+6) Beta税务官：beta_equipped=true 且 tax_officer_id 为空时，必须触发分配事件并写入 assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* / tax_rate。
+7) 开局主导：flags.opening_locked=true 时，AI只给环境与入口，不得替玩家预写既成开局。
 ```

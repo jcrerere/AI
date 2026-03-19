@@ -27,7 +27,7 @@ notes=只写回合事实摘要，至少覆盖时间/地点/结果中的两项，
 [UpdateVariableRules]
 required=false
 format=JSONPatch
-must_sync=world.current_time,world.current_location,player.core_status,player.assets.lcoin,player.core_affixes
+must_sync=world.current_time,world.current_location,world.current_district,world.current_site_label,player.core_status,player.assets.lcoin,player.residence.current_residence_label,player.core_affixes
 rules=所有路径以 /stat_data 开头；变量变更必须能从正文或摘要中追溯；可使用 replace/delta/insert/remove/move
 example=|-
   <UpdateVariable>
@@ -39,7 +39,10 @@ example=|-
   <JSONPatch>
   [
     { "op": "replace", "path": "/stat_data/world/current_time", "value": "2077-11-03 21:10" },
-    { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环外街" },
+    { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环分区·H18男奴公寓" },
+    { "op": "replace", "path": "/stat_data/world/current_district", "value": "艾瑞拉·中环分区" },
+    { "op": "replace", "path": "/stat_data/world/current_site_label", "value": "艾瑞拉·中环分区·H18男奴公寓" },
+    { "op": "replace", "path": "/stat_data/player/residence/current_residence_label", "value": "艾瑞拉·中环分区·H18男奴公寓" },
     { "op": "delta", "path": "/stat_data/player/core_status/reputation/current", "value": -2 },
     { "op": "insert", "path": "/stat_data/player/core_affixes/-", "value": { "name": "状态：目标锁定", "desc": "夜莺开始追查玩家。", "type": "debuff", "source": "交涉后续" } }
   ]

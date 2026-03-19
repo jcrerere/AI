@@ -48,7 +48,12 @@ export const MOCK_PLAYER_STATUS: PlayerCivilianStatus = {
       '精神状态不稳定，建议前往最近的矫正中心'
   ],
   taxDeadline: '2077-11-10',
-  taxAmount: 15000
+  taxAmount: 15000,
+  assignedDistrict: '',
+  assignedXStationId: '',
+  assignedXStationLabel: '',
+  assignedHXDormId: '',
+  assignedHXDormLabel: '',
 };
 
 export const MOCK_PLAYER_STATS: PlayerStats = {
