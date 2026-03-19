@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NPC, NpcDossierSection, NpcGalleryImage, NpcDarknetRecord } from '../../types';
 import { resolveNpcCodexAccessState, resolveNpcIntelUnlockedCount } from '../../utils/npcCodex';
 import CyberPanel from '../ui/CyberPanel';
@@ -11,6 +11,9 @@ interface Props {
 }
 
 type CodexSection = 'clue' | 'dossier' | 'album' | 'darknet';
+
+const GALLERY_BATCH_SIZE = 6;
+const RECORD_BATCH_SIZE = 6;
 
 const formatRecordTime = (timestamp: string): string => {
   const ms = Date.parse(timestamp);
@@ -35,6 +38,8 @@ const getRiskClassName = (record: NpcDarknetRecord): string => {
 const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
   const [activeSection, setActiveSection] = useState<CodexSection>('clue');
   const [lightboxImage, setLightboxImage] = useState<{ src: string; title: string; subtitle?: string } | null>(null);
+  const [visibleGalleryCount, setVisibleGalleryCount] = useState(GALLERY_BATCH_SIZE);
+  const [visibleRecordCount, setVisibleRecordCount] = useState(RECORD_BATCH_SIZE);
 
   const access = useMemo(() => resolveNpcCodexAccessState(npc), [npc]);
   const darkProfile = npc.darknetProfile;
@@ -131,11 +136,27 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
   };
 
   const unlockedIntelCount = useMemo(() => resolveNpcIntelUnlockedCount(npc, darknetRecords.length), [darknetRecords.length, npc]);
+  const visibleGalleryItems = useMemo(
+    () => galleryItems.slice(0, visibleGalleryCount),
+    [galleryItems, visibleGalleryCount],
+  );
+  const visibleDarknetRecords = useMemo(
+    () => darknetRecords.slice(0, visibleRecordCount),
+    [darknetRecords, visibleRecordCount],
+  );
 
   const isIntelUnlocked = (record: NpcDarknetRecord, index: number) => {
     if (access.darknetLevel >= (record.unlockLevel || 1)) return true;
     return index < unlockedIntelCount;
   };
+
+  useEffect(() => {
+    setVisibleGalleryCount(GALLERY_BATCH_SIZE);
+  }, [npc.id, galleryItems.length]);
+
+  useEffect(() => {
+    setVisibleRecordCount(RECORD_BATCH_SIZE);
+  }, [npc.id, darknetRecords.length]);
 
   const maskedCitizenId = access.dossierLevel >= 3 ? npc.citizenId || '未登记' : '信息未解锁';
   const maskedSocialHandle = access.socialUnlocked ? npc.socialHandle || '未绑定账号' : '需提升关系后解锁';
@@ -160,7 +181,13 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
             onClick={() => setLightboxImage({ src: npc.avatarUrl, title: npc.name, subtitle: access.dossierLevel <= 1 ? '当前仅开放外观线索' : npc.position })}
             className="relative w-24 h-32 overflow-hidden rounded-sm border border-emerald-500/20 bg-black shrink-0"
           >
-            <img src={npc.avatarUrl} alt={npc.name} className={`w-full h-full object-cover ${access.dossierLevel <= 1 ? 'grayscale blur-[1px] opacity-75' : ''}`} />
+            <img
+              src={npc.avatarUrl}
+              alt={npc.name}
+              loading="lazy"
+              decoding="async"
+              className={`w-full h-full object-cover ${access.dossierLevel <= 1 ? 'grayscale blur-[1px] opacity-75' : ''}`}
+            />
           </button>
 
           <div className="min-w-0 flex-1">
@@ -274,7 +301,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
               <div className="text-sm text-slate-500">当前还没有为这个人物配置图片。</div>
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {galleryItems.map((item, index) => {
+                {visibleGalleryItems.map((item, index) => {
                   const unlocked = isGalleryUnlocked(item, index);
                   return (
                     <button
@@ -284,7 +311,13 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
                       onClick={() => unlocked && setLightboxImage({ src: item.src, title: item.title || npc.name, subtitle: item.caption || item.sourceLabel })}
                       className="relative overflow-hidden rounded-sm border border-emerald-500/15 bg-black text-left disabled:cursor-not-allowed"
                     >
-                      <img src={item.src} alt={item.title || npc.name} className={`aspect-[4/5] w-full object-cover ${unlocked ? '' : 'blur-md brightness-50 scale-105'}`} />
+                      <img
+                        src={item.src}
+                        alt={item.title || npc.name}
+                        loading="lazy"
+                        decoding="async"
+                        className={`aspect-[4/5] w-full object-cover ${unlocked ? '' : 'blur-md brightness-50 scale-105'}`}
+                      />
                       {!unlocked && (
                         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/35">
                           <Lock className="w-5 h-5 text-amber-300" />
@@ -296,6 +329,15 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
                 })}
               </div>
             )}
+            {galleryItems.length > visibleGalleryItems.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleGalleryCount(count => count + GALLERY_BATCH_SIZE)}
+                className="mt-3 w-full rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-black/40"
+              >
+                加载更多相册
+              </button>
+            ) : null}
           </CyberPanel>
         )}
 
@@ -310,7 +352,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
                 当前没有可显示的暗网记录。
               </div>
             ) : (
-              darknetRecords.map((record, index) => {
+              visibleDarknetRecords.map((record, index) => {
                 const unlocked = isIntelUnlocked(record, index);
                 return (
                   <div key={record.id} className="overflow-hidden rounded-md border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))]">
@@ -335,7 +377,13 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
                         onClick={() => unlocked && setLightboxImage({ src: record.image!, title: record.title, subtitle: record.content })}
                         className="block w-full disabled:cursor-not-allowed"
                       >
-                        <img src={record.image} alt={record.title} className={`aspect-[16/9] w-full object-cover ${unlocked ? '' : 'blur-md brightness-50 scale-105'}`} />
+                        <img
+                          src={record.image}
+                          alt={record.title}
+                          loading="lazy"
+                          decoding="async"
+                          className={`aspect-[16/9] w-full object-cover ${unlocked ? '' : 'blur-md brightness-50 scale-105'}`}
+                        />
                       </button>
                     ) : null}
 
@@ -357,6 +405,15 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
                 );
               })
             )}
+            {darknetRecords.length > visibleDarknetRecords.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleRecordCount(count => count + RECORD_BATCH_SIZE)}
+                className="w-full rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-black/40"
+              >
+                加载更多情报记录
+              </button>
+            ) : null}
           </CyberPanel>
         )}
       </div>

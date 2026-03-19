@@ -379,6 +379,26 @@ body {
   opacity: 0;
 }
 
+.ln-motion-lite .ln-scanlines {
+  opacity: 0.04;
+}
+
+.ln-motion-lite .ln-hud-sweep,
+.ln-motion-lite .ln-mode-dot,
+.ln-motion-lite .ln-float-soft,
+.ln-motion-lite .ln-feedback-card::after {
+  animation: none !important;
+}
+
+.ln-motion-lite .ln-hud-sweep,
+.ln-motion-lite .ln-shell-flash {
+  opacity: 0 !important;
+}
+
+.ln-motion-lite .ln-card-lift:hover {
+  transform: none;
+}
+
 .duration-75 {
   --tw-animate-duration: 75ms;
 }

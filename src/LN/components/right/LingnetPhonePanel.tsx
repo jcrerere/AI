@@ -206,6 +206,13 @@ const PHONE_THEMES: Record<PhoneView, PhoneTheme> = {
   },
 };
 
+const FEED_BATCH_SIZE = 6;
+const DISCOVER_BATCH_SIZE = 8;
+const PROFILE_POST_BATCH_SIZE = 4;
+const DM_THREAD_BATCH_SIZE = 10;
+const DM_MESSAGE_BATCH_SIZE = 16;
+const PAYMENT_BATCH_SIZE = 8;
+
 const LingnetPhonePanel: React.FC<Props> = ({
   npcs,
   playerName,
@@ -219,6 +226,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
 }) => {
   const [activeView, setActiveView] = useState<PhoneView>('lingnet');
   const [lingnetMode, setLingnetMode] = useState<LingnetMode>('feed');
+  const [motionMode, setMotionMode] = useState<'full' | 'lite'>(() => {
+    if (typeof window === 'undefined') return 'full';
+    try {
+      const savedMode = window.localStorage.getItem('ln-phone-motion-mode');
+      if (savedMode === 'full' || savedMode === 'lite') return savedMode;
+      return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'lite' : 'full';
+    } catch {
+      return 'full';
+    }
+  });
   const [selectedNpcId, setSelectedNpcId] = useState('');
   const [selectedThreadNpcId, setSelectedThreadNpcId] = useState('');
   const [selectedDarknetNpcId, setSelectedDarknetNpcId] = useState<string | null>(null);
@@ -228,6 +245,12 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
   const [paymentError, setPaymentError] = useState('');
   const [uiFeedback, setUiFeedback] = useState<UiFeedback | null>(null);
+  const [visibleFeedCount, setVisibleFeedCount] = useState(FEED_BATCH_SIZE);
+  const [visibleDiscoverCount, setVisibleDiscoverCount] = useState(DISCOVER_BATCH_SIZE);
+  const [visibleProfilePostCount, setVisibleProfilePostCount] = useState(PROFILE_POST_BATCH_SIZE);
+  const [visibleDmThreadCount, setVisibleDmThreadCount] = useState(DM_THREAD_BATCH_SIZE);
+  const [visibleDmMessageCount, setVisibleDmMessageCount] = useState(DM_MESSAGE_BATCH_SIZE);
+  const [visiblePaymentCount, setVisiblePaymentCount] = useState(PAYMENT_BATCH_SIZE);
   const [importDraft, setImportDraft] = useState<SocialImportDraft>({
     targetNpcId: '__new__',
     localName: '',
@@ -298,6 +321,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
     [dmAccounts, selectedThreadNpcId],
   );
   const phoneTheme = PHONE_THEMES[activeView];
+  const reduceMotion = motionMode === 'lite';
   const lingnetStats = useMemo(
     () => ({
       accounts: socialAccounts.length,
@@ -319,8 +343,29 @@ const LingnetPhonePanel: React.FC<Props> = ({
     () => paymentEntries.reduce((sum, entry) => sum + Number(entry.item.amount || 0), 0),
     [paymentEntries],
   );
+  const visibleFeedEntries = useMemo(() => feedEntries.slice(0, visibleFeedCount), [feedEntries, visibleFeedCount]);
+  const visibleDiscoverEntries = useMemo(
+    () => filteredAccounts.slice(0, visibleDiscoverCount),
+    [filteredAccounts, visibleDiscoverCount],
+  );
+  const visibleProfilePosts = useMemo(
+    () => (activeProfileNpc?.socialFeed || []).slice(0, visibleProfilePostCount),
+    [activeProfileNpc, visibleProfilePostCount],
+  );
+  const visibleDmAccounts = useMemo(
+    () => dmAccounts.slice(0, visibleDmThreadCount),
+    [dmAccounts, visibleDmThreadCount],
+  );
+  const visibleDmMessages = useMemo(
+    () => (activeDmNpc?.dmThread || []).slice(-visibleDmMessageCount),
+    [activeDmNpc, visibleDmMessageCount],
+  );
+  const visiblePaymentEntries = useMemo(
+    () => paymentEntries.slice(0, visiblePaymentCount),
+    [paymentEntries, visiblePaymentCount],
+  );
   const getStaggerStyle = (index: number, step = 55): React.CSSProperties => ({
-    animationDelay: `${Math.min(index * step, 440)}ms`,
+    animationDelay: reduceMotion ? '0ms' : `${Math.min(index * step, 440)}ms`,
   });
   const feedbackToneClass =
     uiFeedback?.tone === 'success'
@@ -360,6 +405,38 @@ const LingnetPhonePanel: React.FC<Props> = ({
     }, 2400);
     return () => window.clearTimeout(timer);
   }, [uiFeedback]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('ln-phone-motion-mode', motionMode);
+    } catch {
+      // ignore storage write failures in embedded contexts
+    }
+  }, [motionMode]);
+
+  useEffect(() => {
+    setVisibleFeedCount(FEED_BATCH_SIZE);
+  }, [feedEntries.length, keyword]);
+
+  useEffect(() => {
+    setVisibleDiscoverCount(DISCOVER_BATCH_SIZE);
+  }, [filteredAccounts.length, keyword]);
+
+  useEffect(() => {
+    setVisibleProfilePostCount(PROFILE_POST_BATCH_SIZE);
+  }, [activeProfileNpc?.id]);
+
+  useEffect(() => {
+    setVisibleDmThreadCount(DM_THREAD_BATCH_SIZE);
+  }, [dmAccounts.length]);
+
+  useEffect(() => {
+    setVisibleDmMessageCount(DM_MESSAGE_BATCH_SIZE);
+  }, [activeDmNpc?.id, activeDmNpc?.dmThread?.length]);
+
+  useEffect(() => {
+    setVisiblePaymentCount(PAYMENT_BATCH_SIZE);
+  }, [paymentEntries.length]);
 
   const pushFeedback = (title: string, detail: string, tone: FeedbackTone = 'info', accent: PhoneView = activeView) => {
     setUiFeedback({
@@ -582,6 +659,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <img
               src={npc.avatarUrl}
               alt={npc.name}
+              loading="lazy"
+              decoding="async"
               className="w-11 h-11 rounded-[16px] object-cover border border-cyan-300/25"
             />
             <div className="min-w-0">
@@ -609,6 +688,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
               <img
                 src={post.image}
                 alt={npc.name}
+                loading="lazy"
+                decoding="async"
                 className={`w-full aspect-[4/5] object-cover ${locked ? 'blur-lg brightness-50 scale-105' : ''}`}
               />
               {locked && (
@@ -698,6 +779,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
         <img
           src={npc.avatarUrl}
           alt={npc.name}
+          loading="lazy"
+          decoding="async"
           className="h-16 w-16 rounded-[22px] object-cover border border-cyan-300/20"
         />
         <div className="min-w-0 flex-1">
@@ -782,6 +865,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <img
               src={activeProfileNpc.avatarUrl}
               alt={activeProfileNpc.name}
+              loading="lazy"
+              decoding="async"
               className="w-20 h-20 rounded-[24px] object-cover border border-cyan-300/20"
             />
             <div className="flex-1 min-w-0">
@@ -842,7 +927,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
             </div>
           </div>
         </div>
-        {activeProfileNpc.socialFeed.map((post, index) => renderPost(activeProfileNpc, post, index * 55))}
+        {visibleProfilePosts.map((post, index) => renderPost(activeProfileNpc, post, index * 55))}
+        {activeProfileNpc.socialFeed.length > visibleProfilePosts.length ? (
+          <button
+            type="button"
+            onClick={() => setVisibleProfilePostCount(count => count + PROFILE_POST_BATCH_SIZE)}
+            className="w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
+          >
+            加载更多主页动态
+          </button>
+        ) : null}
       </div>
     );
   };
@@ -871,7 +965,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
                 互关后才能开启私信。
               </div>
             ) : (
-              dmAccounts.map((npc, index) => (
+              visibleDmAccounts.map((npc, index) => (
                 <button
                   key={npc.id}
                   type="button"
@@ -897,6 +991,15 @@ const LingnetPhonePanel: React.FC<Props> = ({
                 </button>
               ))
             )}
+            {dmAccounts.length > visibleDmAccounts.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleDmThreadCount(count => count + DM_THREAD_BATCH_SIZE)}
+                className="w-full rounded-[18px] border border-fuchsia-400/12 bg-black/25 px-3 py-2 text-xs text-fuchsia-100 transition hover:border-fuchsia-300/30 hover:text-white"
+              >
+                加载更多会话
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="rounded-[28px] border border-fuchsia-400/12 bg-[linear-gradient(180deg,rgba(17,9,24,0.98),rgba(9,7,15,0.98))] flex flex-col min-h-0 overflow-hidden">
@@ -933,7 +1036,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
                     这里还没有消息。
                   </div>
                 ) : (
-                  (activeDmNpc.dmThread || []).map((message, index) => (
+                  visibleDmMessages.map((message, index) => (
                     <div
                       key={message.id}
                       style={getStaggerStyle(index, 40)}
@@ -952,6 +1055,15 @@ const LingnetPhonePanel: React.FC<Props> = ({
                     </div>
                   ))
                 )}
+                {(activeDmNpc.dmThread || []).length > visibleDmMessages.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleDmMessageCount(count => count + DM_MESSAGE_BATCH_SIZE)}
+                    className="w-full rounded-[18px] border border-fuchsia-400/12 bg-black/20 px-3 py-2 text-xs text-fuchsia-100 transition hover:border-fuchsia-300/30 hover:text-white"
+                  >
+                    加载更早消息
+                  </button>
+                ) : null}
               </div>
               <div className="border-t border-white/10 p-3">
                 <div className="flex items-center gap-2 rounded-[22px] border border-fuchsia-400/12 bg-black/25 px-2 py-2">
@@ -1020,7 +1132,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
               还没有发生过灵网支付。
             </div>
           ) : (
-            paymentEntries.slice(0, 8).map((entry, index) => (
+            visiblePaymentEntries.map((entry, index) => (
               <div
                 key={entry.item.id}
                 style={getStaggerStyle(index, 45)}
@@ -1036,6 +1148,15 @@ const LingnetPhonePanel: React.FC<Props> = ({
               </div>
             ))
           )}
+          {paymentEntries.length > visiblePaymentEntries.length ? (
+            <button
+              type="button"
+              onClick={() => setVisiblePaymentCount(count => count + PAYMENT_BATCH_SIZE)}
+              className="w-full rounded-[20px] border border-amber-300/15 bg-black/20 px-4 py-3 text-sm text-amber-100 transition hover:border-amber-200/30 hover:text-white"
+            >
+              加载更多流水
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1256,7 +1377,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
 
   return (
     <div
-      className={`relative h-full flex flex-col overflow-hidden rounded-[32px] border shadow-[0_24px_80px_rgba(0,0,0,0.55)] ${phoneTheme.shell}`}
+      className={`relative h-full flex flex-col overflow-hidden rounded-[32px] border shadow-[0_24px_80px_rgba(0,0,0,0.55)] ${phoneTheme.shell} ${reduceMotion ? 'ln-motion-lite' : ''}`}
     >
       <div className="pointer-events-none absolute inset-0 ln-scanlines" />
       <div className={`pointer-events-none ln-hud-sweep ${phoneTheme.sweepClass}`} />
@@ -1270,6 +1391,13 @@ const LingnetPhonePanel: React.FC<Props> = ({
       <div className="px-5 pt-4 pb-3 border-b border-white/10 bg-black/30 backdrop-blur-sm">
         <div className="flex items-center justify-between text-[11px] text-slate-400">
           <div>{phoneTheme.headerKicker}</div>
+          <button
+            type="button"
+            onClick={() => setMotionMode(current => (current === 'full' ? 'lite' : 'full'))}
+            className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] text-slate-200 transition hover:border-white/20 hover:text-white"
+          >
+            {reduceMotion ? '低动效' : '标准动效'}
+          </button>
           <div>{currentLocation || '未知区域'}</div>
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
@@ -1371,20 +1499,38 @@ const LingnetPhonePanel: React.FC<Props> = ({
             {lingnetMode === 'profile' ? renderLingnetProfile() : null}
             {lingnetMode === 'feed' &&
               (feedEntries.length > 0 ? (
-                feedEntries.map((entry, index) => renderPost(entry.npc, entry.post, index * 55))
+                visibleFeedEntries.map((entry, index) => renderPost(entry.npc, entry.post, index * 55))
               ) : (
                 <div className="rounded-[24px] border border-dashed border-cyan-400/12 px-5 py-10 text-center text-sm text-slate-400">
                   灵网里还没有内容，先去导入公开图片或给现有 NPC 补动态。
                 </div>
               ))}
+            {lingnetMode === 'feed' && feedEntries.length > visibleFeedEntries.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleFeedCount(count => count + FEED_BATCH_SIZE)}
+                className="mt-3 w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
+              >
+                加载更多动态
+              </button>
+            ) : null}
             {lingnetMode === 'discover' &&
               (filteredAccounts.length > 0 ? (
-                filteredAccounts.map((npc, index) => renderDiscoverCard(npc, index))
+                visibleDiscoverEntries.map((npc, index) => renderDiscoverCard(npc, index))
               ) : (
                 <div className="rounded-[24px] border border-dashed border-cyan-400/12 px-5 py-10 text-center text-sm text-slate-400">
                   暂时没有符合筛选条件的灵网账号。
                 </div>
               ))}
+            {lingnetMode === 'discover' && filteredAccounts.length > visibleDiscoverEntries.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleDiscoverCount(count => count + DISCOVER_BATCH_SIZE)}
+                className="mt-3 w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
+              >
+                加载更多账号
+              </button>
+            ) : null}
           </div>
         )}
         {activeView === 'darknet' && (

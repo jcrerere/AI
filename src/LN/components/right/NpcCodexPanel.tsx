@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { NPC } from '../../types';
 import { resolveNpcCodexAccessState } from '../../utils/npcCodex';
 import NpcCodexEntryPanel from './NpcCodexEntryPanel';
@@ -9,6 +9,8 @@ interface Props {
   selectedNpcId: string | null;
   onSelectNpcId: (npcId: string | null) => void;
 }
+
+const INDEX_BATCH_SIZE = 10;
 
 const getEntryName = (npc: NPC): string => {
   const access = resolveNpcCodexAccessState(npc);
@@ -54,6 +56,7 @@ const buildSearchHaystack = (npc: NPC): string =>
 
 const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) => {
   const [keyword, setKeyword] = useState('');
+  const [visibleEntryCount, setVisibleEntryCount] = useState(INDEX_BATCH_SIZE);
 
   const selectedNpc = useMemo(() => {
     if (!selectedNpcId) return null;
@@ -83,6 +86,10 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
 
   const indexedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).dossierLevel > 0).length, [entries]);
   const deepLinkedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).darknetLevel >= 3).length, [entries]);
+
+  useEffect(() => {
+    setVisibleEntryCount(INDEX_BATCH_SIZE);
+  }, [keyword, entries.length]);
 
   if (selectedNpc) {
     return <NpcCodexEntryPanel npc={selectedNpc} onBack={() => onSelectNpcId(null)} />;
@@ -134,7 +141,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
             当前没有符合条件的暗网词条。
           </div>
         ) : (
-          entries.map(npc => {
+          entries.slice(0, visibleEntryCount).map(npc => {
             const access = resolveNpcCodexAccessState(npc);
             return (
               <button
@@ -148,6 +155,8 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
                     <img
                       src={npc.avatarUrl}
                       alt={getEntryName(npc)}
+                      loading="lazy"
+                      decoding="async"
                       className={`h-full w-full object-cover ${access.dossierLevel <= 1 ? 'grayscale blur-[1px] opacity-70' : ''}`}
                     />
                   </div>
@@ -184,6 +193,15 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
             );
           })
         )}
+        {entries.length > visibleEntryCount ? (
+          <button
+            type="button"
+            onClick={() => setVisibleEntryCount(count => count + INDEX_BATCH_SIZE)}
+            className="w-full rounded-md border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-[#0b1612]"
+          >
+            加载更多暗网词条
+          </button>
+        ) : null}
       </div>
     </div>
   );
