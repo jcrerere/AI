@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
+import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
 
 export interface SocialImportDraft {
   targetNpcId: string;
@@ -213,6 +214,14 @@ const DM_THREAD_BATCH_SIZE = 10;
 const DM_MESSAGE_BATCH_SIZE = 16;
 const PAYMENT_BATCH_SIZE = 8;
 
+const JURISDICTION_TONE_CLASS = {
+  cyan: 'border-cyan-400/12 bg-cyan-500/6 text-cyan-100',
+  emerald: 'border-emerald-500/12 bg-emerald-500/8 text-emerald-100',
+  amber: 'border-amber-400/12 bg-amber-500/8 text-amber-100',
+  fuchsia: 'border-fuchsia-400/12 bg-fuchsia-500/8 text-fuchsia-100',
+  slate: 'border-white/10 bg-white/[0.03] text-slate-100',
+} as const;
+
 const LingnetPhonePanel: React.FC<Props> = ({
   npcs,
   playerName,
@@ -321,6 +330,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
     [dmAccounts, selectedThreadNpcId],
   );
   const phoneTheme = PHONE_THEMES[activeView];
+  const jurisdiction = useMemo(() => resolveLocationJurisdiction(currentLocation), [currentLocation]);
   const reduceMotion = motionMode === 'lite';
   const lingnetStats = useMemo(
     () => ({
@@ -1414,6 +1424,21 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div className={`ln-float-soft rounded-[22px] border px-4 py-2 text-right ${phoneTheme.walletPanel}`}>
             <div className={`text-[10px] uppercase tracking-[0.25em] ${phoneTheme.walletLabel}`}>Wallet</div>
             <div className="text-lg font-semibold text-white">{playerCredits}</div>
+          </div>
+        </div>
+        <div className={`mt-3 rounded-[22px] border px-3 py-3 ${JURISDICTION_TONE_CLASS[jurisdiction.tone]}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-white/60">Jurisdiction Layer</div>
+            <div className="text-[11px] font-semibold text-white">{jurisdiction.regionLabel}</div>
+          </div>
+          <div className="mt-2 text-[11px] leading-5 text-slate-200/85">{jurisdiction.summary}</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {jurisdiction.chips.map(chip => (
+              <div key={chip.label} className="rounded-[16px] border border-white/8 bg-black/20 px-3 py-2">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-white/45">{chip.label}</div>
+                <div className="mt-1 text-[11px] text-white">{chip.value}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
