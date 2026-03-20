@@ -640,6 +640,8 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
   }
 };
 
+const isAirelaResidenceZone = (location: string): boolean => resolveLocationJurisdiction(location).key === 'aerila';
+
 const buildResidenceProfiles = (params: {
   location: string;
   hasBetaChip: boolean;
@@ -647,6 +649,7 @@ const buildResidenceProfiles = (params: {
   residence: PlayerResidenceState;
 }): ResidenceProfile[] => {
   const districtLabel = params.status.assignedDistrict || resolveLocationJurisdiction(params.location).regionLabel || '未锁定法域';
+  const inAirelaZone = isAirelaResidenceZone(params.location);
   const officialBinding =
     params.hasBetaChip && (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
       ? resolveAirelaFacilityBinding({
@@ -655,7 +658,7 @@ const buildResidenceProfiles = (params: {
         })
       : null;
   const profiles: ResidenceProfile[] = [];
-  if (params.hasBetaChip && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
+  if (inAirelaZone && params.hasBetaChip && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
     profiles.push({
       id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
       label: params.status.assignedHXDormLabel,
@@ -3745,7 +3748,7 @@ const App: React.FC = () => {
           ? residenceNode.unlocked_residence_ids
           : [],
       },
-      hasAirelaBinding
+      hasAirelaBinding && isAirelaResidenceZone(regionValue)
         ? {
             currentResidenceId: derivedBinding?.residenceId || '',
             currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
@@ -4139,6 +4142,16 @@ const App: React.FC = () => {
       playerResidence,
     ],
   );
+  const officialResidenceBinding = useMemo(
+    () =>
+      hasBetaChip
+        ? resolveAirelaFacilityBinding({
+            districtHint: betaStatus.assignedDistrict || betaStatus.assignedHXDormLabel || currentNarrativeLocation,
+            citizenId: betaStatus.citizenId || '',
+          })
+        : null,
+    [hasBetaChip, betaStatus.assignedDistrict, betaStatus.assignedHXDormLabel, betaStatus.citizenId, currentNarrativeLocation],
+  );
   const currentResidenceProfile = useMemo(
     () =>
       residenceProfiles.find(profile => profile.id === playerResidence.currentResidenceId) ||
@@ -4207,6 +4220,28 @@ const App: React.FC = () => {
     if (gameStage !== 'game') return;
     setSettlementCheckpointMonth(prev => prev || currentMonthKey);
   }, [gameStage, currentMonthKey]);
+
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (isAirelaResidenceZone(location)) return;
+    const officialResidenceId = officialResidenceBinding?.residenceId || '';
+    if (!officialResidenceId) return;
+    if (playerResidence.currentResidenceId !== officialResidenceId) return;
+    setPlayerResidence(prev =>
+      normalizeResidenceState({
+        currentResidenceId: '',
+        currentResidenceLabel: '',
+        unlockedResidenceIds: [...prev.unlockedResidenceIds, officialResidenceId],
+      }),
+    );
+  }, [
+    gameStage,
+    currentNarrativeLocation,
+    playerFaction.headquarters,
+    officialResidenceBinding,
+    playerResidence.currentResidenceId,
+  ]);
 
   const syncNearbyNpcsFromContext = useCallback(
     (location: string, playerInput: string, narrativeText: string, structuredRecords: NearbyNpcRecord[] = []) => {
@@ -4443,6 +4478,7 @@ const App: React.FC = () => {
             : {};
         const nextNarrativeLocation = currentNarrativeLocation || world.current_location || '未知区域';
         const nextSceneState = resolveAirelaSceneState(nextNarrativeLocation, hasBetaChip ? airelaBinding : null);
+        const allowOfficialResidenceFallback = hasBetaChip && isAirelaResidenceZone(nextNarrativeLocation);
         const mergedResidence = normalizeResidenceState(
           {
             currentResidenceId: playerResidence.currentResidenceId,
@@ -4450,10 +4486,12 @@ const App: React.FC = () => {
             unlockedResidenceIds: playerResidence.unlockedResidenceIds,
           },
           {
-            currentResidenceId: `${residenceState.current_residence_id ?? ''}`.trim() || (hasBetaChip ? airelaBinding?.residenceId || '' : ''),
+            currentResidenceId:
+              `${residenceState.current_residence_id ?? ''}`.trim() ||
+              (allowOfficialResidenceFallback ? airelaBinding?.residenceId || '' : ''),
             currentResidenceLabel:
               `${residenceState.current_residence_label ?? ''}`.trim() ||
-              (hasBetaChip ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : ''),
+              (allowOfficialResidenceFallback ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : ''),
             unlockedResidenceIds: [
               ...(Array.isArray(residenceState.unlocked_residence_ids) ? residenceState.unlocked_residence_ids : []),
               ...(hasBetaChip && airelaBinding?.residenceId ? [airelaBinding.residenceId] : []),
@@ -6851,7 +6889,7 @@ const App: React.FC = () => {
     const nextPlayerName = config.name.trim() || LN_DEFAULT_PLAYER_NAME;
     const nextProtocol = config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none');
     const initialResidenceBinding =
-      nextProtocol === 'beta'
+      nextProtocol === 'beta' && isAirelaResidenceZone(config.startingLocation)
         ? resolveAirelaFacilityBinding({
             districtHint: config.startingLocation,
             citizenId: config.citizenId,

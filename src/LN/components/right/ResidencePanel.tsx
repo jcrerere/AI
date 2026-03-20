@@ -131,7 +131,10 @@ const ResidencePanel: React.FC<Props> = ({
           <div className="rounded-xl border border-emerald-900/30 bg-emerald-950/10 p-3">
             <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-200">
               <Building2 className="w-3.5 h-3.5" />
-              Beta 官方住册
+              艾瑞拉官方住册
+            </div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              这条记录只在艾瑞拉法域内视为官方宿位；离开艾瑞拉后，它只保留为住册锚点，不会把外区住处算成官方分配。
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <div className="rounded border border-slate-800/90 bg-slate-950/40 p-2 text-[11px]">
