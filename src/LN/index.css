@@ -380,9 +380,11 @@ body {
 }
 
 .ln-motion-lite .ln-scanlines {
-  opacity: 0.04;
+  opacity: 0;
 }
 
+.ln-motion-lite .animate-in,
+.ln-motion-lite .animate-spin-slow,
 .ln-motion-lite .ln-hud-sweep,
 .ln-motion-lite .ln-mode-dot,
 .ln-motion-lite .ln-float-soft,
@@ -390,9 +392,19 @@ body {
   animation: none !important;
 }
 
+.ln-motion-lite .animate-in,
 .ln-motion-lite .ln-hud-sweep,
 .ln-motion-lite .ln-shell-flash {
   opacity: 0 !important;
+}
+
+.ln-motion-lite .animate-in {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.ln-motion-lite .ln-card-lift {
+  transition: none !important;
 }
 
 .ln-motion-lite .ln-card-lift:hover {

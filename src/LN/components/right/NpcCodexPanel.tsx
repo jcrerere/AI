@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { NPC } from '../../types';
 import { resolveNpcCodexAccessState } from '../../utils/npcCodex';
 import NpcCodexEntryPanel from './NpcCodexEntryPanel';
 import { BookOpen, Search, UserRoundSearch } from 'lucide-react';
+import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 interface Props {
   npcs: NPC[];
@@ -57,6 +58,9 @@ const buildSearchHaystack = (npc: NPC): string =>
 const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) => {
   const [keyword, setKeyword] = useState('');
   const [visibleEntryCount, setVisibleEntryCount] = useState(INDEX_BATCH_SIZE);
+  const isCompactViewport = useCompactViewport();
+  const deferredKeyword = useDeferredValue(keyword);
+  const indexBatchSize = isCompactViewport ? 8 : INDEX_BATCH_SIZE;
 
   const selectedNpc = useMemo(() => {
     if (!selectedNpcId) return null;
@@ -64,7 +68,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
   }, [npcs, selectedNpcId]);
 
   const entries = useMemo(() => {
-    const search = keyword.trim().toLowerCase();
+    const search = deferredKeyword.trim().toLowerCase();
     return [...npcs]
       .sort((a, b) => {
         const accessA = resolveNpcCodexAccessState(a);
@@ -82,14 +86,14 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
         if (!search) return true;
         return buildSearchHaystack(npc).includes(search);
       });
-  }, [keyword, npcs]);
+  }, [deferredKeyword, npcs]);
 
   const indexedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).dossierLevel > 0).length, [entries]);
   const deepLinkedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).darknetLevel >= 3).length, [entries]);
 
   useEffect(() => {
-    setVisibleEntryCount(INDEX_BATCH_SIZE);
-  }, [keyword, entries.length]);
+    setVisibleEntryCount(indexBatchSize);
+  }, [deferredKeyword, entries.length, indexBatchSize]);
 
   if (selectedNpc) {
     return <NpcCodexEntryPanel npc={selectedNpc} onBack={() => onSelectNpcId(null)} />;
@@ -196,7 +200,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
         {entries.length > visibleEntryCount ? (
           <button
             type="button"
-            onClick={() => setVisibleEntryCount(count => count + INDEX_BATCH_SIZE)}
+            onClick={() => setVisibleEntryCount(count => count + indexBatchSize)}
             className="w-full rounded-md border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-[#0b1612]"
           >
             加载更多暗网词条

@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
 import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
+import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 export interface SocialImportDraft {
   targetNpcId: string;
@@ -277,6 +278,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
     unlockPrice: 88,
     note: '',
   });
+  const isCompactViewport = useCompactViewport();
+  const deferredKeyword = useDeferredValue(keyword);
 
   const socialAccounts = useMemo(
     () =>
@@ -293,14 +296,14 @@ const LingnetPhonePanel: React.FC<Props> = ({
   );
 
   const filteredAccounts = useMemo(() => {
-    const search = keyword.trim().toLowerCase();
+    const search = deferredKeyword.trim().toLowerCase();
     if (!search) return socialAccounts;
     return socialAccounts.filter(npc =>
       `${npc.name} ${socialHandleOf(npc)} ${npc.affiliation} ${npc.position} ${npc.socialBio || ''}`
         .toLowerCase()
         .includes(search),
     );
-  }, [keyword, socialAccounts]);
+  }, [deferredKeyword, socialAccounts]);
 
   const feedEntries = useMemo(
     () =>
@@ -332,6 +335,18 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const phoneTheme = PHONE_THEMES[activeView];
   const jurisdiction = useMemo(() => resolveLocationJurisdiction(currentLocation), [currentLocation]);
   const reduceMotion = motionMode === 'lite';
+  const resolveBatchSize = (base: number, compact: number, lite = compact) => {
+    if (isCompactViewport) return compact;
+    if (reduceMotion) return lite;
+    return base;
+  };
+  const feedBatchSize = resolveBatchSize(FEED_BATCH_SIZE, 4, 5);
+  const discoverBatchSize = resolveBatchSize(DISCOVER_BATCH_SIZE, 6, 7);
+  const profilePostBatchSize = resolveBatchSize(PROFILE_POST_BATCH_SIZE, 3);
+  const dmThreadBatchSize = resolveBatchSize(DM_THREAD_BATCH_SIZE, 8);
+  const dmMessageBatchSize = resolveBatchSize(DM_MESSAGE_BATCH_SIZE, 10, 12);
+  const paymentBatchSize = resolveBatchSize(PAYMENT_BATCH_SIZE, 6);
+  const previewCommentLimit = isCompactViewport ? 2 : 3;
   const lingnetStats = useMemo(
     () => ({
       accounts: socialAccounts.length,
@@ -425,28 +440,28 @@ const LingnetPhonePanel: React.FC<Props> = ({
   }, [motionMode]);
 
   useEffect(() => {
-    setVisibleFeedCount(FEED_BATCH_SIZE);
-  }, [feedEntries.length, keyword]);
+    setVisibleFeedCount(feedBatchSize);
+  }, [deferredKeyword, feedBatchSize, feedEntries.length]);
 
   useEffect(() => {
-    setVisibleDiscoverCount(DISCOVER_BATCH_SIZE);
-  }, [filteredAccounts.length, keyword]);
+    setVisibleDiscoverCount(discoverBatchSize);
+  }, [deferredKeyword, discoverBatchSize, filteredAccounts.length]);
 
   useEffect(() => {
-    setVisibleProfilePostCount(PROFILE_POST_BATCH_SIZE);
-  }, [activeProfileNpc?.id]);
+    setVisibleProfilePostCount(profilePostBatchSize);
+  }, [activeProfileNpc?.id, profilePostBatchSize]);
 
   useEffect(() => {
-    setVisibleDmThreadCount(DM_THREAD_BATCH_SIZE);
-  }, [dmAccounts.length]);
+    setVisibleDmThreadCount(dmThreadBatchSize);
+  }, [dmAccounts.length, dmThreadBatchSize]);
 
   useEffect(() => {
-    setVisibleDmMessageCount(DM_MESSAGE_BATCH_SIZE);
-  }, [activeDmNpc?.id, activeDmNpc?.dmThread?.length]);
+    setVisibleDmMessageCount(dmMessageBatchSize);
+  }, [activeDmNpc?.id, activeDmNpc?.dmThread?.length, dmMessageBatchSize]);
 
   useEffect(() => {
-    setVisiblePaymentCount(PAYMENT_BATCH_SIZE);
-  }, [paymentEntries.length]);
+    setVisiblePaymentCount(paymentBatchSize);
+  }, [paymentEntries.length, paymentBatchSize]);
 
   const pushFeedback = (title: string, detail: string, tone: FeedbackTone = 'info', accent: PhoneView = activeView) => {
     setUiFeedback({
@@ -749,7 +764,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             </button>
           </div>
           <div className="space-y-2">
-            {post.comments.slice(0, 3).map(comment => (
+            {post.comments.slice(0, previewCommentLimit).map(comment => (
               <div key={comment.id} className="rounded-[18px] bg-white/[0.03] px-3 py-2 text-xs text-slate-300">
                 <span className={`font-semibold ${comment.isPlayer ? 'text-fuchsia-300' : 'text-cyan-300'}`}>
                   {comment.sender}
@@ -941,7 +956,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
         {activeProfileNpc.socialFeed.length > visibleProfilePosts.length ? (
           <button
             type="button"
-            onClick={() => setVisibleProfilePostCount(count => count + PROFILE_POST_BATCH_SIZE)}
+            onClick={() => setVisibleProfilePostCount(count => count + profilePostBatchSize)}
             className="w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
           >
             加载更多主页动态
@@ -1004,7 +1019,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             {dmAccounts.length > visibleDmAccounts.length ? (
               <button
                 type="button"
-                onClick={() => setVisibleDmThreadCount(count => count + DM_THREAD_BATCH_SIZE)}
+                onClick={() => setVisibleDmThreadCount(count => count + dmThreadBatchSize)}
                 className="w-full rounded-[18px] border border-fuchsia-400/12 bg-black/25 px-3 py-2 text-xs text-fuchsia-100 transition hover:border-fuchsia-300/30 hover:text-white"
               >
                 加载更多会话
@@ -1068,7 +1083,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
                 {(activeDmNpc.dmThread || []).length > visibleDmMessages.length ? (
                   <button
                     type="button"
-                    onClick={() => setVisibleDmMessageCount(count => count + DM_MESSAGE_BATCH_SIZE)}
+                    onClick={() => setVisibleDmMessageCount(count => count + dmMessageBatchSize)}
                     className="w-full rounded-[18px] border border-fuchsia-400/12 bg-black/20 px-3 py-2 text-xs text-fuchsia-100 transition hover:border-fuchsia-300/30 hover:text-white"
                   >
                     加载更早消息
@@ -1161,7 +1176,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
           {paymentEntries.length > visiblePaymentEntries.length ? (
             <button
               type="button"
-              onClick={() => setVisiblePaymentCount(count => count + PAYMENT_BATCH_SIZE)}
+              onClick={() => setVisiblePaymentCount(count => count + paymentBatchSize)}
               className="w-full rounded-[20px] border border-amber-300/15 bg-black/20 px-4 py-3 text-sm text-amber-100 transition hover:border-amber-200/30 hover:text-white"
             >
               加载更多流水
@@ -1347,6 +1362,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
                 <img
                   src={importDraft.imageUrl}
                   alt="preview"
+                  loading="lazy"
+                  decoding="async"
                   className="w-full aspect-[4/5] object-cover rounded-[18px]"
                 />
               </div>
@@ -1533,7 +1550,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             {lingnetMode === 'feed' && feedEntries.length > visibleFeedEntries.length ? (
               <button
                 type="button"
-                onClick={() => setVisibleFeedCount(count => count + FEED_BATCH_SIZE)}
+                onClick={() => setVisibleFeedCount(count => count + feedBatchSize)}
                 className="mt-3 w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
               >
                 加载更多动态
@@ -1550,7 +1567,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             {lingnetMode === 'discover' && filteredAccounts.length > visibleDiscoverEntries.length ? (
               <button
                 type="button"
-                onClick={() => setVisibleDiscoverCount(count => count + DISCOVER_BATCH_SIZE)}
+                onClick={() => setVisibleDiscoverCount(count => count + discoverBatchSize)}
                 className="mt-3 w-full rounded-[18px] border border-cyan-400/12 bg-black/25 px-4 py-3 text-sm text-cyan-100 transition hover:border-cyan-300/30 hover:text-white"
               >
                 加载更多账号

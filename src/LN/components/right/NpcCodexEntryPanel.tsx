@@ -4,6 +4,7 @@ import { resolveNpcCodexAccessState, resolveNpcIntelUnlockedCount } from '../../
 import CyberPanel from '../ui/CyberPanel';
 import ImageLightbox from '../ui/ImageLightbox';
 import { BadgeInfo, BookOpen, Globe2, Image as ImageIcon, Lock } from 'lucide-react';
+import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 interface Props {
   npc: NPC;
@@ -40,6 +41,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
   const [lightboxImage, setLightboxImage] = useState<{ src: string; title: string; subtitle?: string } | null>(null);
   const [visibleGalleryCount, setVisibleGalleryCount] = useState(GALLERY_BATCH_SIZE);
   const [visibleRecordCount, setVisibleRecordCount] = useState(RECORD_BATCH_SIZE);
+  const isCompactViewport = useCompactViewport();
 
   const access = useMemo(() => resolveNpcCodexAccessState(npc), [npc]);
   const darkProfile = npc.darknetProfile;
@@ -136,6 +138,8 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
   };
 
   const unlockedIntelCount = useMemo(() => resolveNpcIntelUnlockedCount(npc, darknetRecords.length), [darknetRecords.length, npc]);
+  const galleryBatchSize = isCompactViewport ? 4 : GALLERY_BATCH_SIZE;
+  const recordBatchSize = isCompactViewport ? 4 : RECORD_BATCH_SIZE;
   const visibleGalleryItems = useMemo(
     () => galleryItems.slice(0, visibleGalleryCount),
     [galleryItems, visibleGalleryCount],
@@ -151,12 +155,12 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
   };
 
   useEffect(() => {
-    setVisibleGalleryCount(GALLERY_BATCH_SIZE);
-  }, [npc.id, galleryItems.length]);
+    setVisibleGalleryCount(galleryBatchSize);
+  }, [galleryBatchSize, galleryItems.length, npc.id]);
 
   useEffect(() => {
-    setVisibleRecordCount(RECORD_BATCH_SIZE);
-  }, [npc.id, darknetRecords.length]);
+    setVisibleRecordCount(recordBatchSize);
+  }, [darknetRecords.length, npc.id, recordBatchSize]);
 
   const maskedCitizenId = access.dossierLevel >= 3 ? npc.citizenId || '未登记' : '信息未解锁';
   const maskedSocialHandle = access.socialUnlocked ? npc.socialHandle || '未绑定账号' : '需提升关系后解锁';
@@ -221,7 +225,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
               最后观测：<span className="text-slate-200">{darkProfile?.lastSeen || npc.location || '未知区域'}</span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              {(darkProfile?.tags || []).slice(0, 6).map(tag => (
+              {(darkProfile?.tags || []).slice(0, isCompactViewport ? 4 : 6).map(tag => (
                 <span key={tag} className="rounded-sm border border-emerald-500/15 bg-black/30 px-2 py-1 text-[10px] text-slate-300">
                   {tag}
                 </span>
@@ -332,7 +336,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
             {galleryItems.length > visibleGalleryItems.length ? (
               <button
                 type="button"
-                onClick={() => setVisibleGalleryCount(count => count + GALLERY_BATCH_SIZE)}
+                onClick={() => setVisibleGalleryCount(count => count + galleryBatchSize)}
                 className="mt-3 w-full rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-black/40"
               >
                 加载更多相册
@@ -408,7 +412,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
             {darknetRecords.length > visibleDarknetRecords.length ? (
               <button
                 type="button"
-                onClick={() => setVisibleRecordCount(count => count + RECORD_BATCH_SIZE)}
+                onClick={() => setVisibleRecordCount(count => count + recordBatchSize)}
                 className="w-full rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/35 hover:bg-black/40"
               >
                 加载更多情报记录
