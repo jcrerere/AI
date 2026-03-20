@@ -71,6 +71,7 @@ import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
+import { applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
 import { buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
@@ -5967,23 +5968,27 @@ const App: React.FC = () => {
     }
 
     if (action.route === 'shop' && sceneActionState.shop) {
+      const locationLabel = currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel;
       const registered = ensureRuntimeShop(cityRuntime, {
-        locationLabel: currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel,
+        locationLabel,
         suggestedName: sceneActionState.shop.title,
         archetype: sceneActionState.shop.archetype,
         summary: sceneActionState.shop.summary,
       });
-      if (registered.changed) {
-        setCityRuntime(registered.runtime);
+      let nextRuntime = registered.runtime;
+      let liveShop = registered.shop;
+      const syncedShop = syncRuntimeShopEpoch(liveShop, mapRuntime.elapsedMinutes || 0);
+      if (syncedShop.changed) {
+        liveShop = syncedShop.shop;
+        nextRuntime = {
+          ...nextRuntime,
+          shops: nextRuntime.shops.map(shop => (shop.id === liveShop.id ? liveShop : shop)),
+        };
       }
+      if (registered.changed || syncedShop.changed) setCityRuntime(nextRuntime);
       setSceneModal({
         mode: 'shop',
-        shop: {
-          ...sceneActionState.shop,
-          id: registered.shop.id,
-          title: registered.shop.name,
-          locationLabel: currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel,
-        },
+        shop: buildRuntimeShopView(liveShop, locationLabel, mapRuntime.elapsedMinutes || 0),
       });
       return;
     }
@@ -6023,8 +6028,68 @@ const App: React.FC = () => {
       amount: -target.price,
       counterparty: shop.title,
     });
+    const runtimeShopId = shop.shopId || shop.id;
+    const runtimeShop = cityRuntime.shops.find(entry => entry.id === runtimeShopId);
+    if (runtimeShop) {
+      const purchase = applyRuntimeShopPurchase(runtimeShop, target.id);
+      if (purchase.changed) {
+        const nextRuntime = {
+          ...cityRuntime,
+          shops: cityRuntime.shops.map(entry => (entry.id === runtimeShopId ? purchase.shop : entry)),
+        };
+        setCityRuntime(nextRuntime);
+        setSceneModal(prev =>
+          prev?.mode === 'shop'
+            ? {
+                mode: 'shop',
+                shop: buildRuntimeShopView(purchase.shop, shop.locationLabel, mapRuntime.elapsedMinutes || 0),
+              }
+            : prev,
+        );
+      }
+    }
     spawnFloatingText(`-${target.price} 灵能币`, 'text-amber-300');
-    return { ok: true, message: `已购入 ${target.name}，货物已写入背包。` };
+    return {
+      ok: true,
+      message: `已购入 ${target.name}，货物已写入背包。${target.availability === 'backroom' ? ' 这件货来自暗柜渠道。' : ''}`,
+    };
+  };
+
+  const handleSubmitShopCommission = (request: string): { ok: boolean; message: string } => {
+    const shop = sceneModal?.mode === 'shop' ? sceneModal.shop : null;
+    const trimmed = request.trim();
+    if (!shop || !trimmed) {
+      return { ok: false, message: '当前店铺委托接口未就绪。' };
+    }
+    const draft = {
+      title: `委托：${trimmed}`,
+      category: 'commission' as const,
+      status: 'active' as const,
+      sourceType: 'shop' as const,
+      sourceId: shop.shopId || shop.id,
+      locationLabel: shop.locationLabel,
+      dueAtMinutes: (mapRuntime.elapsedMinutes || 0) + (shop.hasBackroom ? 2 * 24 * 60 : 24 * 60),
+      createdAtMinutes: mapRuntime.elapsedMinutes || 0,
+      summary: `已向 ${shop.title} 提交代办/进货请求，货架会在后续周期尝试回填。`,
+      detail: `店铺：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n渠道：${shop.hasBackroom ? '含暗柜渠道' : '普通货架渠道'}`,
+      routeHint: 'shop',
+    };
+    const todoResult = upsertRuntimeTodo(cityRuntime, draft);
+    setCityRuntime(todoResult.runtime);
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `shop_commission_${Date.now()}`,
+        sender: 'System',
+        content: `已向 ${shop.title} 登记委托：「${trimmed}」。新的待办已写入城域账本。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    return {
+      ok: true,
+      message: `${todoResult.created ? '已登记' : '已刷新'}委托待办：${todoResult.todo.title}`,
+    };
   };
 
   const handleTravelByMetro = (stopId: string): { ok: boolean; message: string } => {
@@ -9132,6 +9197,7 @@ const App: React.FC = () => {
             {...sceneModal}
             onClose={() => setSceneModal(null)}
             onBuy={handleBuySceneShopItem}
+            onCommission={handleSubmitShopCommission}
             onTravel={handleTravelByMetro}
           />
         )}

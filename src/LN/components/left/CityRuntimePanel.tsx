@@ -192,7 +192,7 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
               </div>
               <div className="mt-1 text-[11px] text-slate-400">
                 {shop.type} · 风格 {shop.signatureStyle.join(' / ')}
-                {shop.hasBackroom ? ' · 暗柜可疑' : ''}
+                {shop.hasBackroom ? ' · 暗柜可疑' : ''} · 熟客 {shop.loyalty} · 折扣 Lv.{shop.discountTier}
               </div>
             </div>
           ))}

@@ -442,7 +442,12 @@ export const normalizeCityRuntime = (input: unknown): CityRuntimeData | null => 
     cells: toArray<CityCellRecord>(source.cells).filter(item => item && typeof item.id === 'string'),
     anchors: toArray<CityAnchorRecord>(source.anchors).filter(item => item && typeof item.id === 'string'),
     tenants: toArray<CityTenantRecord>(source.tenants).filter(item => item && typeof item.id === 'string'),
-    shops: toArray<RuntimeShopRecord>(source.shops).filter(item => item && typeof item.id === 'string'),
+    shops: toArray<RuntimeShopRecord>(source.shops)
+      .filter(item => item && typeof item.id === 'string')
+      .map(item => ({
+        ...item,
+        soldItemKeys: Array.isArray(item.soldItemKeys) ? item.soldItemKeys.filter(key => typeof key === 'string') : [],
+      })),
     todos: toArray(source.todos).filter(item => item && typeof item === 'object') as CityRuntimeData['todos'],
     transportStops: (() => {
       const fromSave = toArray<TransportStopRecord>(source.transportStops).filter(item => item && typeof item.id === 'string');
@@ -594,6 +599,7 @@ export const ensureRuntimeShop = (
     refreshEpoch: 1,
     loyalty: 0,
     discountTier: 0,
+    soldItemKeys: [],
     firstSeenAt: Date.now(),
     status: 'active',
   };

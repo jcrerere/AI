@@ -670,6 +670,7 @@ export interface RuntimeShopRecord {
   refreshEpoch: number;
   loyalty: number;
   discountTier: number;
+  soldItemKeys: string[];
   firstSeenAt: number;
   status: CityAnchorStatus;
 }

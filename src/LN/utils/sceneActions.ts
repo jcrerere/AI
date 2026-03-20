@@ -15,15 +15,26 @@ export interface ProceduralShopItem extends Item {
   price: number;
   slot: number;
   shopTag: string;
+  sourceEpoch?: number;
+  availability?: 'front' | 'backroom';
+  styleTags?: string[];
 }
 
 export interface ProceduralShop {
   id: string;
+  shopId?: string;
   title: string;
   archetype: 'fashion' | 'cybertech' | 'pharmacy' | 'luxury' | 'general';
   locationLabel: string;
   summary: string;
   items: ProceduralShopItem[];
+  tier?: 'street' | 'standard' | 'premium' | 'elite';
+  loyalty?: number;
+  discountTier?: number;
+  hasBackroom?: boolean;
+  refreshEpoch?: number;
+  refreshLabel?: string;
+  commissionHint?: string;
 }
 
 export interface MetroStop {
@@ -226,6 +237,9 @@ const buildProceduralShop = (currentLocation: string, latestPlayerInput: string,
       slot: index,
       shopTag: title,
       price: Math.max(30, Math.round(rankBasePrice(item.rank) * priceFactor) + surcharge),
+      sourceEpoch: 1,
+      availability: 'front',
+      styleTags: [],
     };
   });
   const summaryMap: Record<ProceduralShop['archetype'], string> = {
