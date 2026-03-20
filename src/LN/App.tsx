@@ -644,21 +644,21 @@ const isAirelaResidenceZone = (location: string): boolean => resolveLocationJuri
 
 const buildResidenceProfiles = (params: {
   location: string;
-  hasBetaChip: boolean;
+  hasOfficialControl: boolean;
   status: PlayerCivilianStatus;
   residence: PlayerResidenceState;
 }): ResidenceProfile[] => {
   const districtLabel = params.status.assignedDistrict || resolveLocationJurisdiction(params.location).regionLabel || '未锁定法域';
   const inAirelaZone = isAirelaResidenceZone(params.location);
   const officialBinding =
-    params.hasBetaChip && (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
+    params.hasOfficialControl && (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
       ? resolveAirelaFacilityBinding({
           districtHint: params.status.assignedDistrict || params.status.assignedHXDormLabel || '',
           citizenId: params.status.citizenId || '',
         })
       : null;
   const profiles: ResidenceProfile[] = [];
-  if (inAirelaZone && params.hasBetaChip && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
+  if (inAirelaZone && params.hasOfficialControl && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
     profiles.push({
       id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
       label: params.status.assignedHXDormLabel,
@@ -3948,8 +3948,9 @@ const App: React.FC = () => {
           (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, derivedBinding?.districtName) : '')
         : '';
 
-      if ((protocolValue === 'beta' || chipNode?.beta_equipped === true) && !prev.taxOfficerUnlocked) {
-        next.taxOfficerUnlocked = true;
+      const nextOfficialControl = protocolValue === 'beta' && chipNode?.beta_equipped === true;
+      if (nextOfficialControl !== !!prev.taxOfficerUnlocked) {
+        next.taxOfficerUnlocked = nextOfficialControl;
         changed = true;
       }
       if (nextAssignedDistrict !== `${prev.assignedDistrict ?? ''}`) {
@@ -3991,6 +3992,26 @@ const App: React.FC = () => {
       if (pulledTaxArrears !== undefined && pulledTaxArrears !== (prev.taxArrears || 0)) {
         next.taxArrears = Math.max(0, pulledTaxArrears);
         changed = true;
+      }
+      if (!nextOfficialControl) {
+        const officialFields: Array<[keyof PlayerCivilianStatus, string | null | false | 0]> = [
+          ['assignedDistrict', ''],
+          ['assignedXStationId', ''],
+          ['assignedXStationLabel', ''],
+          ['assignedHXDormId', ''],
+          ['assignedHXDormLabel', ''],
+          ['taxOfficerBoundId', null],
+          ['taxOfficerName', ''],
+          ['taxOfficeAddress', ''],
+          ['taxAmount', 0],
+          ['taxArrears', 0],
+        ];
+        officialFields.forEach(([key, value]) => {
+          if ((next[key] as unknown) !== value) {
+            (next as Record<string, unknown>)[key] = value;
+            changed = true;
+          }
+        });
       }
 
       return changed ? next : prev;
@@ -4054,6 +4075,7 @@ const App: React.FC = () => {
   }, [playerStats.credits, playerStats.psionic.level]);
 
   const hasBetaChip = playerChips.some(c => c.type === 'beta');
+  const hasOfficialBetaControl = hasBetaChip && playerNeuralProtocol === 'beta';
   const betaLevelNow = betaStatus.betaLevel || 1;
   const availableBetaProfessions = useMemo(
     () => BETA_PROFESSIONS.filter(p => betaLevelNow >= p.minLevel && betaLevelNow <= p.maxLevel),
@@ -4130,27 +4152,27 @@ const App: React.FC = () => {
     () =>
       buildResidenceProfiles({
         location: currentNarrativeLocation || playerFaction.headquarters || '未知区域',
-        hasBetaChip,
+        hasOfficialControl: hasOfficialBetaControl,
         status: betaStatus,
         residence: playerResidence,
       }),
     [
       currentNarrativeLocation,
       playerFaction.headquarters,
-      hasBetaChip,
+      hasOfficialBetaControl,
       betaStatus,
       playerResidence,
     ],
   );
   const officialResidenceBinding = useMemo(
     () =>
-      hasBetaChip
+      hasOfficialBetaControl
         ? resolveAirelaFacilityBinding({
             districtHint: betaStatus.assignedDistrict || betaStatus.assignedHXDormLabel || currentNarrativeLocation,
             citizenId: betaStatus.citizenId || '',
           })
         : null,
-    [hasBetaChip, betaStatus.assignedDistrict, betaStatus.assignedHXDormLabel, betaStatus.citizenId, currentNarrativeLocation],
+    [hasOfficialBetaControl, betaStatus.assignedDistrict, betaStatus.assignedHXDormLabel, betaStatus.citizenId, currentNarrativeLocation],
   );
   const currentResidenceProfile = useMemo(
     () =>
@@ -4380,22 +4402,22 @@ const App: React.FC = () => {
       [Rank.Lv4]: Math.max(0, playerSoulLedger[Rank.Lv4] || 0),
       [Rank.Lv5]: Math.max(0, playerSoulLedger[Rank.Lv5] || 0),
     };
-    const airelaBinding = hasBetaChip
+    const airelaBinding = hasOfficialBetaControl
       ? resolveAirelaFacilityBinding({
           districtHint: betaStatus.assignedDistrict || betaStatus.taxOfficeAddress || currentNarrativeLocation,
           citizenId: betaStatus.citizenId || null,
         })
       : null;
-    const nextAssignedDistrict = hasBetaChip ? `${betaStatus.assignedDistrict ?? ''}`.trim() || airelaBinding?.districtName || '' : '';
-    const nextAssignedXStationId = hasBetaChip ? `${betaStatus.assignedXStationId ?? ''}`.trim().toUpperCase() || airelaBinding?.xStationId || '' : '';
-    const nextAssignedXStationLabel = hasBetaChip
+    const nextAssignedDistrict = hasOfficialBetaControl ? `${betaStatus.assignedDistrict ?? ''}`.trim() || airelaBinding?.districtName || '' : '';
+    const nextAssignedXStationId = hasOfficialBetaControl ? `${betaStatus.assignedXStationId ?? ''}`.trim().toUpperCase() || airelaBinding?.xStationId || '' : '';
+    const nextAssignedXStationLabel = hasOfficialBetaControl
       ? `${betaStatus.assignedXStationLabel ?? ''}`.trim() ||
         (nextAssignedXStationId
           ? formatAirelaSiteLabel('x_station', nextAssignedXStationId, airelaBinding?.districtName)
           : '')
       : '';
-    const nextAssignedHXDormId = hasBetaChip ? `${betaStatus.assignedHXDormId ?? ''}`.trim().toUpperCase() || airelaBinding?.hxDormId || '' : '';
-    const nextAssignedHXDormLabel = hasBetaChip
+    const nextAssignedHXDormId = hasOfficialBetaControl ? `${betaStatus.assignedHXDormId ?? ''}`.trim().toUpperCase() || airelaBinding?.hxDormId || '' : '';
+    const nextAssignedHXDormLabel = hasOfficialBetaControl
       ? `${betaStatus.assignedHXDormLabel ?? ''}`.trim() ||
         (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, airelaBinding?.districtName) : '')
       : '';
@@ -4478,7 +4500,7 @@ const App: React.FC = () => {
             : {};
         const nextNarrativeLocation = currentNarrativeLocation || world.current_location || '未知区域';
         const nextSceneState = resolveAirelaSceneState(nextNarrativeLocation, hasBetaChip ? airelaBinding : null);
-        const allowOfficialResidenceFallback = hasBetaChip && isAirelaResidenceZone(nextNarrativeLocation);
+        const allowOfficialResidenceFallback = hasOfficialBetaControl && isAirelaResidenceZone(nextNarrativeLocation);
         const mergedResidence = normalizeResidenceState(
           {
             currentResidenceId: playerResidence.currentResidenceId,
@@ -4494,7 +4516,7 @@ const App: React.FC = () => {
               (allowOfficialResidenceFallback ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : ''),
             unlockedResidenceIds: [
               ...(Array.isArray(residenceState.unlocked_residence_ids) ? residenceState.unlocked_residence_ids : []),
-              ...(hasBetaChip && airelaBinding?.residenceId ? [airelaBinding.residenceId] : []),
+              ...(hasOfficialBetaControl && airelaBinding?.residenceId ? [airelaBinding.residenceId] : []),
             ],
           },
         );
@@ -4580,12 +4602,12 @@ const App: React.FC = () => {
             assigned_x_station_label: nextAssignedXStationLabel,
             assigned_hx_dorm_id: nextAssignedHXDormId,
             assigned_hx_dorm_label: nextAssignedHXDormLabel,
-            tax_officer_id: betaStatus.taxOfficerBoundId || '',
-            tax_officer_name: betaStatus.taxOfficerName || '',
-            tax_office_address: betaStatus.taxOfficeAddress || '',
+            tax_officer_id: hasOfficialBetaControl ? betaStatus.taxOfficerBoundId || '' : '',
+            tax_officer_name: hasOfficialBetaControl ? betaStatus.taxOfficerName || '' : '',
+            tax_office_address: hasOfficialBetaControl ? betaStatus.taxOfficeAddress || '' : '',
             tax_rate: toFiniteNumber(chipState.tax_rate) ?? 0,
-            tax_amount: betaStatus.taxAmount,
-            tax_arrears: Math.max(0, betaStatus.taxArrears || 0),
+            tax_amount: hasOfficialBetaControl ? betaStatus.taxAmount : 0,
+            tax_arrears: hasOfficialBetaControl ? Math.max(0, betaStatus.taxArrears || 0) : 0,
             switch_cooldown_round: toFiniteNumber(chipState.switch_cooldown_round) ?? 0,
           },
           flags: {
@@ -4685,6 +4707,7 @@ const App: React.FC = () => {
     currentNarrativeLocation,
     playerFaction.name,
     hasBetaChip,
+    hasOfficialBetaControl,
     playerChips,
     storageChips,
     coinVault,
@@ -7827,9 +7850,9 @@ const App: React.FC = () => {
     if (gameStage !== 'game') return;
     const prevProtocol = lastProtocolRef.current;
     const currentProtocol = playerNeuralProtocol;
-    const justActivated = prevProtocol !== 'beta' && currentProtocol === 'beta';
+    const justActivated = prevProtocol !== 'beta' && currentProtocol === 'beta' && hasBetaChip;
 
-    if (currentProtocol === 'beta') {
+    if (hasOfficialBetaControl) {
       if (justActivated || !betaStatus.taxOfficerBoundId) {
         forceAssignBetaTaxOfficer(justActivated ? 'activation' : 'fallback');
       } else if (!betaStatus.taxOfficerUnlocked) {
@@ -7847,9 +7870,27 @@ const App: React.FC = () => {
           assignedHXDormLabel: binding?.hxDormLabel || prev.assignedHXDormLabel || '',
         }));
       }
+    } else {
+      setBetaStatus(prev => {
+        const next = {
+          ...prev,
+          taxOfficerUnlocked: false,
+          assignedDistrict: '',
+          assignedXStationId: '',
+          assignedXStationLabel: '',
+          assignedHXDormId: '',
+          assignedHXDormLabel: '',
+          taxOfficerBoundId: null,
+          taxOfficerName: '',
+          taxOfficeAddress: '',
+          taxAmount: 0,
+          taxArrears: 0,
+        };
+        return JSON.stringify(next) === JSON.stringify(prev) ? prev : next;
+      });
     }
     lastProtocolRef.current = currentProtocol;
-  }, [gameStage, playerNeuralProtocol, betaStatus.taxOfficerBoundId, betaStatus.taxOfficerUnlocked, betaStatus.citizenId]);
+  }, [gameStage, playerNeuralProtocol, hasBetaChip, hasOfficialBetaControl, betaStatus.taxOfficerBoundId, betaStatus.taxOfficerUnlocked, betaStatus.citizenId]);
 
   const toggleFullscreen = async () => {
     try {
@@ -8315,6 +8356,7 @@ const App: React.FC = () => {
               <div className="space-y-4">
                 <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
                 <ResidencePanel
+                  hasOfficialRegistry={hasOfficialBetaControl}
                   residence={playerResidence}
                   residenceOptions={residenceProfiles}
                   status={betaStatus}

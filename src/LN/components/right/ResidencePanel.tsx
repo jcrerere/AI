@@ -4,6 +4,7 @@ import CyberPanel from '../ui/CyberPanel';
 import { PlayerCivilianStatus, PlayerResidenceState, ResidenceProfile } from '../../types';
 
 interface Props {
+  hasOfficialRegistry: boolean;
   residence: PlayerResidenceState;
   residenceOptions: ResidenceProfile[];
   status: PlayerCivilianStatus;
@@ -21,6 +22,7 @@ const kindLabelMap: Record<ResidenceProfile['kind'], string> = {
 };
 
 const ResidencePanel: React.FC<Props> = ({
+  hasOfficialRegistry,
   residence,
   residenceOptions,
   status,
@@ -127,7 +129,7 @@ const ResidencePanel: React.FC<Props> = ({
           )}
         </div>
 
-        {(status.assignedHXDormLabel || status.assignedDistrict) && (
+        {hasOfficialRegistry && (status.assignedHXDormLabel || status.assignedDistrict) && (
           <div className="rounded-xl border border-emerald-900/30 bg-emerald-950/10 p-3">
             <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-200">
               <Building2 className="w-3.5 h-3.5" />
