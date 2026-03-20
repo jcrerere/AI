@@ -26,6 +26,23 @@
 npm run lnsj:bundle
 ```
 
+校验触发词：
+
+```powershell
+npm run lnsj:check
+```
+
+重建地区地点总表：
+
+```powershell
+npm run lnsj:table
+```
+
+维护结果文件：
+
+- `TRIGGER_AUDIT.md`：触发词与区域/地点映射校验结果
+- `LOCATION_TABLE.md`：按区域汇总的地点总表
+
 重新从原始快照生成本结构：
 
 ```powershell

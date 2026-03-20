@@ -33,3 +33,5 @@
 - 改正文：改本目录下对应 `*.txt`
 - 改触发：改 [index.yaml](d:/tavern_helper_template-main/LNSJ/LNSJ-real/index.yaml)
 - 打包：`npm run lnsj:bundle`
+- 校验：`npm run lnsj:check`
+- 总表：`npm run lnsj:table`
