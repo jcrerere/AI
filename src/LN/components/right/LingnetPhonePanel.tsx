@@ -1,5 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { FinanceLedgerEntry, NPC, SocialPlatform } from '../../types';
+import { BlackRaceBetRecord, BlackRaceMarket, FinanceLedgerEntry, NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
 import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
@@ -38,6 +38,8 @@ interface Props {
   playerCredits: number;
   currentLocation: string;
   financeLedger: FinanceLedgerEntry[];
+  blackRaceMarket: BlackRaceMarket | null;
+  blackRaceHistory: BlackRaceBetRecord[];
   walletSummary: {
     cycleLabel: string;
     currentTaxDue: number;
@@ -49,6 +51,10 @@ interface Props {
   onSendDm: (npcId: string, content: string) => void;
   onSpendOnNpc: (payload: SocialSpendPayload) => { ok: boolean; message?: string };
   onPurchaseDarknetService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
+  onPlaceBlackRaceBet: (payload: {
+    optionId: string;
+    amount: number;
+  }) => { ok: boolean; message?: string; outcome?: 'win' | 'lose'; payout?: number; net?: number };
   onImportPost: (payload: SocialImportDraft) => void;
 }
 
@@ -246,12 +252,15 @@ const LingnetPhonePanel: React.FC<Props> = ({
   playerCredits,
   currentLocation,
   financeLedger,
+  blackRaceMarket,
+  blackRaceHistory,
   walletSummary,
   onToggleFollow,
   onAddComment,
   onSendDm,
   onSpendOnNpc,
   onPurchaseDarknetService,
+  onPlaceBlackRaceBet,
   onImportPost,
 }) => {
   const [activeView, setActiveView] = useState<PhoneView>('lingnet');
@@ -274,6 +283,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const [dmDraft, setDmDraft] = useState('');
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft | null>(null);
   const [paymentError, setPaymentError] = useState('');
+  const [blackRaceOptionId, setBlackRaceOptionId] = useState('');
+  const [blackRaceStake, setBlackRaceStake] = useState('120');
   const [uiFeedback, setUiFeedback] = useState<UiFeedback | null>(null);
   const [visibleFeedCount, setVisibleFeedCount] = useState(FEED_BATCH_SIZE);
   const [visibleDiscoverCount, setVisibleDiscoverCount] = useState(DISCOVER_BATCH_SIZE);
@@ -372,6 +383,12 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const phoneTheme = PHONE_THEMES[activeView];
   const jurisdiction = useMemo(() => resolveLocationJurisdiction(currentLocation), [currentLocation]);
   const locationVisualTheme = useMemo(() => resolveLocationVisualTheme(currentLocation), [currentLocation]);
+  const blackRaceAvailable = jurisdiction.key === 'north';
+  const selectedBlackRaceOption = useMemo(
+    () => blackRaceMarket?.options.find(option => option.id === blackRaceOptionId) || blackRaceMarket?.options[0] || null,
+    [blackRaceMarket, blackRaceOptionId],
+  );
+  const recentBlackRaceHistory = useMemo(() => blackRaceHistory.slice(0, 5), [blackRaceHistory]);
   const reduceMotion = motionMode === 'lite';
   const phoneContentInsetStyle = isCompactViewport
     ? ({ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } as const)
@@ -508,6 +525,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
     setVisiblePaymentCount(paymentBatchSize);
   }, [ledgerEntries.length, paymentBatchSize]);
 
+  useEffect(() => {
+    if (!blackRaceMarket?.options.length) {
+      setBlackRaceOptionId('');
+      return;
+    }
+    setBlackRaceOptionId(current =>
+      blackRaceMarket.options.some(option => option.id === current) ? current : blackRaceMarket.options[0].id,
+    );
+  }, [blackRaceMarket]);
+
   const pushFeedback = (title: string, detail: string, tone: FeedbackTone = 'info', accent: PhoneView = activeView) => {
     setUiFeedback({
       id: Date.now() + Math.random(),
@@ -639,6 +666,32 @@ const LingnetPhonePanel: React.FC<Props> = ({
       '支付已完成',
       `${targetNpc?.name || '目标对象'} ${paymentDraft.kind === 'unlock' ? '内容已解锁' : paymentDraft.kind === 'tip' ? '已收到打赏' : '转账已入账'}`,
       'success',
+      'wallet',
+    );
+  };
+
+  const submitBlackRaceBet = () => {
+    if (!selectedBlackRaceOption) {
+      pushFeedback('盘口未就绪', '当前没有可下注的黑赛选项。', 'warn', 'wallet');
+      return;
+    }
+    const amount = Number(blackRaceStake);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      pushFeedback('下注金额无效', '请输入大于 0 的下注金额。', 'warn', 'wallet');
+      return;
+    }
+    const result = onPlaceBlackRaceBet({
+      optionId: selectedBlackRaceOption.id,
+      amount,
+    });
+    if (!result.ok) {
+      pushFeedback('黑赛下注失败', result.message || '本次盘口未能成交。', 'warn', 'wallet');
+      return;
+    }
+    pushFeedback(
+      result.outcome === 'win' ? '黑赛命中' : '黑赛失手',
+      result.message || (result.outcome === 'win' ? '赔率兑付已入账。' : '本次下注未能命中盘口。'),
+      result.outcome === 'win' ? 'success' : 'warn',
       'wallet',
     );
   };
@@ -1281,6 +1334,129 @@ const LingnetPhonePanel: React.FC<Props> = ({
               {recentNetFlow >= 0 ? '+' : '-'}{Math.abs(recentNetFlow)}
             </div>
           </div>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-[28px] border border-amber-400/12 bg-black/25">
+        <div className="border-b border-white/10 px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100/55">Black Race Market</div>
+          <div className="mt-1 text-sm text-slate-300">
+            {blackRaceAvailable ? '当前法域已接入诺丝区黑赛盘口。' : '当前不在诺丝区，只能查看最近盘口和结算记录。'}
+          </div>
+        </div>
+        <div className="p-3 space-y-3">
+          {blackRaceMarket ? (
+            <>
+              <div className="rounded-[22px] border border-amber-300/12 bg-black/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100/55">{blackRaceMarket.venue}</div>
+                    <div className="mt-1 text-lg font-semibold text-white">{blackRaceMarket.title}</div>
+                    <div className="mt-1 text-xs text-slate-400">{blackRaceMarket.locationLabel} · {blackRaceMarket.heatLabel}</div>
+                  </div>
+                  <div className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.18em] ${blackRaceAvailable ? 'border-amber-300/20 bg-amber-500/10 text-amber-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>
+                    {blackRaceAvailable ? '盘口开放' : '远程只读'}
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {blackRaceMarket.options.map(option => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      disabled={!blackRaceAvailable}
+                      onClick={() => setBlackRaceOptionId(option.id)}
+                      className={`rounded-[22px] border px-4 py-4 text-left transition ${
+                        selectedBlackRaceOption?.id === option.id
+                          ? 'border-amber-200/40 bg-amber-500/12 text-white'
+                          : 'border-white/8 bg-white/[0.03] text-slate-200 hover:border-amber-200/20'
+                      } ${blackRaceAvailable ? '' : 'cursor-not-allowed opacity-75'}`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold">{option.label}</div>
+                        <div className="text-base font-semibold text-amber-200">{option.odds.toFixed(2)}x</div>
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-400">{option.build}</div>
+                      <div className="mt-3 inline-flex rounded-full border border-white/8 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+                        risk · {option.risk}
+                      </div>
+                      <div className="mt-3 text-xs leading-5 text-slate-300">{option.note}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
+                  <div className="rounded-[20px] border border-white/8 bg-black/20 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Stake</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={blackRaceStake}
+                        onChange={event => setBlackRaceStake(event.target.value)}
+                        disabled={!blackRaceAvailable}
+                        className="w-full rounded-[16px] border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none md:max-w-[180px]"
+                      />
+                      {[120, 300, 500].map(value => (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={!blackRaceAvailable}
+                          onClick={() => setBlackRaceStake(String(value))}
+                          className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-slate-200 transition hover:border-amber-200/25 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {value}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-400">
+                      {selectedBlackRaceOption
+                        ? `当前押中将预计兑付 ${Math.max(0, Math.round((Number(blackRaceStake) || 0) * selectedBlackRaceOption.odds))} 灵币。`
+                        : '先选择一个盘口。'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!blackRaceAvailable || !selectedBlackRaceOption}
+                    onClick={submitBlackRaceBet}
+                    className="rounded-[22px] bg-amber-200 px-5 py-3 text-sm font-semibold text-black transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                  >
+                    确认下注
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-[22px] border border-white/8 bg-white/[0.03] p-4">
+                <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Recent Results</div>
+                {recentBlackRaceHistory.length === 0 ? (
+                  <div className="mt-3 rounded-[18px] border border-dashed border-white/10 px-4 py-8 text-center text-sm text-slate-500">
+                    还没有黑赛结算记录。
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {recentBlackRaceHistory.map(record => (
+                      <div
+                        key={record.id}
+                        className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-[18px] border border-white/8 bg-black/20 px-3 py-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium text-white">
+                            {record.marketTitle} · {record.optionLabel}
+                          </div>
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            {record.outcome === 'win' ? '命中盘口' : '盘口落空'} · {formatTime(record.resolvedAt)}
+                          </div>
+                        </div>
+                        <div className={`text-sm font-semibold ${record.net >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                          {record.net >= 0 ? '+' : '-'}{Math.abs(record.net)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="rounded-[20px] border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">
+              黑赛盘口尚未初始化。
+            </div>
+          )}
         </div>
       </div>
       <div className="overflow-hidden rounded-[28px] border border-amber-400/12 bg-black/25">

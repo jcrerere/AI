@@ -116,6 +116,7 @@ export interface DeductionRecord {
 export type FinanceLedgerKind =
   | 'social'
   | 'darknet'
+  | 'gambling'
   | 'tax'
   | 'settlement'
   | 'task'
@@ -132,6 +133,43 @@ export interface FinanceLedgerEntry {
   timestamp: string;
   kind: FinanceLedgerKind;
   counterparty?: string;
+}
+
+export type BlackRaceBetRisk = 'low' | 'medium' | 'high';
+
+export interface BlackRaceBetOption {
+  id: string;
+  label: string;
+  odds: number;
+  risk: BlackRaceBetRisk;
+  build: string;
+  note: string;
+}
+
+export interface BlackRaceMarket {
+  id: string;
+  title: string;
+  venue: string;
+  locationLabel: string;
+  heatLabel: string;
+  generatedAt: string;
+  options: BlackRaceBetOption[];
+}
+
+export interface BlackRaceBetRecord {
+  id: string;
+  marketId: string;
+  marketTitle: string;
+  venue: string;
+  optionId: string;
+  optionLabel: string;
+  stake: number;
+  odds: number;
+  outcome: 'win' | 'lose';
+  payout: number;
+  net: number;
+  resolvedAt: string;
+  detail: string;
 }
 
 export interface PlayerResidenceState {

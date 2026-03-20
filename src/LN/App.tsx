@@ -42,6 +42,8 @@ import {
   NpcDarknetRecord,
   NpcDarknetService,
   FinanceLedgerEntry,
+  BlackRaceBetRecord,
+  BlackRaceMarket,
   PlayerResidenceState,
   ResidenceProfile,
 } from './types';
@@ -190,7 +192,7 @@ interface FloatingText {
 }
 
 interface LnSaveData {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   playerName?: string;
   messages: Message[];
   playerStats: PlayerStats;
@@ -222,6 +224,8 @@ interface LnSaveData {
   monthlySettlementLog?: MonthlySettlementRecord[];
   settlementCheckpointMonth?: string | null;
   financeLedger?: FinanceLedgerEntry[];
+  blackRaceMarket?: BlackRaceMarket | null;
+  blackRaceHistory?: BlackRaceBetRecord[];
   playerResidence?: PlayerResidenceState;
   stateLock?: StateLockConfig;
 }
@@ -464,6 +468,116 @@ const resolveAirelaSceneState = (
     currentSiteId: '',
     currentSiteLabel: '',
   };
+};
+
+const BLACK_RACE_VENUES = [
+  '诺丝区·黑赛下注点',
+  '诺丝区·裂帛赛道盘口层',
+  '诺丝区·灵械斗技穹笼外环',
+];
+
+const BLACK_RACE_MARKET_TITLES = [
+  '夜场灵械黑赛',
+  '灰幕超载对抗',
+  '断路狂奔局',
+  '热砂极限斗场',
+];
+
+const BLACK_RACE_OPTION_POOL: Array<{
+  label: string;
+  build: string;
+  risk: 'low' | 'medium' | 'high';
+  note: string;
+  oddsRange: [number, number];
+}> = [
+  {
+    label: '裂帛先手',
+    build: '灵械近战 / 冲刺压制',
+    risk: 'medium',
+    note: '起手强压，赔率低，适合稳线。',
+    oddsRange: [1.45, 1.82],
+  },
+  {
+    label: '灰烬脉冲',
+    build: '中距灵能炮 / 芯片爆发',
+    risk: 'high',
+    note: '吃过载窗口，翻盘高，但容易炸膛。',
+    oddsRange: [1.95, 2.7],
+  },
+  {
+    label: '折镜游猎',
+    build: '高速位移 / 切入收割',
+    risk: 'medium',
+    note: '靠拉扯拖进后段，赔率居中。',
+    oddsRange: [1.7, 2.25],
+  },
+  {
+    label: '盐灯巨构',
+    build: '重甲硬吃 / 慢热反杀',
+    risk: 'low',
+    note: '抗性厚，容易被买到保本盘。',
+    oddsRange: [1.4, 1.72],
+  },
+  {
+    label: '祸星回授',
+    build: '灵能逆灌 / 赌命爆点',
+    risk: 'high',
+    note: '一旦命中能打穿盘口，但随时失控。',
+    oddsRange: [2.2, 3.35],
+  },
+  {
+    label: '红汞切线',
+    build: '高速刀线 / 神经超频',
+    risk: 'medium',
+    note: '节奏极快，前两轮赔率会跳水。',
+    oddsRange: [1.82, 2.48],
+  },
+];
+
+const sampleBlackRaceOptions = () => {
+  const pool = [...BLACK_RACE_OPTION_POOL];
+  const picked = [];
+  while (pool.length > 0 && picked.length < 3) {
+    const index = Math.floor(Math.random() * pool.length);
+    const [option] = pool.splice(index, 1);
+    picked.push(option);
+  }
+  return picked.map((option, index) => {
+    const [min, max] = option.oddsRange;
+    const odds = Math.round((min + Math.random() * (max - min)) * 100) / 100;
+    return {
+      id: `black_race_option_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 5)}`,
+      label: option.label,
+      build: option.build,
+      risk: option.risk,
+      note: option.note,
+      odds,
+    };
+  });
+};
+
+const buildBlackRaceMarket = (locationLabel = '诺丝区·黑赛下注点'): BlackRaceMarket => ({
+  id: `black_race_market_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  title: BLACK_RACE_MARKET_TITLES[Math.floor(Math.random() * BLACK_RACE_MARKET_TITLES.length)],
+  venue: BLACK_RACE_VENUES[Math.floor(Math.random() * BLACK_RACE_VENUES.length)],
+  locationLabel,
+  heatLabel: ['盘口平稳', '赔率跳动', '热线过载'][Math.floor(Math.random() * 3)],
+  generatedAt: new Date().toISOString(),
+  options: sampleBlackRaceOptions(),
+});
+
+const resolveBlackRaceWinner = (market: BlackRaceMarket) => {
+  const weighted = market.options.map(option => ({
+    option,
+    weight: Math.max(0.12, 1 / Math.max(1.08, option.odds)),
+  }));
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  let cursor = Math.random() * totalWeight;
+  for (const entry of weighted) {
+    cursor -= entry.weight;
+    if (cursor <= 0) return entry.option;
+  }
+  return weighted[weighted.length - 1]?.option || market.options[0];
 };
 
 const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
@@ -3273,6 +3387,8 @@ const App: React.FC = () => {
   const [monthlySettlementLog, setMonthlySettlementLog] = useState<MonthlySettlementRecord[]>([]);
   const [settlementCheckpointMonth, setSettlementCheckpointMonth] = useState<string | null>(null);
   const [financeLedger, setFinanceLedger] = useState<FinanceLedgerEntry[]>([]);
+  const [blackRaceMarket, setBlackRaceMarket] = useState<BlackRaceMarket>(() => buildBlackRaceMarket());
+  const [blackRaceHistory, setBlackRaceHistory] = useState<BlackRaceBetRecord[]>([]);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -4773,7 +4889,7 @@ const App: React.FC = () => {
   };
 
   const buildSavePayload = (): LnSaveData => ({
-    version: 2,
+    version: 3,
     playerName,
     messages,
     playerStats,
@@ -4805,6 +4921,8 @@ const App: React.FC = () => {
     monthlySettlementLog,
     settlementCheckpointMonth,
     financeLedger,
+    blackRaceMarket,
+    blackRaceHistory,
     playerResidence,
     stateLock,
   });
@@ -4880,6 +4998,8 @@ const App: React.FC = () => {
     setMonthlySettlementLog(payload.monthlySettlementLog || []);
     setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
     setFinanceLedger(payload.financeLedger || []);
+    setBlackRaceMarket(payload.blackRaceMarket || buildBlackRaceMarket());
+    setBlackRaceHistory(payload.blackRaceHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setStateLock(
       payload.stateLock || {
@@ -5386,6 +5506,100 @@ const App: React.FC = () => {
       },
     ]);
     return { ok: true, message: `已采购 ${service.title}` };
+  };
+
+  const handlePlaceBlackRaceBet = ({
+    optionId,
+    amount,
+  }: {
+    optionId: string;
+    amount: number;
+  }): { ok: boolean; message?: string; outcome?: 'win' | 'lose'; payout?: number; net?: number } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (resolveLocationJurisdiction(location).key !== 'north') {
+      return { ok: false, message: '黑赛盘口当前只在诺丝区开放。' };
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, message: '下注金额必须大于 0。' };
+    }
+    if (playerStats.credits < amount) {
+      return { ok: false, message: '灵币不足，无法完成下注。' };
+    }
+    const market = blackRaceMarket || buildBlackRaceMarket(location || '诺丝区·黑赛下注点');
+    const targetOption = market.options.find(option => option.id === optionId);
+    if (!targetOption) {
+      return { ok: false, message: '当前盘口已刷新，请重新选择下注项。' };
+    }
+
+    const winner = resolveBlackRaceWinner(market);
+    const isWin = winner.id === targetOption.id;
+    const payout = isWin ? Math.max(amount, Math.round(amount * targetOption.odds)) : 0;
+    const net = payout - amount;
+    const resolvedAtIso = new Date().toISOString();
+    const resolvedAtDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const detail = isWin
+      ? `你在「${market.title}」押中 ${targetOption.label}，投入 ${amount} 灵币，兑付 ${payout} 灵币。`
+      : `你在「${market.title}」押注 ${targetOption.label} 失手，${amount} 灵币被盘口收走。`;
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - amount + payout),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'gambling',
+      title: '黑赛下注',
+      detail: `在 ${market.venue} 买入 ${targetOption.label}，下注 ${amount} 灵币。`,
+      amount: -amount,
+      counterparty: market.venue,
+    });
+    if (isWin) {
+      pushFinanceLedgerEntry({
+        kind: 'gambling',
+        title: '黑赛兑付',
+        detail: `${targetOption.label} 命中盘口，已兑付 ${payout} 灵币。`,
+        amount: payout,
+        counterparty: market.venue,
+      });
+    }
+
+    const nextRecord: BlackRaceBetRecord = {
+      id: `black_race_record_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      marketId: market.id,
+      marketTitle: market.title,
+      venue: market.venue,
+      optionId: targetOption.id,
+      optionLabel: targetOption.label,
+      stake: amount,
+      odds: targetOption.odds,
+      outcome: isWin ? 'win' : 'lose',
+      payout,
+      net,
+      resolvedAt: resolvedAtIso,
+      detail,
+    };
+    setBlackRaceHistory(prev => [nextRecord, ...prev].slice(0, 18));
+    setBlackRaceMarket(buildBlackRaceMarket(location || '诺丝区·黑赛下注点'));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `black_race_message_${Date.now()}`,
+        sender: 'System',
+        content: `黑赛盘口已结算：${detail}`,
+        timestamp: resolvedAtDisplay,
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(
+      `${net >= 0 ? '+' : '-'}¥${Math.abs(net).toLocaleString()}`,
+      net >= 0 ? 'text-emerald-300' : 'text-red-300',
+    );
+    return {
+      ok: true,
+      message: isWin ? `押中 ${targetOption.label}，到账 ${payout} 灵币。` : `${targetOption.label} 未能打穿盘口，本注落空。`,
+      outcome: isWin ? 'win' : 'lose',
+      payout,
+      net,
+    };
   };
 
   const handleImportSocialPost = (draft: SocialImportDraft) => {
@@ -7051,6 +7265,8 @@ const App: React.FC = () => {
     setMonthlySettlementLog([]);
     setSettlementCheckpointMonth(getMonthKeyFromElapsedMinutes(0));
     setFinanceLedger([]);
+    setBlackRaceMarket(buildBlackRaceMarket());
+    setBlackRaceHistory([]);
     setStateLock({
       lockTime: false,
       lockLocation: false,
@@ -7427,6 +7643,8 @@ const App: React.FC = () => {
     monthlySettlementLog,
     settlementCheckpointMonth,
     financeLedger,
+    blackRaceMarket,
+    blackRaceHistory,
     playerResidence,
     stateLock,
   ]);
@@ -7459,6 +7677,8 @@ const App: React.FC = () => {
     setArchiveNameInput('');
     setMonthlySettlementLog([]);
     setSettlementCheckpointMonth(null);
+    setBlackRaceMarket(buildBlackRaceMarket());
+    setBlackRaceHistory([]);
     setGameStage('setup');
   };
 
@@ -8376,6 +8596,8 @@ const App: React.FC = () => {
                   playerCredits={playerStats.credits}
                   currentLocation={currentNarrativeLocation || '未知区域'}
                   financeLedger={financeLedger}
+                  blackRaceMarket={blackRaceMarket}
+                  blackRaceHistory={blackRaceHistory}
                   walletSummary={{
                     cycleLabel: monthlySettlementPreview.cycleLabel,
                     currentTaxDue: monthlySettlementPreview.currentTaxDue,
@@ -8390,6 +8612,7 @@ const App: React.FC = () => {
                   onSendDm={handleSendSocialDm}
                   onSpendOnNpc={handleSpendOnSocial}
                   onPurchaseDarknetService={handlePurchaseDarknetService}
+                  onPlaceBlackRaceBet={handlePlaceBlackRaceBet}
                   onImportPost={handleImportSocialPost}
                 />
               </Suspense>
