@@ -118,7 +118,7 @@ rules:
     type: object
     check:
       - beta_equipped 为 true 且 tax_officer_id 为空时，应触发税务官分配
-      - assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* 需同步维护
+      - assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* / tax_arrears 需同步维护
       - 艾瑞拉 Beta 管理链默认使用分区 + 编号设施，不要只写“X号性控所 / HX男奴公寓”而不给编号
 
   player.status_tags / player.core_affixes:
@@ -137,3 +137,4 @@ rules:
     check:
       - 跨月时必须结算固定收支、关系漂移、区域事件
       - 月结后的结果必须写回 stat_data，而非只写在正文中
+      - 若余额不足，未结清部分必须累积到 player.chip.tax_arrears

@@ -6,22 +6,26 @@ import { PlayerCivilianStatus } from '../../types';
 interface Props {
   status: PlayerCivilianStatus;
   playerName: string;
+  playerCredits: number;
   factionName: string;
   currentLocation: string;
   neuralProtocol: 'none' | 'beta';
   onNavigateToTax: () => void;
   onPickTaxOfficer: () => void;
+  onPayArrears: () => void;
   onOpenCareerIdentity: () => void;
 }
 
 const TaxDossierPanel: React.FC<Props> = ({
   status,
   playerName,
+  playerCredits,
   factionName,
   currentLocation,
   neuralProtocol,
   onNavigateToTax,
   onPickTaxOfficer,
+  onPayArrears,
   onOpenCareerIdentity,
 }) => {
   return (
@@ -96,6 +100,29 @@ const TaxDossierPanel: React.FC<Props> = ({
               <div className="mt-1 text-slate-200">{status.taxDeadline || '待月结后生成'}</div>
             </div>
           </div>
+        </div>
+
+        <div className="rounded-xl border border-amber-900/30 bg-amber-950/10 p-3 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-[11px] font-bold text-amber-200">累计欠缴情形</div>
+              <div className="mt-1 text-[11px] text-slate-400">欠缴情形会在后续月结中持续并入应缴税额，直到完成补缴。</div>
+            </div>
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Arrears</div>
+              <div className="mt-1 font-mono text-lg text-amber-200">¥{Math.max(0, status.taxArrears || 0).toLocaleString()}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onPayArrears}
+            disabled={(status.taxArrears || 0) <= 0 || playerCredits <= 0}
+            className="w-full rounded border border-amber-700 px-3 py-2 text-xs text-amber-200 hover:border-amber-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {(status.taxArrears || 0) > 0
+              ? `使用当前余额补缴情税款（可用 ¥${playerCredits.toLocaleString()}）`
+              : '当前没有需要补缴情税款'}
+          </button>
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-black/30 p-3 space-y-2">

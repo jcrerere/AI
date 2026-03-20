@@ -113,6 +113,7 @@ export const MvuStatDataSchema = z.object({
       tax_office_address: z.string().optional(),
       tax_rate: z.number(),
       tax_amount: z.number().min(0).optional(),
+      tax_arrears: z.number().min(0).optional(),
       switch_cooldown_round: z.number().int().min(0),
     }),
     flags: z.object({

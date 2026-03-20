@@ -7,12 +7,13 @@ interface Props {
   affixes: RuntimeAffix[];
   warnings: string[];
   taxAmount: number;
+  taxArrears: number;
   neuralProtocol: 'none' | 'beta';
   creditScore: number;
   sceneHint: string;
 }
 
-const StatusPenaltyPanel: React.FC<Props> = ({ affixes, warnings, taxAmount, neuralProtocol, creditScore, sceneHint }) => {
+const StatusPenaltyPanel: React.FC<Props> = ({ affixes, warnings, taxAmount, taxArrears, neuralProtocol, creditScore, sceneHint }) => {
   const normalizedAffixes = useMemo(
     () =>
       affixes
@@ -54,6 +55,18 @@ const StatusPenaltyPanel: React.FC<Props> = ({ affixes, warnings, taxAmount, neu
             <div className="text-[11px] text-slate-500">会在月结和税务面板共同结算</div>
           </div>
         </div>
+
+        {taxArrears > 0 ? (
+          <div className="rounded-xl border border-amber-700/40 bg-amber-950/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-bold text-amber-200">累计欠缴情形</div>
+                <div className="mt-1 text-[11px] text-slate-400">欠缴情形会在后续月结中持续并入应缴税额，直到手动补缴。</div>
+              </div>
+              <div className="font-mono text-lg text-amber-200">¥{taxArrears.toLocaleString()}</div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="rounded-xl border border-slate-800 bg-black/30 p-3">
           <div className="flex items-center gap-1 text-[11px] font-bold text-slate-300">

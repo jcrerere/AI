@@ -10,6 +10,8 @@ interface SettlementPreview {
   pendingMonths: number;
   canSettle: boolean;
   baseAllowance: number;
+  currentTaxDue: number;
+  arrearsDue: number;
   taxDue: number;
   maintenanceCost: number;
   penaltyCost: number;
@@ -74,6 +76,19 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
               <div className={`text-base font-black ${preview.netDelta >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
                 {preview.netDelta >= 0 ? '+' : '-'}¥{Math.abs(preview.netDelta).toLocaleString()}
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-800 bg-black/30 p-3">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Current Tax</div>
+              <div className="mt-1 text-sm font-semibold text-red-300">-¥{preview.currentTaxDue.toLocaleString()}</div>
+            </div>
+            <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Arrears Carryover</div>
+              <div className="mt-1 text-sm font-semibold text-amber-300">-¥{preview.arrearsDue.toLocaleString()}</div>
             </div>
           </div>
         </div>

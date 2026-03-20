@@ -49,6 +49,7 @@ export const MOCK_PLAYER_STATUS: PlayerCivilianStatus = {
   ],
   taxDeadline: '2077-11-10',
   taxAmount: 15000,
+  taxArrears: 0,
   assignedDistrict: '',
   assignedXStationId: '',
   assignedXStationLabel: '',

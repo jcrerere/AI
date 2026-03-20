@@ -113,6 +113,26 @@ export interface DeductionRecord {
     type: 'fine' | 'shame'; // Type of deduction
 }
 
+export type FinanceLedgerKind =
+  | 'social'
+  | 'tax'
+  | 'settlement'
+  | 'task'
+  | 'combat'
+  | 'exchange'
+  | 'penalty'
+  | 'system';
+
+export interface FinanceLedgerEntry {
+  id: string;
+  title: string;
+  detail: string;
+  amount: number;
+  timestamp: string;
+  kind: FinanceLedgerKind;
+  counterparty?: string;
+}
+
 export interface PlayerCivilianStatus {
   citizenId: string;
   creditScore: number; // 0 - 120
@@ -121,6 +141,7 @@ export interface PlayerCivilianStatus {
   warnings: string[];
   taxDeadline: string;
   taxAmount: number;
+  taxArrears?: number;
   betaLevel?: number;
   betaTierName?: string;
   taxOfficerUnlocked?: boolean;
@@ -141,6 +162,8 @@ export interface MonthlySettlementRecord {
   checkpointMonthKey: string;
   processedMonthKey: string;
   baseAllowance: number;
+  currentTaxDue: number;
+  arrearsDue: number;
   taxDue: number;
   maintenanceCost: number;
   penaltyCost: number;

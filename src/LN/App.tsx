@@ -43,6 +43,7 @@ import {
   MonthlySettlementRecord,
   NpcDarknetProfile,
   NpcDarknetRecord,
+  FinanceLedgerEntry,
 } from './types';
 import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum } from './utils/pseudoLayer';
 import {
@@ -198,6 +199,7 @@ interface LnSaveData {
   playerCoreAffixes?: RuntimeAffix[];
   monthlySettlementLog?: MonthlySettlementRecord[];
   settlementCheckpointMonth?: string | null;
+  financeLedger?: FinanceLedgerEntry[];
   stateLock?: StateLockConfig;
 }
 
@@ -2945,6 +2947,7 @@ const App: React.FC = () => {
     betaLevel: 1,
     betaTierName: getBetaTierTitle(1),
     taxOfficerUnlocked: false,
+    taxArrears: 0,
     assignedDistrict: '',
     assignedXStationId: '',
     assignedXStationLabel: '',
@@ -2968,6 +2971,7 @@ const App: React.FC = () => {
   });
   const [monthlySettlementLog, setMonthlySettlementLog] = useState<MonthlySettlementRecord[]>([]);
   const [settlementCheckpointMonth, setSettlementCheckpointMonth] = useState<string | null>(null);
+  const [financeLedger, setFinanceLedger] = useState<FinanceLedgerEntry[]>([]);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -3463,6 +3467,7 @@ const App: React.FC = () => {
       coreAffixes: coreAffixesFromStat.map(affix => [affix.name, affix.description, affix.type, affix.source].join('|')),
       lingshu: lingshuFromStat.map(part => [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|')),
       taxOfficerId: `${chipNode?.tax_officer_id ?? ''}`.trim() || null,
+      taxArrears: toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears) ?? null,
     });
     lastPulledSyncSignatureRef.current = syncSignature;
 
@@ -3598,6 +3603,7 @@ const App: React.FC = () => {
       const pulledOfficerName = `${chipNode?.tax_officer_name ?? ''}`.trim();
       const pulledOfficeAddress = `${chipNode?.tax_office_address ?? chipNode?.office_address ?? ''}`.trim();
       const pulledTaxAmount = toFiniteNumber(chipNode?.tax_amount ?? chipNode?.taxAmount);
+      const pulledTaxArrears = toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears);
       const hasAirelaBinding =
         protocolValue === 'beta' ||
         chipNode?.beta_equipped === true ||
@@ -3668,6 +3674,10 @@ const App: React.FC = () => {
       }
       if (pulledTaxAmount !== undefined && pulledTaxAmount !== prev.taxAmount) {
         next.taxAmount = Math.max(0, pulledTaxAmount);
+        changed = true;
+      }
+      if (pulledTaxArrears !== undefined && pulledTaxArrears !== (prev.taxArrears || 0)) {
+        next.taxArrears = Math.max(0, pulledTaxArrears);
         changed = true;
       }
 
@@ -3814,7 +3824,9 @@ const App: React.FC = () => {
     const baseAllowancePerMonth = Math.max(120, Math.round(economyBaseline * 0.12) + (betaStatus.betaLevel || 1) * 60);
     const bonusPerMonth = betaStatus.creditScore >= 100 ? 120 : betaStatus.creditScore >= 80 ? 40 : 0;
     const baseAllowance = pendingMonths * (baseAllowancePerMonth + bonusPerMonth);
-    const taxDue = pendingMonths * Math.max(0, betaStatus.taxAmount || 0);
+    const currentTaxDue = pendingMonths * Math.max(0, betaStatus.taxAmount || 0);
+    const arrearsDue = Math.max(0, betaStatus.taxArrears || 0);
+    const taxDue = currentTaxDue + arrearsDue;
     const maintenanceCost = pendingMonths * upkeepBase;
     const penaltyCost = pendingMonths * (debuffCost + warningCost);
     const netDelta = baseAllowance - taxDue - maintenanceCost - penaltyCost;
@@ -3825,12 +3837,15 @@ const App: React.FC = () => {
       pendingMonths,
       canSettle: pendingMonths > 0,
       baseAllowance,
+      currentTaxDue,
+      arrearsDue,
       taxDue,
       maintenanceCost,
       penaltyCost,
       netDelta,
       notes: [
         `基础津贴由派系月度净收入、Beta 等级和信誉补贴共同决定。`,
+        arrearsDue > 0 ? `当前累计欠缴情形 ¥${arrearsDue.toLocaleString()}，本次会并入应缴税额。` : `当前没有历史欠缴情形，月结只计算本期税额。`,
         `灵枢部件、已装配芯片和异常状态会持续抬高维持费与风险扣款。`,
         `若结算后余额不足，会记为欠缴并直接压低信誉值。`,
       ],
@@ -3845,6 +3860,7 @@ const App: React.FC = () => {
     betaStatus.betaLevel,
     betaStatus.creditScore,
     betaStatus.taxAmount,
+    betaStatus.taxArrears,
     playerFaction.economy.monthlyIncome,
     playerFaction.economy.monthlyUpkeep,
   ]);
@@ -4194,6 +4210,7 @@ const App: React.FC = () => {
             tax_office_address: betaStatus.taxOfficeAddress || '',
             tax_rate: toFiniteNumber(chipState.tax_rate) ?? 0,
             tax_amount: betaStatus.taxAmount,
+            tax_arrears: Math.max(0, betaStatus.taxArrears || 0),
             switch_cooldown_round: toFiniteNumber(chipState.switch_cooldown_round) ?? 0,
           },
           flags: {
@@ -4284,6 +4301,7 @@ const App: React.FC = () => {
     betaStatus.taxOfficerName,
     betaStatus.taxOfficeAddress,
     betaStatus.taxAmount,
+    betaStatus.taxArrears,
     effectiveGameTimeText,
     effectiveGameDayPhase,
     currentNarrativeLocation,
@@ -4309,6 +4327,20 @@ const App: React.FC = () => {
     setFloatingTexts(prev => [...prev, { id, text, x, y, color }]);
     setTimeout(() => setFloatingTexts(prev => prev.filter(ft => ft.id !== id)), 1000);
   };
+
+  const pushFinanceLedgerEntry = useCallback(
+    (entry: Omit<FinanceLedgerEntry, 'id' | 'timestamp'> & Partial<Pick<FinanceLedgerEntry, 'id' | 'timestamp'>>) => {
+      setFinanceLedger(prev => [
+        {
+          id: entry.id || `ledger_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          timestamp: entry.timestamp || new Date().toISOString(),
+          ...entry,
+        },
+        ...prev,
+      ].slice(0, 80));
+    },
+    [],
+  );
 
   const persistArchives = (slots: ArchiveSlot[]) => {
     try {
@@ -4350,6 +4382,7 @@ const App: React.FC = () => {
     playerCoreAffixes,
     monthlySettlementLog,
     settlementCheckpointMonth,
+    financeLedger,
     stateLock,
   });
 
@@ -4391,6 +4424,7 @@ const App: React.FC = () => {
     setBetaStatus({
       ...loadedStatus,
       taxOfficerUnlocked: loadedStatus.taxOfficerUnlocked ?? payload.playerNeuralProtocol === 'beta',
+      taxArrears: Math.max(0, loadedStatus.taxArrears || 0),
       assignedDistrict: loadedStatus.assignedDistrict || '',
       assignedXStationId: loadedStatus.assignedXStationId || '',
       assignedXStationLabel: loadedStatus.assignedXStationLabel || '',
@@ -4422,6 +4456,7 @@ const App: React.FC = () => {
     );
     setMonthlySettlementLog(payload.monthlySettlementLog || []);
     setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
+    setFinanceLedger(payload.financeLedger || []);
     setStateLock(
       payload.stateLock || {
         lockTime: false,
@@ -4844,6 +4879,13 @@ const App: React.FC = () => {
         type: 'narrative',
       },
     ]);
+    pushFinanceLedgerEntry({
+      kind: 'social',
+      title: kind === 'tip' ? '灵网打赏' : kind === 'unlock' ? '灵网解锁支付' : '灵网转账',
+      detail: `向 ${target.name} ${kind === 'tip' ? '打赏' : kind === 'unlock' ? '支付解锁' : '转账'} ${amount} 灵币。`,
+      amount: -amount,
+      counterparty: target.name,
+    });
     return { ok: true };
   };
 
@@ -5401,6 +5443,12 @@ const App: React.FC = () => {
       if (gain <= 0) return;
       setPlayerStats(prev => ({ ...prev, credits: prev.credits - amount }));
       setCoinVault(prev => ({ ...prev, [target]: (prev[target] || 0) + gain }));
+      pushFinanceLedgerEntry({
+        kind: 'exchange',
+        title: '跨级压缩',
+        detail: `消耗 ${amount} 灵能币，压缩为 ${gain} 枚 ${target}。`,
+        amount: -amount,
+      });
       spawnFloatingText(`跨级压缩 +${gain} ${target}灵能币`, 'text-amber-300');
       return;
     }
@@ -5413,6 +5461,12 @@ const App: React.FC = () => {
     if (gain <= 0) return;
     setCoinVault(prev => ({ ...prev, [source]: Math.max(0, (prev[source] || 0) - amount) }));
     setPlayerStats(prev => ({ ...prev, credits: prev.credits + gain }));
+    pushFinanceLedgerEntry({
+      kind: 'exchange',
+      title: '跨级分解',
+      detail: `分解 ${amount} 枚 ${source}，回收 ${gain} 灵能币。`,
+      amount: gain,
+    });
     spawnFloatingText(`跨级分解 +${gain} ${currentRank}灵能币`, 'text-cyan-300');
   };
 
@@ -5494,6 +5548,12 @@ const App: React.FC = () => {
       setPlayerSoulLedger(prev => ({ ...prev, [rank]: (prev[rank] || 0) + killCount }));
     }
 
+    pushFinanceLedgerEntry({
+      kind: 'combat',
+      title: '击杀结算',
+      detail: `${rank} 目标 x${killCount}，获得战斗结算灵能币。`,
+      amount: gainedCredits,
+    });
     spawnFloatingText(`+${gainedCredits} 灵能币`, 'text-amber-300');
     spawnFloatingText(`+${gainedXp} 经验`, 'text-purple-300');
 
@@ -5717,6 +5777,12 @@ const App: React.FC = () => {
       const coinsGained = Math.floor(amount * rate * (regionFactor || 1));
       if (coinsGained <= 0) return;
       setPlayerStats(prev => ({ ...prev, mp: { ...prev.mp, current: prev.mp.current - amount }, credits: prev.credits + coinsGained }));
+      pushFinanceLedgerEntry({
+        kind: 'exchange',
+        title: '灵压兑换灵币',
+        detail: `消耗 ${amount} MP，兑换 ${coinsGained} 灵能币。`,
+        amount: coinsGained,
+      });
       return;
     }
 
@@ -5729,6 +5795,12 @@ const App: React.FC = () => {
       credits: prev.credits - amount,
       mp: { ...prev.mp, current: Math.min(prev.mp.max, prev.mp.current + mpGained) },
     }));
+    pushFinanceLedgerEntry({
+      kind: 'exchange',
+      title: '灵币回充灵压',
+      detail: `消耗 ${amount} 灵能币，回充 ${mpGained} MP。`,
+      amount: -amount,
+    });
   };
 
   const handleUseItem = (item: Item) => {
@@ -6446,6 +6518,7 @@ const App: React.FC = () => {
       warnings: [],
       taxDeadline: '',
       taxAmount: 0,
+      taxArrears: 0,
       betaLevel: 1,
       betaTierName: getBetaTierTitle(1),
       taxOfficerUnlocked: nextProtocol === 'beta',
@@ -6460,6 +6533,7 @@ const App: React.FC = () => {
     });
     setMonthlySettlementLog([]);
     setSettlementCheckpointMonth(getMonthKeyFromElapsedMinutes(0));
+    setFinanceLedger([]);
     setStateLock({
       lockTime: false,
       lockLocation: false,
@@ -6525,6 +6599,12 @@ const App: React.FC = () => {
 
     setBetaTasks(prev => prev.map(t => (t.id === taskId ? { ...t, done: true } : t)));
     setPlayerStats(prev => ({ ...prev, credits: prev.credits + task.creditReward }));
+    pushFinanceLedgerEntry({
+      kind: 'task',
+      title: 'Beta 任务奖励',
+      detail: `完成任务「${task.title}」获得 ${task.creditReward} 灵能币。`,
+      amount: task.creditReward,
+    });
     setBetaStatus(prev => ({
       ...prev,
       creditScore: Math.min(120, prev.creditScore + task.scoreReward),
@@ -6575,6 +6655,12 @@ const App: React.FC = () => {
     const task = betaTasks.find(t => t.id === taskId);
     if (!task) return;
     setPlayerStats(prev => ({ ...prev, credits: Math.max(0, prev.credits - task.creditReward) }));
+    pushFinanceLedgerEntry({
+      kind: 'penalty',
+      title: 'Beta 任务罚没',
+      detail: `${reason}，扣除 ${task.creditReward} 灵能币。`,
+      amount: -task.creditReward,
+    });
     setBetaStatus(prev => ({
       ...prev,
       creditScore: Math.max(0, prev.creditScore - task.scoreReward),
@@ -6874,6 +6960,7 @@ const App: React.FC = () => {
 
     const processedAt = new Date().toLocaleString('zh-CN');
     const shortfall = Math.max(0, -(playerStats.credits + monthlySettlementPreview.netDelta));
+    const actualCreditDelta = monthlySettlementPreview.netDelta + shortfall;
     const record: MonthlySettlementRecord = {
       id: `monthly_settlement_${Date.now()}`,
       cycleLabel: monthlySettlementPreview.cycleLabel,
@@ -6881,6 +6968,8 @@ const App: React.FC = () => {
       checkpointMonthKey: settlementCheckpointMonth || currentMonthKey,
       processedMonthKey: currentMonthKey,
       baseAllowance: monthlySettlementPreview.baseAllowance,
+      currentTaxDue: monthlySettlementPreview.currentTaxDue,
+      arrearsDue: monthlySettlementPreview.arrearsDue,
       taxDue: monthlySettlementPreview.taxDue,
       maintenanceCost: monthlySettlementPreview.maintenanceCost,
       penaltyCost: monthlySettlementPreview.penaltyCost,
@@ -6904,6 +6993,7 @@ const App: React.FC = () => {
       return {
         ...prev,
         creditScore: nextScore,
+        taxArrears: shortfall,
         warnings: nextWarnings,
         taxDeadline: getMonthDeadlineText(addMonthsToMonthKey(currentMonthKey, 1)),
         deductionHistory: [
@@ -6932,10 +7022,94 @@ const App: React.FC = () => {
         },
       ];
     });
+    pushFinanceLedgerEntry({
+      kind: 'settlement',
+      title: shortfall > 0 ? '月结完成，转入欠缴' : '月结完成',
+      detail:
+        shortfall > 0
+          ? `${monthlySettlementPreview.cycleLabel} 仍有 ¥${shortfall.toLocaleString()} 未结清，已转入累计欠缴情形。`
+          : `${monthlySettlementPreview.cycleLabel} 已完成结算。`,
+      amount: actualCreditDelta,
+    });
     spawnFloatingText(
-      `${monthlySettlementPreview.netDelta >= 0 ? '+' : '-'}¥${Math.abs(monthlySettlementPreview.netDelta).toLocaleString()}`,
-      monthlySettlementPreview.netDelta >= 0 ? 'text-emerald-300' : 'text-red-300',
+      `${actualCreditDelta >= 0 ? '+' : '-'}¥${Math.abs(actualCreditDelta).toLocaleString()}`,
+      actualCreditDelta >= 0 ? 'text-emerald-300' : 'text-red-300',
     );
+  };
+
+  const handlePayTaxArrears = () => {
+    const currentArrears = Math.max(0, betaStatus.taxArrears || 0);
+    if (currentArrears <= 0 || playerStats.credits <= 0) return;
+
+    const paidAmount = Math.min(playerStats.credits, currentArrears);
+    const remainingArrears = Math.max(0, currentArrears - paidAmount);
+    const processedAt = new Date().toLocaleString('zh-CN');
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - paidAmount),
+    }));
+    setBetaStatus(prev => {
+      const filteredWarnings = (prev.warnings || []).filter(warning => !warning.startsWith('月结欠缴情形'));
+      const nextWarnings =
+        remainingArrears > 0
+          ? [`月结欠缴情形 · 缺口 ¥${remainingArrears.toLocaleString()}`, ...filteredWarnings].slice(0, 8)
+          : filteredWarnings;
+      const nextScore = remainingArrears > 0 ? prev.creditScore : Math.min(120, prev.creditScore + 4);
+      return {
+        ...prev,
+        creditScore: nextScore,
+        taxArrears: remainingArrears,
+        warnings: nextWarnings,
+        deductionHistory: [
+          {
+            id: `tax_arrears_payment_${Date.now()}`,
+            reason: remainingArrears > 0 ? '补缴情税款（部分）' : '补缴情税款（结清）',
+            amount: -paidAmount,
+            timestamp: processedAt,
+            type: 'fine',
+          },
+          ...(prev.deductionHistory || []),
+        ].slice(0, 30),
+      };
+    });
+    setPlayerCoreAffixes(prev => {
+      const next = prev.filter(affix => affix.id !== 'monthly_arrears_affix');
+      if (remainingArrears <= 0) return next;
+      return [
+        ...next,
+        {
+          id: 'monthly_arrears_affix',
+          name: '状态：月结欠缴',
+          description: `仍有 ¥${remainingArrears.toLocaleString()} 未结清税务与维持成本。`,
+          type: 'debuff',
+          source: '月结',
+        },
+      ];
+    });
+    pushFinanceLedgerEntry({
+      kind: 'tax',
+      title: remainingArrears > 0 ? '补缴情税款（部分）' : '补缴情税款',
+      detail:
+        remainingArrears > 0
+          ? `已补缴 ¥${paidAmount.toLocaleString()}，剩余欠缴情形 ¥${remainingArrears.toLocaleString()}。`
+          : `已结清累计欠缴情形 ¥${paidAmount.toLocaleString()}。`,
+      amount: -paidAmount,
+    });
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `tax_arrears_notice_${Date.now()}`,
+        sender: 'System',
+        content:
+          remainingArrears > 0
+            ? `已向税务系统补缴 ${paidAmount} 灵币，剩余欠缴情形 ${remainingArrears} 灵币。`
+            : `已向税务系统结清累计欠缴情形 ${paidAmount} 灵币。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-¥${paidAmount.toLocaleString()}`, 'text-amber-300');
   };
 
   const bindTaxOfficer = (candidate: TaxOfficerCandidate) => {
@@ -7287,6 +7461,7 @@ const App: React.FC = () => {
               affixes={mergedRuntimeAffixes}
               warnings={betaStatus.warnings || []}
               taxAmount={betaStatus.taxAmount}
+              taxArrears={Math.max(0, betaStatus.taxArrears || 0)}
               neuralProtocol={playerNeuralProtocol}
               creditScore={betaStatus.creditScore}
               sceneHint={gameSceneHint}
@@ -7548,6 +7723,16 @@ const App: React.FC = () => {
                 playerName={playerName}
                 playerCredits={playerStats.credits}
                 currentLocation={currentNarrativeLocation || '未知区域'}
+                financeLedger={financeLedger}
+                walletSummary={{
+                  cycleLabel: monthlySettlementPreview.cycleLabel,
+                  currentTaxDue: monthlySettlementPreview.currentTaxDue,
+                  taxArrears: Math.max(0, betaStatus.taxArrears || 0),
+                  settlementExposure:
+                    monthlySettlementPreview.taxDue +
+                    monthlySettlementPreview.maintenanceCost +
+                    monthlySettlementPreview.penaltyCost,
+                }}
                 onToggleFollow={handleToggleSocialFollow}
                 onAddComment={handleAddSocialComment}
                 onSendDm={handleSendSocialDm}
@@ -7561,11 +7746,13 @@ const App: React.FC = () => {
                 <TaxDossierPanel
                   status={betaStatus}
                   playerName={playerName}
+                  playerCredits={playerStats.credits}
                   factionName={playerFaction.name}
                   currentLocation={currentNarrativeLocation || '未知区域'}
                   neuralProtocol={playerNeuralProtocol}
                   onNavigateToTax={handleNavToTax}
                   onPickTaxOfficer={handleAddTaxOfficerContact}
+                  onPayArrears={handlePayTaxArrears}
                   onOpenCareerIdentity={() => setIsCareerEditorOpen(true)}
                 />
               </div>

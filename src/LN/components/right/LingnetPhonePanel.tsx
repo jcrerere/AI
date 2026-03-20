@@ -1,5 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { NPC, SocialPlatform } from '../../types';
+import { FinanceLedgerEntry, NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
 import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
@@ -36,6 +36,13 @@ interface Props {
   playerName: string;
   playerCredits: number;
   currentLocation: string;
+  financeLedger: FinanceLedgerEntry[];
+  walletSummary: {
+    cycleLabel: string;
+    currentTaxDue: number;
+    taxArrears: number;
+    settlementExposure: number;
+  };
   onToggleFollow: (npcId: string) => void;
   onAddComment: (npcId: string, postId: string, content: string) => void;
   onSendDm: (npcId: string, content: string) => void;
@@ -228,6 +235,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
   playerName,
   playerCredits,
   currentLocation,
+  financeLedger,
+  walletSummary,
   onToggleFollow,
   onAddComment,
   onSendDm,
@@ -324,6 +333,11 @@ const LingnetPhonePanel: React.FC<Props> = ({
         .sort((a, b) => (Date.parse(b.item.timestamp) || 0) - (Date.parse(a.item.timestamp) || 0)),
     [socialAccounts],
   );
+  const ledgerEntries = useMemo(
+    () =>
+      [...financeLedger].sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0)),
+    [financeLedger],
+  );
   const activeProfileNpc = useMemo(
     () => socialAccounts.find(npc => npc.id === selectedNpcId) || socialAccounts[0] || null,
     [selectedNpcId, socialAccounts],
@@ -365,8 +379,12 @@ const LingnetPhonePanel: React.FC<Props> = ({
     [socialAccounts],
   );
   const transactionVolume = useMemo(
-    () => paymentEntries.reduce((sum, entry) => sum + Number(entry.item.amount || 0), 0),
-    [paymentEntries],
+    () => ledgerEntries.reduce((sum, entry) => sum + Math.abs(Number(entry.amount || 0)), 0),
+    [ledgerEntries],
+  );
+  const recentNetFlow = useMemo(
+    () => ledgerEntries.slice(0, 12).reduce((sum, entry) => sum + Number(entry.amount || 0), 0),
+    [ledgerEntries],
   );
   const visibleFeedEntries = useMemo(() => feedEntries.slice(0, visibleFeedCount), [feedEntries, visibleFeedCount]);
   const visibleDiscoverEntries = useMemo(
@@ -385,9 +403,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
     () => (activeDmNpc?.dmThread || []).slice(-visibleDmMessageCount),
     [activeDmNpc, visibleDmMessageCount],
   );
-  const visiblePaymentEntries = useMemo(
-    () => paymentEntries.slice(0, visiblePaymentCount),
-    [paymentEntries, visiblePaymentCount],
+  const visibleLedgerEntries = useMemo(
+    () => ledgerEntries.slice(0, visiblePaymentCount),
+    [ledgerEntries, visiblePaymentCount],
   );
   const getStaggerStyle = (index: number, step = 55): React.CSSProperties => ({
     animationDelay: reduceMotion ? '0ms' : `${Math.min(index * step, 440)}ms`,
@@ -461,7 +479,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
 
   useEffect(() => {
     setVisiblePaymentCount(paymentBatchSize);
-  }, [paymentEntries.length, paymentBatchSize]);
+  }, [ledgerEntries.length, paymentBatchSize]);
 
   const pushFeedback = (title: string, detail: string, tone: FeedbackTone = 'info', accent: PhoneView = activeView) => {
     setUiFeedback({
@@ -1128,7 +1146,10 @@ const LingnetPhonePanel: React.FC<Props> = ({
     <div className="animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
       <div className="ln-float-soft rounded-[28px] border border-amber-400/15 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_28%),linear-gradient(180deg,rgba(24,16,8,0.98),rgba(10,8,5,0.98))] px-4 py-4">
         <div className="text-[10px] uppercase tracking-[0.22em] text-amber-100/60">Settlement Deck</div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-2 text-sm leading-6 text-amber-50/80">
+          当前月结周期：{walletSummary.cycleLabel}。钱包需要同时承担灵网支付、税务扣缴和历史欠缴情形清偿。
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
             <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Balance</div>
             <div className="mt-2 text-3xl font-semibold text-white">{playerCredits}</div>
@@ -1174,6 +1195,98 @@ const LingnetPhonePanel: React.FC<Props> = ({
             ))
           )}
           {paymentEntries.length > visiblePaymentEntries.length ? (
+            <button
+              type="button"
+              onClick={() => setVisiblePaymentCount(count => count + paymentBatchSize)}
+              className="w-full rounded-[20px] border border-amber-300/15 bg-black/20 px-4 py-3 text-sm text-amber-100 transition hover:border-amber-200/30 hover:text-white"
+            >
+              加载更多流水
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+
+  void renderWalletView;
+
+  const renderWalletFinanceView = () => (
+    <div className="animate-in fade-in slide-in-from-top-2 duration-500 space-y-4">
+      <div className="ln-float-soft rounded-[28px] border border-amber-400/15 bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.18),_transparent_28%),linear-gradient(180deg,rgba(24,16,8,0.98),rgba(10,8,5,0.98))] px-4 py-4">
+        <div className="text-[10px] uppercase tracking-[0.22em] text-amber-100/60">Settlement Deck</div>
+        <div className="mt-2 text-sm leading-6 text-amber-50/80">
+          当前月结周期：{walletSummary.cycleLabel}。钱包现在同时承担灵网支付、税务扣缴和历史欠缴情形清偿。
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Balance</div>
+            <div className="mt-2 text-3xl font-semibold text-white">{playerCredits}</div>
+            <div className="mt-2 text-xs text-amber-100/70">可用于打赏、转账、补缴情税款与系统结算。</div>
+          </div>
+          <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Current Tax</div>
+            <div className="mt-2 text-3xl font-semibold text-white">{walletSummary.currentTaxDue}</div>
+            <div className="mt-2 text-xs text-amber-100/70">本轮月结待处理的基础税额，不含风险与维持扣款。</div>
+          </div>
+          <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Arrears</div>
+            <div className="mt-2 text-3xl font-semibold text-white">{walletSummary.taxArrears}</div>
+            <div className="mt-2 text-xs text-amber-100/70">历史欠缴情形会持续并入后续月结，直到在税务面板补缴。</div>
+          </div>
+          <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Exposure</div>
+            <div className="mt-2 text-3xl font-semibold text-white">{walletSummary.settlementExposure}</div>
+            <div className="mt-2 text-xs text-amber-100/70">当期税额、维持费和风险扣款合计形成的结算压力。</div>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-[18px] border border-amber-300/10 bg-black/20 px-3 py-3">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Ledger Count</div>
+            <div className="mt-1 text-lg font-semibold text-white">{ledgerEntries.length}</div>
+          </div>
+          <div className="rounded-[18px] border border-amber-300/10 bg-black/20 px-3 py-3">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Volume</div>
+            <div className="mt-1 text-lg font-semibold text-white">{transactionVolume}</div>
+          </div>
+          <div className="rounded-[18px] border border-amber-300/10 bg-black/20 px-3 py-3">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Recent Net</div>
+            <div className={`mt-1 text-lg font-semibold ${recentNetFlow >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {recentNetFlow >= 0 ? '+' : '-'}{Math.abs(recentNetFlow)}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-[28px] border border-amber-400/12 bg-black/25">
+        <div className="border-b border-white/10 px-4 py-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100/55">Transaction Ledger</div>
+          <div className="mt-1 text-sm text-slate-300">最近 18 条全局资金流水</div>
+        </div>
+        <div className="p-3 space-y-2">
+          {ledgerEntries.length === 0 ? (
+            <div className="rounded-[20px] border border-dashed border-white/10 px-4 py-10 text-center text-sm text-slate-500">
+              还没有记录到任何资金流。
+            </div>
+          ) : (
+            visibleLedgerEntries.map((entry, index) => (
+              <div
+                key={entry.id}
+                style={getStaggerStyle(index, 45)}
+                className="ln-card-lift animate-in fade-in slide-in-from-bottom-2 duration-500 grid grid-cols-[1fr_auto] items-center gap-3 rounded-[20px] border border-white/5 bg-white/[0.03] px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-white">{entry.title}</div>
+                  <div className="mt-1 text-[11px] text-slate-500">{entry.detail}</div>
+                  <div className="mt-1 text-[10px] uppercase tracking-[0.18em] text-slate-600">
+                    {entry.kind} · {formatTime(entry.timestamp)}
+                  </div>
+                </div>
+                <div className={`text-sm font-semibold ${entry.amount >= 0 ? 'text-emerald-300' : 'text-amber-200'}`}>
+                  {entry.amount >= 0 ? '+' : '-'}{Math.abs(entry.amount)}
+                </div>
+              </div>
+            ))
+          )}
+          {ledgerEntries.length > visibleLedgerEntries.length ? (
             <button
               type="button"
               onClick={() => setVisiblePaymentCount(count => count + paymentBatchSize)}
@@ -1583,7 +1696,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
           </div>
         )}
         {activeView === 'dm' && renderDmView()}
-        {activeView === 'wallet' && renderWalletView()}
+        {activeView === 'wallet' && renderWalletFinanceView()}
         {activeView === 'import' && renderImportView()}
       </div>
       {paymentDraft ? (

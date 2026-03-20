@@ -123,6 +123,7 @@ player:
     tax_office_address: ""
     tax_rate: 0.00
     tax_amount: 0
+    tax_arrears: 0
     switch_cooldown_round: 0
 
   flags:
