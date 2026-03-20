@@ -6,6 +6,7 @@
 
 - `index.yaml`：条目元数据、开关、插入位置、外链文件路径
 - `entries/`：按模块拆开的正文文件
+- `entries/facilities/README.md`：设施/地点条目的拆分与触发规则
 - `LNSJ-real.json`：打包后给酒馆手动导入的成品
 - `entries/README.md`：模块分类与命名规则说明
 

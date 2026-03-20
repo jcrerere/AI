@@ -149,7 +149,9 @@
         "谐振师",
         "劳工",
         "地下压缩区",
-        "铸币权"
+        "铸币权",
+        "桥口结算站",
+        "灵能币兑换局"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -198,7 +200,8 @@
         "银潮海滨街",
         "西港一号码头",
         "潮汐电站主控区",
-        "潮镜别苑"
+        "潮镜别苑",
+        "潮镜别墅"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -246,7 +249,20 @@
         "皇都",
         "都城",
         "首都",
-        "中央城区"
+        "中央城区",
+        "真理部大楼",
+        "规训学院园区",
+        "审判庭",
+        "X号性控所",
+        "X1性控所",
+        "X2性控所",
+        "X3性控所",
+        "X4性控所",
+        "X5性控所",
+        "HX男奴公寓",
+        "H10男奴公寓",
+        "H18男奴公寓",
+        "H27男奴公寓"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -519,7 +535,8 @@
         "诺丝",
         "商业区",
         "研发区",
-        "黑玫瑰地盘"
+        "黑玫瑰地盘",
+        "罪吻广场"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -939,7 +956,8 @@
       "key": [
         "圣教区",
         "圣堂教会",
-        "教会区"
+        "教会区",
+        "大圣堂"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -1115,7 +1133,9 @@
       "key": [
         "交界地",
         "边境缓冲带",
-        "冲突区"
+        "冲突区",
+        "狗镇",
+        "冒险者公会"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3187,8 +3207,7 @@
         "宣传样板",
         "思想矫正",
         "档案封存",
-        "舆情",
-        "艾瑞拉"
+        "舆情"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3235,8 +3254,7 @@
         "黑市",
         "快感插件",
         "黑市医疗",
-        "神经兴奋剂",
-        "诺丝区"
+        "神经兴奋剂"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3279,7 +3297,6 @@
       "selective": true,
       "key": [
         "狗镇",
-        "交界地",
         "荒野集市",
         "边境交易",
         "黑市中转",
@@ -3332,8 +3349,7 @@
         "献祭",
         "洗礼",
         "教化",
-        "审判异端",
-        "圣教区"
+        "审判异端"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3433,9 +3449,6 @@
         "X4性控所",
         "X5性控所",
         "性控所",
-        "北门分区",
-        "中环分区",
-        "南港分区",
         "真理部设施",
         "合法接触性资源"
       ],
@@ -3484,9 +3497,6 @@
         "H18男奴公寓",
         "H27男奴公寓",
         "男奴公寓",
-        "北门分区",
-        "中环分区",
-        "南港分区",
         "公寓点名",
         "夜间查房",
         "男性宿舍",
@@ -3585,8 +3595,7 @@
         "灵兽猎物",
         "赏金猎人",
         "荒野任务",
-        "狗镇",
-        "交界地"
+        "赏金委托"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3633,8 +3642,7 @@
         "封闭会面",
         "高端接待",
         "私密会馆",
-        "港口谈单",
-        "汐屿区"
+        "港口谈单"
       ],
       "selectiveLogic": 0,
       "keysecondary": [],
@@ -3920,7 +3928,15 @@
       "disable": false,
       "constant": false,
       "selective": true,
-      "key": [],
+      "key": [
+        "规训学院",
+        "规训学院园区",
+        "样本班",
+        "行为矫正",
+        "规训导师",
+        "宣传训练",
+        "真理部"
+      ],
       "selectiveLogic": 0,
       "keysecondary": [],
       "scanDepth": null,
@@ -3960,7 +3976,15 @@
       "disable": false,
       "constant": false,
       "selective": true,
-      "key": [],
+      "key": [
+        "审判庭",
+        "公开宣判",
+        "判词",
+        "追加罚金",
+        "帝国法庭",
+        "样板案件",
+        "押送"
+      ],
       "selectiveLogic": 0,
       "keysecondary": [],
       "scanDepth": null,
@@ -4000,7 +4024,15 @@
       "disable": false,
       "constant": false,
       "selective": true,
-      "key": [],
+      "key": [
+        "西港一号码头",
+        "西港",
+        "汐屿港务",
+        "舱单",
+        "集装箱",
+        "海关封签",
+        "走私"
+      ],
       "selectiveLogic": 0,
       "keysecondary": [],
       "scanDepth": null,
@@ -4040,7 +4072,16 @@
       "disable": false,
       "constant": false,
       "selective": true,
-      "key": [],
+      "key": [
+        "桥口结算站",
+        "过桥费",
+        "结算站",
+        "桥口税票",
+        "批次封签",
+        "货税",
+        "跨区结算",
+        "淬灵署"
+      ],
       "selectiveLogic": 0,
       "keysecondary": [],
       "scanDepth": null,
@@ -4080,7 +4121,15 @@
       "disable": false,
       "constant": false,
       "selective": true,
-      "key": [],
+      "key": [
+        "潮镜别墅",
+        "海景别墅",
+        "私宴",
+        "贵宾接待",
+        "私密会面",
+        "白湾会馆",
+        "外海商人"
+      ],
       "selectiveLogic": 0,
       "keysecondary": [],
       "scanDepth": null,
