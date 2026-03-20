@@ -4,6 +4,8 @@ meta:
   root_path: stat_data
 
 world:
+  current_cell_id: ""
+  current_anchor_id: ""
   current_time: "2077-11-03 20:30"
   current_period: "夜晚"
   current_location: "开局地点"

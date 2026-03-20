@@ -581,6 +581,162 @@ export interface MapRuntimeData {
   logs: string[];
 }
 
+export type CityAnchorKind =
+  | 'shop'
+  | 'station'
+  | 'residence'
+  | 'institution'
+  | 'service'
+  | 'checkpoint'
+  | 'venue'
+  | 'street'
+  | 'unknown';
+
+export type CityAnchorStatus = 'active' | 'vacant' | 'sealed' | 'destroyed';
+
+export type CityTenantKind = 'shop' | 'institution' | 'service' | 'public';
+
+export type RuntimeShopType = 'clothing' | 'chip' | 'clinic' | 'drug' | 'service' | 'restaurant' | 'general';
+
+export type RuntimeShopTier = 'street' | 'standard' | 'premium' | 'elite';
+
+export type RuntimeTodoCategory = 'commission' | 'meeting' | 'pickup' | 'travel' | 'bet' | 'custom';
+
+export type RuntimeTodoStatus = 'active' | 'ready' | 'completed' | 'failed' | 'cancelled';
+
+export type TransportLayerMode = 'metro' | 'expressway' | 'bridge' | 'ferry' | 'rail';
+
+export type TransportAssetStatus = 'planned' | 'building' | 'active' | 'closed' | 'damaged' | 'destroyed';
+
+export interface DistrictGridProfile {
+  id: string;
+  regionKey: string;
+  regionLabel: string;
+  districtLabel: string;
+  regionCode: number;
+  districtCode: number;
+  width: number;
+  height: number;
+  transportModes: TransportLayerMode[];
+  notes?: string;
+}
+
+export interface CityCellRecord {
+  id: string;
+  regionKey: string;
+  regionLabel: string;
+  districtId: string;
+  districtLabel: string;
+  x: number;
+  y: number;
+  discoveredAt: number;
+  anchorIds: string[];
+}
+
+export interface CityAnchorRecord {
+  id: string;
+  cellId: string;
+  districtId: string;
+  label: string;
+  kind: CityAnchorKind;
+  status: CityAnchorStatus;
+  signature: string;
+  tenantId: string | null;
+  discoveredAt: number;
+  tags: string[];
+  legacyAliases?: string[];
+}
+
+export interface CityTenantRecord {
+  id: string;
+  anchorId: string;
+  label: string;
+  kind: CityTenantKind;
+  status: CityAnchorStatus;
+  createdAt: number;
+  notes?: string;
+}
+
+export interface RuntimeShopRecord {
+  id: string;
+  anchorId: string;
+  districtId: string;
+  name: string;
+  type: RuntimeShopType;
+  tier: RuntimeShopTier;
+  signatureStyle: string[];
+  hasBackroom: boolean;
+  refreshSeed: string;
+  refreshEpoch: number;
+  loyalty: number;
+  discountTier: number;
+  firstSeenAt: number;
+  status: CityAnchorStatus;
+}
+
+export interface RuntimeTodoRecord {
+  id: string;
+  title: string;
+  category: RuntimeTodoCategory;
+  status: RuntimeTodoStatus;
+  sourceType: 'shop' | 'npc' | 'system' | 'scene' | 'lingnet';
+  sourceId: string;
+  locationLabel: string;
+  dueAtMinutes: number | null;
+  createdAtMinutes: number;
+  summary: string;
+  detail: string;
+  unread: boolean;
+  routeHint: string | null;
+}
+
+export interface TransportStopRecord {
+  id: string;
+  districtId: string;
+  label: string;
+  cellId: string;
+  anchorId: string | null;
+  x: number;
+  y: number;
+  lineIds: string[];
+  status: TransportAssetStatus;
+}
+
+export interface TransportLineRecord {
+  id: string;
+  mode: TransportLayerMode;
+  label: string;
+  regionKey: string;
+  districtIds: string[];
+  stopIds: string[];
+  status: TransportAssetStatus;
+  summary: string;
+}
+
+export interface TransportProjectRecord {
+  id: string;
+  districtId: string;
+  mode: TransportLayerMode;
+  label: string;
+  status: TransportAssetStatus;
+  summary: string;
+}
+
+export interface CityRuntimeData {
+  version: 1;
+  currentDistrictId: string;
+  currentCellId: string;
+  currentAnchorId: string;
+  cells: CityCellRecord[];
+  anchors: CityAnchorRecord[];
+  tenants: CityTenantRecord[];
+  shops: RuntimeShopRecord[];
+  todos: RuntimeTodoRecord[];
+  transportStops: TransportStopRecord[];
+  transportLines: TransportLineRecord[];
+  transportProjects: TransportProjectRecord[];
+}
+
 // --- Faction System Types ---
 
 export interface FactionLog {

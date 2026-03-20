@@ -24,6 +24,13 @@ rules:
       - 必须与正文场景一致
       - 禁止写入外世界地点名
 
+  world.current_cell_id / world.current_anchor_id:
+    type: string
+    check:
+      - 仅写当前数字地图锚点，不写完整注册表
+      - 允许为空字符串
+      - 如已锁定当前地点，应与 LN 本地运行时的当前区块/锚点一致
+
   world.current_district:
     type: string
     check:

@@ -6,6 +6,7 @@ import ChipPanel from './components/left/ChipPanel';
 import PsionicEconomyPanel from './components/left/PsionicEconomyPanel';
 import StatusPenaltyPanel from './components/left/StatusPenaltyPanel';
 import LingshuStatusPanel from './components/left/LingshuStatusPanel';
+import CityRuntimePanel from './components/left/CityRuntimePanel';
 import SpiritNexus from './components/right/SpiritNexus';
 import type { SocialImportDraft } from './components/right/LingnetPhonePanel';
 import NarrativeFeed from './components/center/NarrativeFeed';
@@ -47,6 +48,7 @@ import {
   BlackRaceMarket,
   PlayerResidenceState,
   ResidenceProfile,
+  CityRuntimeData,
 } from './types';
 import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum, replaceUiActions } from './utils/pseudoLayer';
 import {
@@ -68,10 +70,11 @@ import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
+import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
-type LeftModuleTab = 'chips' | 'economy' | 'lingshu' | 'inventory';
+type LeftModuleTab = 'chips' | 'economy' | 'lingshu' | 'inventory' | 'city';
 type RightPanelTab = 'contacts' | 'phone' | 'system' | 'settings';
 const LN_ARCHIVES_KEY_PREFIX = 'ln_archives_v2';
 const LN_LAST_ARCHIVE_ID_KEY_PREFIX = 'ln_last_archive_id_v2';
@@ -220,6 +223,7 @@ interface LnSaveData {
   focusedLayerId: string | null;
   worldNodeMap?: WorldNodeMapData;
   mapRuntime?: MapRuntimeData;
+  cityRuntime?: CityRuntimeData;
   playerSoulLedger?: Partial<Record<Rank, number>>;
   coinVault?: Partial<Record<Rank, number>>;
   playerCoreAffixes?: RuntimeAffix[];
@@ -3396,6 +3400,7 @@ const App: React.FC = () => {
   const [financeLedger, setFinanceLedger] = useState<FinanceLedgerEntry[]>([]);
   const [blackRaceMarket, setBlackRaceMarket] = useState<BlackRaceMarket>(() => buildBlackRaceMarket());
   const [blackRaceHistory, setBlackRaceHistory] = useState<BlackRaceBetRecord[]>([]);
+  const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
 
@@ -3484,7 +3489,7 @@ const App: React.FC = () => {
   }, [isMobileViewport]);
 
   useEffect(() => {
-    setLeftModuleTab(prev => (prev === 'chips' || prev === 'economy' || prev === 'lingshu' || prev === 'inventory' ? prev : 'chips'));
+    setLeftModuleTab(prev => (prev === 'chips' || prev === 'economy' || prev === 'lingshu' || prev === 'inventory' || prev === 'city' ? prev : 'chips'));
   }, [playerGender]);
 
   useEffect(() => {
@@ -4262,6 +4267,17 @@ const App: React.FC = () => {
       }),
     [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters],
   );
+  useEffect(() => {
+    const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (!locationLabel) return;
+    setCityRuntime(prev => {
+      const ensured = ensureAnchorForLocation(prev, {
+        locationLabel,
+        legacyAliases: [/X\d{1,2}/.exec(locationLabel)?.[0], /H\d{1,3}/.exec(locationLabel)?.[0]].filter(Boolean) as string[],
+      });
+      return ensured.changed ? ensured.runtime : prev;
+    });
+  }, [currentNarrativeLocation, playerFaction.headquarters]);
   const lingshuRuntimeAffixes = useMemo(
     () => playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name }))),
     [playerLingshu],
@@ -4792,6 +4808,8 @@ const App: React.FC = () => {
             current_time: effectiveGameTimeText,
             current_period: effectiveGameDayPhase,
             current_location: nextNarrativeLocation,
+            current_cell_id: cityRuntime.currentCellId || '',
+            current_anchor_id: cityRuntime.currentAnchorId || '',
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -4940,6 +4958,7 @@ const App: React.FC = () => {
     focusedLayerId,
     worldNodeMap,
     mapRuntime,
+    cityRuntime,
     playerSoulLedger,
     coinVault,
     playerCoreAffixes,
@@ -4980,7 +4999,11 @@ const App: React.FC = () => {
     );
     setPlayerFaction(payload.playerFaction || MOCK_PLAYER_FACTION);
     setLeftModuleTab(
-      payload.leftModuleTab === 'chips' || payload.leftModuleTab === 'economy' || payload.leftModuleTab === 'lingshu' || payload.leftModuleTab === 'inventory'
+      payload.leftModuleTab === 'chips' ||
+        payload.leftModuleTab === 'economy' ||
+        payload.leftModuleTab === 'lingshu' ||
+        payload.leftModuleTab === 'inventory' ||
+        payload.leftModuleTab === 'city'
         ? payload.leftModuleTab
         : 'chips',
     );
@@ -5020,6 +5043,7 @@ const App: React.FC = () => {
         logs: [],
       },
     );
+    setCityRuntime(normalizeCityRuntime(payload.cityRuntime) || createEmptyCityRuntime());
     setMonthlySettlementLog(payload.monthlySettlementLog || []);
     setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
     setFinanceLedger(payload.financeLedger || []);
@@ -5901,7 +5925,24 @@ const App: React.FC = () => {
     }
 
     if (action.route === 'shop' && sceneActionState.shop) {
-      setSceneModal({ mode: 'shop', shop: sceneActionState.shop });
+      const registered = ensureRuntimeShop(cityRuntime, {
+        locationLabel: currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel,
+        suggestedName: sceneActionState.shop.title,
+        archetype: sceneActionState.shop.archetype,
+        summary: sceneActionState.shop.summary,
+      });
+      if (registered.changed) {
+        setCityRuntime(registered.runtime);
+      }
+      setSceneModal({
+        mode: 'shop',
+        shop: {
+          ...sceneActionState.shop,
+          id: registered.shop.id,
+          title: registered.shop.name,
+          locationLabel: currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel,
+        },
+      });
       return;
     }
 
@@ -7775,6 +7816,7 @@ const App: React.FC = () => {
     focusedLayerId,
     worldNodeMap,
     mapRuntime,
+    cityRuntime,
     playerSoulLedger,
     coinVault,
     playerCoreAffixes,
@@ -8351,6 +8393,7 @@ const App: React.FC = () => {
     { id: 'economy', label: '铸币面板' },
     { id: 'lingshu', label: '灵枢' },
     { id: 'inventory', label: '物品栏' },
+    { id: 'city', label: '鍩庡煙璐︽湰' },
   ];
   const nextRankForCross = useMemo(() => {
     const lv = rankToLevel(playerStats.psionic.level);
@@ -8568,6 +8611,14 @@ const App: React.FC = () => {
                   >
                     <Package className="w-3 h-3 mr-1" /> 打开物品库
                   </div>
+                </div>
+              </CyberPanel>
+            )}
+
+            {leftModuleTab === 'city' && (
+              <CyberPanel title="鍩庡煙璐︽湰" className="flex-1 min-h-[180px]" allowExpand collapsible>
+                <div className="p-3 bg-black/50 min-h-full">
+                  <CityRuntimePanel runtime={cityRuntime} currentLocation={currentNarrativeLocation || playerFaction.headquarters || '鏈煡鍖哄煙'} />
                 </div>
               </CyberPanel>
             )}

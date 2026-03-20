@@ -19,6 +19,8 @@ export const MvuStatDataSchema = z.object({
     current_time: z.string(),
     current_period: z.enum(['深夜', '夜晚', '清晨', '白天', '黄昏']),
     current_location: z.string(),
+    current_cell_id: z.string(),
+    current_anchor_id: z.string(),
     current_district: z.string(),
     current_site_type: z.string(),
     current_site_id: z.string(),
