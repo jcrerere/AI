@@ -10,6 +10,7 @@ import NPCProfile from './components/right/NPCProfile';
 import ContactList from './components/right/ContactList';
 import LingnetPhonePanel, { SocialImportDraft } from './components/right/LingnetPhonePanel';
 import MonthlySettlementPanel from './components/right/MonthlySettlementPanel';
+import ResidencePanel from './components/right/ResidencePanel';
 import TaxDossierPanel from './components/right/TaxDossierPanel';
 import NarrativeFeed from './components/center/NarrativeFeed';
 import ItemDetailView from './components/ui/ItemDetailView';
@@ -45,6 +46,8 @@ import {
   NpcDarknetRecord,
   NpcDarknetService,
   FinanceLedgerEntry,
+  PlayerResidenceState,
+  ResidenceProfile,
 } from './types';
 import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum } from './utils/pseudoLayer';
 import {
@@ -63,6 +66,7 @@ import { pullPseudoLayerMessagesFromTavern, resolveTavernChatBridge } from './ut
 import { buildDefaultSetupPack, cloneCareerTracks, cloneChipList } from './data/setupPack';
 import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTurns, getNpcDirectorLookupTokens } from './data/npcCodex';
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
+import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -201,6 +205,7 @@ interface LnSaveData {
   monthlySettlementLog?: MonthlySettlementRecord[];
   settlementCheckpointMonth?: string | null;
   financeLedger?: FinanceLedgerEntry[];
+  playerResidence?: PlayerResidenceState;
   stateLock?: StateLockConfig;
 }
 
@@ -442,6 +447,238 @@ const resolveAirelaSceneState = (
     currentSiteId: '',
     currentSiteLabel: '',
   };
+};
+
+const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
+  currentResidenceId: '',
+  currentResidenceLabel: '',
+  unlockedResidenceIds: [],
+};
+
+const normalizeResidenceState = (
+  rawState: Partial<PlayerResidenceState> | null | undefined,
+  fallback?: Partial<PlayerResidenceState> | null,
+): PlayerResidenceState => {
+  const currentResidenceId = `${rawState?.currentResidenceId ?? fallback?.currentResidenceId ?? ''}`.trim();
+  const currentResidenceLabel = `${rawState?.currentResidenceLabel ?? fallback?.currentResidenceLabel ?? ''}`.trim();
+  const unlockedResidenceIds = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(rawState?.unlockedResidenceIds) ? rawState!.unlockedResidenceIds : []),
+        ...(Array.isArray(fallback?.unlockedResidenceIds) ? fallback!.unlockedResidenceIds : []),
+        currentResidenceId,
+      ]
+        .map(value => `${value ?? ''}`.trim())
+        .filter(Boolean),
+    ),
+  );
+  return {
+    currentResidenceId,
+    currentResidenceLabel,
+    unlockedResidenceIds,
+  };
+};
+
+const buildFallbackResidenceProfile = (residence: PlayerResidenceState, districtLabel: string): ResidenceProfile | null => {
+  if (!residence.currentResidenceId && !residence.currentResidenceLabel) return null;
+  return {
+    id: residence.currentResidenceId || `legacy_residence_${hashText(residence.currentResidenceLabel || 'fallback')}`,
+    label: residence.currentResidenceLabel || residence.currentResidenceId,
+    kind: 'temporary',
+    source: 'fallback',
+    districtLabel: districtLabel || '未登记分区',
+    summary: '旧档案或剧情里留下的住处记录，尚未进入结构化住所目录。',
+    safety: 'Medium',
+    privacy: 'Medium',
+    curfew: '跟随当地法域',
+    monthlyCost: 0,
+    switchCost: 0,
+    restMinutes: 360,
+    hpRestore: 12,
+    mpRestore: 24,
+    sanityRestore: 10,
+    note: '建议后续迁入结构化住处，避免月结和住册信息脱节。',
+  };
+};
+
+const buildJurisdictionResidenceProfile = (location: string, districtLabel: string): ResidenceProfile => {
+  const jurisdiction = resolveLocationJurisdiction(location);
+  switch (jurisdiction.key) {
+    case 'aerila':
+      return {
+        id: 'airela_civic_capsule',
+        label: `${districtLabel || '艾瑞拉'}·民政夜栖舱`,
+        kind: 'rental',
+        source: 'civic',
+        districtLabel: districtLabel || '艾瑞拉法域',
+        summary: '首都法域下的标准化夜栖舱，手续快，但监控和宵禁都更重。',
+        safety: 'High',
+        privacy: 'Low',
+        curfew: '严格',
+        monthlyCost: 180,
+        switchCost: 120,
+        restMinutes: 420,
+        hpRestore: 16,
+        mpRestore: 32,
+        sanityRestore: 8,
+        note: '适合保信用和保通行，但不适合做隐蔽会面。',
+      };
+    case 'cuiling':
+      return {
+        id: 'cuiling_shift_dorm',
+        label: '淬灵区·轮班宿舍',
+        kind: 'rental',
+        source: 'industrial',
+        districtLabel: districtLabel || '淬灵区法域',
+        summary: '工序区配套宿舍，成本低、恢复稳定，但生活节奏被排班绑定。',
+        safety: 'Medium',
+        privacy: 'Low',
+        curfew: '常规',
+        monthlyCost: 110,
+        switchCost: 70,
+        restMinutes: 420,
+        hpRestore: 14,
+        mpRestore: 28,
+        sanityRestore: 10,
+        note: '适合做长期周转住处，不适合高强度藏匿。',
+      };
+    case 'xiyu':
+      return {
+        id: 'xiyu_port_hostel',
+        label: '汐屿区·港务旅舍',
+        kind: 'rental',
+        source: 'port',
+        districtLabel: districtLabel || '汐屿区法域',
+        summary: '港区流动人口旅舍，手续弹性高，适合短期停泊和中转。',
+        safety: 'Medium',
+        privacy: 'Medium',
+        curfew: '港巡时段',
+        monthlyCost: 150,
+        switchCost: 100,
+        restMinutes: 360,
+        hpRestore: 12,
+        mpRestore: 26,
+        sanityRestore: 12,
+        note: '边检友好，但消费记录会留痕。',
+      };
+    case 'north':
+      return {
+        id: 'north_silk_suite',
+        label: '诺丝区·灰幕套间',
+        kind: 'safehouse',
+        source: 'market',
+        districtLabel: districtLabel || '诺丝区法域',
+        summary: '灰产地带的短租套间，隐匿性高，但维持费和灰色抽成都更重。',
+        safety: 'Medium',
+        privacy: 'High',
+        curfew: '宽松',
+        monthlyCost: 240,
+        switchCost: 160,
+        restMinutes: 360,
+        hpRestore: 14,
+        mpRestore: 30,
+        sanityRestore: 16,
+        note: '适合会面和藏匿，但会抬高月维持费。',
+      };
+    case 'holy':
+      return {
+        id: 'holy_parish_bed',
+        label: '圣教区·教律宿床',
+        kind: 'temporary',
+        source: 'parish',
+        districtLabel: districtLabel || '圣教区法域',
+        summary: '教区宿床成本低，但规训高、公开审查强。',
+        safety: 'High',
+        privacy: 'Low',
+        curfew: '严密',
+        monthlyCost: 90,
+        switchCost: 40,
+        restMinutes: 480,
+        hpRestore: 18,
+        mpRestore: 24,
+        sanityRestore: 6,
+        note: '只适合守规矩的停留，不适合带灰色状态久住。',
+      };
+    case 'borderland':
+      return {
+        id: 'borderland_safe_camp',
+        label: '交界地·加固营位',
+        kind: 'safehouse',
+        source: 'frontier',
+        districtLabel: districtLabel || '交界地法域',
+        summary: '边地营位更像生存据点，隐匿好，但安全和恢复都不稳定。',
+        safety: 'Low',
+        privacy: 'High',
+        curfew: '无统一',
+        monthlyCost: 130,
+        switchCost: 80,
+        restMinutes: 300,
+        hpRestore: 10,
+        mpRestore: 18,
+        sanityRestore: 8,
+        note: '适合躲风险，不适合长期恢复。',
+      };
+    default:
+      return {
+        id: 'civic_transit_pod',
+        label: '区域·中转舱位',
+        kind: 'temporary',
+        source: 'fallback',
+        districtLabel: districtLabel || '未锁定法域',
+        summary: '临时中转床位，能应急，但不适合长期绑定。',
+        safety: 'Medium',
+        privacy: 'Low',
+        curfew: '跟随当地法域',
+        monthlyCost: 100,
+        switchCost: 60,
+        restMinutes: 300,
+        hpRestore: 10,
+        mpRestore: 18,
+        sanityRestore: 8,
+        note: '更适合作为过渡住处。',
+      };
+  }
+};
+
+const buildResidenceProfiles = (params: {
+  location: string;
+  hasBetaChip: boolean;
+  status: PlayerCivilianStatus;
+  residence: PlayerResidenceState;
+}): ResidenceProfile[] => {
+  const districtLabel = params.status.assignedDistrict || resolveLocationJurisdiction(params.location).regionLabel || '未锁定法域';
+  const officialBinding =
+    params.hasBetaChip && (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
+      ? resolveAirelaFacilityBinding({
+          districtHint: params.status.assignedDistrict || params.status.assignedHXDormLabel || '',
+          citizenId: params.status.citizenId || '',
+        })
+      : null;
+  const profiles: ResidenceProfile[] = [];
+  if (params.hasBetaChip && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
+    profiles.push({
+      id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
+      label: params.status.assignedHXDormLabel,
+      kind: 'official',
+      source: 'beta',
+      districtLabel: params.status.assignedDistrict || '艾瑞拉·官方分区',
+      summary: 'Beta 管理链登记宿位，通行与税务最稳定，但夜禁、点名和监管都会更密。',
+      safety: 'High',
+      privacy: 'Low',
+      curfew: '严格',
+      monthlyCost: 90,
+      switchCost: 0,
+      restMinutes: 420,
+      hpRestore: 18,
+      mpRestore: 36,
+      sanityRestore: 12,
+      note: '官方宿位始终保留，不会因切换民间住处而丢失住册。',
+    });
+  }
+  profiles.push(buildJurisdictionResidenceProfile(params.location, districtLabel));
+  const fallback = buildFallbackResidenceProfile(params.residence, districtLabel);
+  if (fallback) profiles.push(fallback);
+  return Array.from(new Map(profiles.map(profile => [profile.id, profile])).values());
 };
 
 const ensurePseudoLayerOnLoad = (
@@ -3000,6 +3237,7 @@ const App: React.FC = () => {
     taxOfficerName: '',
     taxOfficeAddress: '',
   });
+  const [playerResidence, setPlayerResidence] = useState<PlayerResidenceState>(EMPTY_RESIDENCE_STATE);
   const [betaTasks, setBetaTasks] = useState<BetaTask[]>([]);
   const [acceptedBetaTaskIds, setAcceptedBetaTaskIds] = useState<string[]>([]);
   const [claimableBetaTaskIds, setClaimableBetaTaskIds] = useState<string[]>([]);
@@ -3234,7 +3472,7 @@ const App: React.FC = () => {
       const raw = window.localStorage.getItem(archiveStorageKey);
       const parsed = raw ? (JSON.parse(raw) as ArchiveSlot[]) : [];
       const valid = Array.isArray(parsed)
-        ? parsed.filter(slot => slot?.id && slot?.name && slot?.data && (slot.data.version === 1 || slot.data.version === undefined))
+        ? parsed.filter(slot => slot?.id && slot?.name && slot?.data && (slot.data.version === 1 || slot.data.version === 2 || slot.data.version === undefined))
         : [];
       setArchiveSlots(valid);
 
@@ -3435,6 +3673,11 @@ const App: React.FC = () => {
       chipRaw && typeof chipRaw === 'object' && !Array.isArray(chipRaw)
         ? chipRaw
         : {};
+    const residenceRaw = playerNode?.residence;
+    const residenceNode =
+      residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw)
+        ? residenceRaw
+        : {};
     const sixDimRaw = playerNode?.six_dim;
     const sixDim =
       sixDimRaw && typeof sixDimRaw === 'object' && !Array.isArray(sixDimRaw)
@@ -3476,6 +3719,40 @@ const App: React.FC = () => {
     const pulledAssignedXStationLabel = `${chipNode?.assigned_x_station_label ?? ''}`.trim();
     const pulledAssignedHXDormId = `${chipNode?.assigned_hx_dorm_id ?? ''}`.trim().toUpperCase();
     const pulledAssignedHXDormLabel = `${chipNode?.assigned_hx_dorm_label ?? ''}`.trim();
+    const hasAirelaBinding =
+      protocolValue === 'beta' ||
+      chipNode?.beta_equipped === true ||
+      !!(`${chipNode?.tax_officer_id ?? ''}`.trim()) ||
+      !!pulledAssignedDistrict ||
+      !!pulledAssignedXStationId ||
+      !!pulledAssignedHXDormId;
+    const derivedBinding = hasAirelaBinding
+      ? resolveAirelaFacilityBinding({
+          districtHint:
+            pulledAssignedDistrict ||
+            pulledAssignedXStationLabel ||
+            pulledAssignedHXDormLabel ||
+            `${chipNode?.tax_office_address ?? chipNode?.office_address ?? ''}`.trim() ||
+            regionValue,
+          citizenId: citizenIdValue || '',
+        })
+      : null;
+    const pulledResidence = normalizeResidenceState(
+      {
+        currentResidenceId: `${residenceNode?.current_residence_id ?? ''}`.trim(),
+        currentResidenceLabel: `${residenceNode?.current_residence_label ?? ''}`.trim(),
+        unlockedResidenceIds: Array.isArray(residenceNode?.unlocked_residence_ids)
+          ? residenceNode.unlocked_residence_ids
+          : [],
+      },
+      hasAirelaBinding
+        ? {
+            currentResidenceId: derivedBinding?.residenceId || '',
+            currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
+            unlockedResidenceIds: derivedBinding?.residenceId ? [derivedBinding.residenceId] : [],
+          }
+        : null,
+    );
     const syncSignature = JSON.stringify({
       playerName: `${playerNode?.name ?? playerNode?.display_name ?? ''}`.trim() || null,
       hpCurrent: toFiniteNumber(coreStatus?.hp?.current) ?? toFiniteNumber(status?.hp?.current) ?? null,
@@ -3511,6 +3788,9 @@ const App: React.FC = () => {
       lingshu: lingshuFromStat.map(part => [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|')),
       taxOfficerId: `${chipNode?.tax_officer_id ?? ''}`.trim() || null,
       taxArrears: toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears) ?? null,
+      currentResidenceId: pulledResidence.currentResidenceId || null,
+      currentResidenceLabel: pulledResidence.currentResidenceLabel || null,
+      unlockedResidenceIds: pulledResidence.unlockedResidenceIds,
     });
     lastPulledSyncSignatureRef.current = syncSignature;
 
@@ -3521,6 +3801,10 @@ const App: React.FC = () => {
     if (protocolValue) {
       setPlayerNeuralProtocol(prev => (prev === protocolValue ? prev : protocolValue));
     }
+    setPlayerResidence(prev => {
+      const next = pulledResidence;
+      return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+    });
     if (factionValue || regionValue) {
       setPlayerFaction(prev => {
         const next = {
@@ -3647,24 +3931,6 @@ const App: React.FC = () => {
       const pulledOfficeAddress = `${chipNode?.tax_office_address ?? chipNode?.office_address ?? ''}`.trim();
       const pulledTaxAmount = toFiniteNumber(chipNode?.tax_amount ?? chipNode?.taxAmount);
       const pulledTaxArrears = toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears);
-      const hasAirelaBinding =
-        protocolValue === 'beta' ||
-        chipNode?.beta_equipped === true ||
-        !!pulledOfficerId ||
-        !!pulledAssignedDistrict ||
-        !!pulledAssignedXStationId ||
-        !!pulledAssignedHXDormId;
-      const derivedBinding = hasAirelaBinding
-        ? resolveAirelaFacilityBinding({
-            districtHint:
-              pulledAssignedDistrict ||
-              pulledAssignedXStationLabel ||
-              pulledAssignedHXDormLabel ||
-              pulledOfficeAddress ||
-              regionValue,
-            citizenId: citizenIdValue || prev.citizenId || '',
-          })
-        : null;
       const nextAssignedDistrict = hasAirelaBinding ? pulledAssignedDistrict || derivedBinding?.districtName || '' : '';
       const nextAssignedXStationId = hasAirelaBinding ? pulledAssignedXStationId || derivedBinding?.xStationId || '' : '';
       const nextAssignedXStationLabel = hasAirelaBinding
@@ -3857,10 +4123,33 @@ const App: React.FC = () => {
       ),
     [currentNarrativeLocation, playerFaction.headquarters, gameDayPhase, playerNeuralProtocol, playerGender, betaStatus.creditScore, gameSceneHint],
   );
+  const residenceProfiles = useMemo(
+    () =>
+      buildResidenceProfiles({
+        location: currentNarrativeLocation || playerFaction.headquarters || '未知区域',
+        hasBetaChip,
+        status: betaStatus,
+        residence: playerResidence,
+      }),
+    [
+      currentNarrativeLocation,
+      playerFaction.headquarters,
+      hasBetaChip,
+      betaStatus,
+      playerResidence,
+    ],
+  );
+  const currentResidenceProfile = useMemo(
+    () =>
+      residenceProfiles.find(profile => profile.id === playerResidence.currentResidenceId) ||
+      buildFallbackResidenceProfile(playerResidence, betaStatus.assignedDistrict || resolveLocationJurisdiction(currentNarrativeLocation || '').regionLabel),
+    [residenceProfiles, playerResidence, betaStatus.assignedDistrict, currentNarrativeLocation],
+  );
   const monthlySettlementPreview = useMemo(() => {
     const checkpointMonth = settlementCheckpointMonth || currentMonthKey;
     const pendingMonths = getMonthDiff(checkpointMonth, currentMonthKey);
     const upkeepBase = playerLingshu.length * 18 + playerChips.filter(chip => chip.type !== 'board').length * 12;
+    const residenceUpkeep = currentResidenceProfile?.monthlyCost || 0;
     const debuffCost = mergedRuntimeAffixes.reduce((sum, affix) => sum + (affix.type === 'debuff' ? 18 : affix.type === 'neutral' ? 8 : 0), 0);
     const warningCost = (betaStatus.warnings || []).length * 25;
     const economyBaseline = Math.max(0, (playerFaction.economy.monthlyIncome || 0) - (playerFaction.economy.monthlyUpkeep || 0));
@@ -3870,7 +4159,7 @@ const App: React.FC = () => {
     const currentTaxDue = pendingMonths * Math.max(0, betaStatus.taxAmount || 0);
     const arrearsDue = Math.max(0, betaStatus.taxArrears || 0);
     const taxDue = currentTaxDue + arrearsDue;
-    const maintenanceCost = pendingMonths * upkeepBase;
+    const maintenanceCost = pendingMonths * (upkeepBase + residenceUpkeep);
     const penaltyCost = pendingMonths * (debuffCost + warningCost);
     const netDelta = baseAllowance - taxDue - maintenanceCost - penaltyCost;
     return {
@@ -3883,12 +4172,17 @@ const App: React.FC = () => {
       currentTaxDue,
       arrearsDue,
       taxDue,
+      residenceCost: pendingMonths * residenceUpkeep,
+      residenceLabel: currentResidenceProfile?.label || '未登记住所',
       maintenanceCost,
       penaltyCost,
       netDelta,
       notes: [
         `基础津贴由派系月度净收入、Beta 等级和信誉补贴共同决定。`,
         arrearsDue > 0 ? `当前累计欠缴情形 ¥${arrearsDue.toLocaleString()}，本次会并入应缴税额。` : `当前没有历史欠缴情形，月结只计算本期税额。`,
+        currentResidenceProfile
+          ? `当前住所「${currentResidenceProfile.label}」会带来 ¥${(pendingMonths * residenceUpkeep).toLocaleString()} 的住处维持费。`
+          : `当前还没有稳定住所，月结暂不计入住处维持费。`,
         `灵枢部件、已装配芯片和异常状态会持续抬高维持费与风险扣款。`,
         `若结算后余额不足，会记为欠缴并直接压低信誉值。`,
       ],
@@ -3898,6 +4192,7 @@ const App: React.FC = () => {
     currentMonthKey,
     playerLingshu.length,
     playerChips,
+    currentResidenceProfile,
     mergedRuntimeAffixes,
     betaStatus.warnings,
     betaStatus.betaLevel,
@@ -4088,6 +4383,9 @@ const App: React.FC = () => {
       assignedDistrict: nextAssignedDistrict || null,
       assignedXStationId: nextAssignedXStationId || null,
       assignedHXDormId: nextAssignedHXDormId || null,
+      currentResidenceId: playerResidence.currentResidenceId || null,
+      currentResidenceLabel: playerResidence.currentResidenceLabel || null,
+      unlockedResidenceIds: playerResidence.unlockedResidenceIds,
       lcoin: nextCoinBuckets,
       coreAffixes: nextCoreAffixes,
       lingshu: nextLingshuParts.map(part => [part.key, part.level, part.rank].join('|')),
@@ -4145,26 +4443,22 @@ const App: React.FC = () => {
             : {};
         const nextNarrativeLocation = currentNarrativeLocation || world.current_location || '未知区域';
         const nextSceneState = resolveAirelaSceneState(nextNarrativeLocation, hasBetaChip ? airelaBinding : null);
-        const currentResidenceId = `${residenceState.current_residence_id ?? ''}`.trim();
-        const currentResidenceLabel = `${residenceState.current_residence_label ?? ''}`.trim();
-        const unlockedResidenceIds = Array.isArray(residenceState.unlocked_residence_ids)
-          ? Array.from(
-              new Set(
-                residenceState.unlocked_residence_ids
-                  .map(value => `${value ?? ''}`.trim())
-                  .filter(Boolean),
-              ),
-            )
-          : [];
-        const nextResidenceId = currentResidenceId || (hasBetaChip ? airelaBinding?.residenceId || '' : '');
-        const nextResidenceLabel = currentResidenceLabel || (hasBetaChip ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : '');
-        const nextUnlockedResidenceIds = Array.from(
-          new Set([
-            ...unlockedResidenceIds,
-            ...(hasBetaChip && (airelaBinding?.residenceId || nextResidenceId)
-              ? [airelaBinding?.residenceId || nextResidenceId]
-              : []),
-          ].filter(Boolean)),
+        const mergedResidence = normalizeResidenceState(
+          {
+            currentResidenceId: playerResidence.currentResidenceId,
+            currentResidenceLabel: playerResidence.currentResidenceLabel,
+            unlockedResidenceIds: playerResidence.unlockedResidenceIds,
+          },
+          {
+            currentResidenceId: `${residenceState.current_residence_id ?? ''}`.trim() || (hasBetaChip ? airelaBinding?.residenceId || '' : ''),
+            currentResidenceLabel:
+              `${residenceState.current_residence_label ?? ''}`.trim() ||
+              (hasBetaChip ? nextAssignedHXDormLabel || airelaBinding?.residenceLabel || '' : ''),
+            unlockedResidenceIds: [
+              ...(Array.isArray(residenceState.unlocked_residence_ids) ? residenceState.unlocked_residence_ids : []),
+              ...(hasBetaChip && airelaBinding?.residenceId ? [airelaBinding.residenceId] : []),
+            ],
+          },
         );
         const nextPlayer: Record<string, any> = {
           ...player,
@@ -4187,9 +4481,9 @@ const App: React.FC = () => {
           credits: playerStats.credits,
           residence: {
             ...residenceState,
-            current_residence_id: nextResidenceId,
-            current_residence_label: nextResidenceLabel,
-            unlocked_residence_ids: nextUnlockedResidenceIds,
+            current_residence_id: mergedResidence.currentResidenceId,
+            current_residence_label: mergedResidence.currentResidenceLabel,
+            unlocked_residence_ids: mergedResidence.unlockedResidenceIds,
           },
           core_status: {
             ...coreStatus,
@@ -4340,6 +4634,9 @@ const App: React.FC = () => {
     betaStatus.assignedXStationLabel,
     betaStatus.assignedHXDormId,
     betaStatus.assignedHXDormLabel,
+    playerResidence.currentResidenceId,
+    playerResidence.currentResidenceLabel,
+    playerResidence.unlockedResidenceIds,
     betaStatus.taxOfficerBoundId,
     betaStatus.taxOfficerName,
     betaStatus.taxOfficeAddress,
@@ -4426,6 +4723,7 @@ const App: React.FC = () => {
     monthlySettlementLog,
     settlementCheckpointMonth,
     financeLedger,
+    playerResidence,
     stateLock,
   });
 
@@ -4500,6 +4798,7 @@ const App: React.FC = () => {
     setMonthlySettlementLog(payload.monthlySettlementLog || []);
     setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
     setFinanceLedger(payload.financeLedger || []);
+    setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setStateLock(
       payload.stateLock || {
         lockTime: false,
@@ -6551,6 +6850,13 @@ const App: React.FC = () => {
   const handleSetupComplete = async (config: GameConfig) => {
     const nextPlayerName = config.name.trim() || LN_DEFAULT_PLAYER_NAME;
     const nextProtocol = config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none');
+    const initialResidenceBinding =
+      nextProtocol === 'beta'
+        ? resolveAirelaFacilityBinding({
+            districtHint: config.startingLocation,
+            citizenId: config.citizenId,
+          })
+        : null;
     const startRankConfig = RANK_CONFIG[config.startPsionicRank];
     const startMaxMp = getMaxMpByGenderAndRank(config.gender, config.startPsionicRank);
     const newStats: PlayerStats = {
@@ -6612,6 +6918,17 @@ const App: React.FC = () => {
     setStorageChips(runtimeChipPool.filter(chip => !equippedChipIds.has(chip.id)));
     setPlayerInventory([...config.selectedItems]);
     setPlayerLingshu(config.selectedLingshu || []);
+    setPlayerResidence(
+      normalizeResidenceState(
+        nextProtocol === 'beta'
+          ? {
+              currentResidenceId: initialResidenceBinding?.residenceId || '',
+              currentResidenceLabel: initialResidenceBinding?.residenceLabel || '',
+              unlockedResidenceIds: initialResidenceBinding?.residenceId ? [initialResidenceBinding.residenceId] : [],
+            }
+          : EMPTY_RESIDENCE_STATE,
+      ),
+    );
     if (config.careerTracks && config.careerTracks.length > 0) {
       setCareerTracks(config.careerTracks);
     }
@@ -7027,6 +7344,8 @@ const App: React.FC = () => {
     playerCoreAffixes,
     monthlySettlementLog,
     settlementCheckpointMonth,
+    financeLedger,
+    playerResidence,
     stateLock,
   ]);
 
@@ -7071,6 +7390,101 @@ const App: React.FC = () => {
       type: 'narrative',
     };
     setMessages(prev => [...prev, navMsg]);
+  };
+
+  const handleSwitchResidence = (residenceId: string): { ok: boolean; message?: string } => {
+    const target = residenceProfiles.find(profile => profile.id === residenceId);
+    if (!target) {
+      return { ok: false, message: '未找到目标住处。' };
+    }
+    if (target.id === playerResidence.currentResidenceId) {
+      return { ok: false, message: '当前已经登记在该住处。' };
+    }
+    const alreadyUnlocked = playerResidence.unlockedResidenceIds.includes(target.id);
+    if (!alreadyUnlocked && target.switchCost > playerStats.credits) {
+      return { ok: false, message: `余额不足，当前登记需要 ¥${target.switchCost.toLocaleString()}。` };
+    }
+
+    if (!alreadyUnlocked && target.switchCost > 0) {
+      setPlayerStats(prev => ({
+        ...prev,
+        credits: Math.max(0, prev.credits - target.switchCost),
+      }));
+      pushFinanceLedgerEntry({
+        kind: 'system',
+        title: '住处登记',
+        detail: `已登记住处「${target.label}」。`,
+        amount: -target.switchCost,
+      });
+      spawnFloatingText(`-¥${target.switchCost.toLocaleString()}`, 'text-cyan-300');
+    }
+
+    setPlayerResidence(prev =>
+      normalizeResidenceState({
+        currentResidenceId: target.id,
+        currentResidenceLabel: target.label,
+        unlockedResidenceIds: [...prev.unlockedResidenceIds, target.id],
+      }),
+    );
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `residence_switch_${Date.now()}`,
+        sender: 'System',
+        content: alreadyUnlocked
+          ? `住册已切换至「${target.label}」，后续月结与休整将以此为当前住处。`
+          : `已完成住处登记：「${target.label}」。住处已写入住册，并接入后续月结。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    return { ok: true, message: `当前住处已切换为「${target.label}」。` };
+  };
+
+  const handleRestAtResidence = (): { ok: boolean; message?: string } => {
+    const target = currentResidenceProfile;
+    if (!target) {
+      return { ok: false, message: '当前还没有稳定住处。' };
+    }
+
+    let recoveredHp = 0;
+    let recoveredMp = 0;
+    let recoveredSanity = 0;
+    setPlayerStats(prev => {
+      const nextHp = Math.min(prev.hp.max, prev.hp.current + target.hpRestore);
+      const nextMp = Math.min(prev.mp.max, prev.mp.current + target.mpRestore);
+      const nextSanity = Math.min(prev.sanity.max, prev.sanity.current + target.sanityRestore);
+      recoveredHp = Math.max(0, nextHp - prev.hp.current);
+      recoveredMp = Math.max(0, nextMp - prev.mp.current);
+      recoveredSanity = Math.max(0, nextSanity - prev.sanity.current);
+      return {
+        ...prev,
+        hp: { ...prev.hp, current: nextHp },
+        mp: { ...prev.mp, current: nextMp },
+        sanity: { ...prev.sanity, current: nextSanity },
+      };
+    });
+
+    const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + target.restMinutes;
+    const nextGameTimeText = formatGameTime(nextElapsedMinutes);
+    const nextGameDayPhase = getDayPhase(nextElapsedMinutes);
+    setMapRuntime(prev => ({
+      ...prev,
+      elapsedMinutes: nextElapsedMinutes,
+      logs: [...(prev.logs || []), `住所休整 ${target.label} -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
+    }));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `residence_rest_${Date.now()}`,
+        sender: 'System',
+        content: `已在「${target.label}」完成休整。HP +${recoveredHp} / MP +${recoveredMp} / SAN +${recoveredSanity}。当前时段推进至 ${nextGameTimeText}。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`HP+${recoveredHp} MP+${recoveredMp}`, 'text-emerald-300');
+    return { ok: true, message: `已在「${target.label}」完成休整。` };
   };
 
   const handleRunMonthlySettlement = () => {
@@ -7862,6 +8276,15 @@ const App: React.FC = () => {
             {activeTab === 'system' && (
               <div className="space-y-4">
                 <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
+                <ResidencePanel
+                  residence={playerResidence}
+                  residenceOptions={residenceProfiles}
+                  status={betaStatus}
+                  currentLocation={currentNarrativeLocation || '未知区域'}
+                  playerCredits={playerStats.credits}
+                  onSwitchResidence={handleSwitchResidence}
+                  onRestAtResidence={handleRestAtResidence}
+                />
                 <TaxDossierPanel
                   status={betaStatus}
                   playerName={playerName}

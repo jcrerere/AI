@@ -134,6 +134,31 @@ export interface FinanceLedgerEntry {
   counterparty?: string;
 }
 
+export interface PlayerResidenceState {
+  currentResidenceId: string;
+  currentResidenceLabel: string;
+  unlockedResidenceIds: string[];
+}
+
+export interface ResidenceProfile {
+  id: string;
+  label: string;
+  kind: 'official' | 'rental' | 'safehouse' | 'temporary';
+  source: 'beta' | 'civic' | 'market' | 'port' | 'parish' | 'frontier' | 'industrial' | 'fallback';
+  districtLabel: string;
+  summary: string;
+  safety: 'High' | 'Medium' | 'Low';
+  privacy: 'High' | 'Medium' | 'Low';
+  curfew: string;
+  monthlyCost: number;
+  switchCost: number;
+  restMinutes: number;
+  hpRestore: number;
+  mpRestore: number;
+  sanityRestore: number;
+  note: string;
+}
+
 export interface PlayerCivilianStatus {
   citizenId: string;
   creditScore: number; // 0 - 120

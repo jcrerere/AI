@@ -13,6 +13,8 @@ interface SettlementPreview {
   currentTaxDue: number;
   arrearsDue: number;
   taxDue: number;
+  residenceCost: number;
+  residenceLabel: string;
   maintenanceCost: number;
   penaltyCost: number;
   netDelta: number;
@@ -49,7 +51,7 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-black/30 p-3">
-          <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
             <div>
               <div className="text-[10px] text-slate-500">基础津贴</div>
               <div className="text-sm font-bold text-emerald-300">+¥{preview.baseAllowance.toLocaleString()}</div>
@@ -59,7 +61,11 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
               <div className="text-sm font-bold text-red-300">-¥{preview.taxDue.toLocaleString()}</div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-500">维持费用</div>
+              <div className="text-[10px] text-slate-500">住所维持</div>
+              <div className="text-sm font-bold text-cyan-300">-¥{preview.residenceCost.toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-slate-500">总维持费</div>
               <div className="text-sm font-bold text-amber-300">-¥{preview.maintenanceCost.toLocaleString()}</div>
             </div>
             <div>
@@ -89,6 +95,10 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
             <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Arrears Carryover</div>
               <div className="mt-1 text-sm font-semibold text-amber-300">-¥{preview.arrearsDue.toLocaleString()}</div>
+            </div>
+            <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2 sm:col-span-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Residence Anchor</div>
+              <div className="mt-1 text-sm font-semibold text-cyan-200">{preview.residenceLabel}</div>
             </div>
           </div>
         </div>
