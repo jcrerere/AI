@@ -138,7 +138,7 @@ const ResidencePanel: React.FC<Props> = ({
             <div className="mt-1 text-[11px] text-slate-400">
               这条记录只在艾瑞拉法域内视为官方宿位；离开艾瑞拉后，它只保留为住册锚点，不会把外区住处算成官方分配。
             </div>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <div className="rounded border border-slate-800/90 bg-slate-950/40 p-2 text-[11px]">
                 <div className="text-slate-500">绑定分区</div>
                 <div className="mt-1 text-slate-200">{status.assignedDistrict || '未绑定'}</div>
@@ -185,7 +185,7 @@ const ResidencePanel: React.FC<Props> = ({
                       {actionLabel}
                     </button>
                   </div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-4 text-[11px]">
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] xl:grid-cols-4">
                     <div className="rounded border border-slate-800/90 bg-black/30 p-2">
                       <div className="text-slate-500">法域</div>
                       <div className="mt-1 text-slate-200">{option.districtLabel}</div>

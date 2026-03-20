@@ -8047,7 +8047,7 @@ const App: React.FC = () => {
           onClick={e => e.stopPropagation()}
           className={`border-r border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 md:h-full transition-all duration-300 absolute md:relative h-full overflow-y-auto custom-scrollbar scrollbar-hidden ${
             leftOpen
-              ? 'w-[calc(100%-3.5rem)] max-w-[320px] md:w-80 md:max-w-none translate-x-0'
+              ? 'w-full max-w-none md:w-80 md:max-w-none translate-x-0'
               : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
           }`}
         >
@@ -8055,7 +8055,10 @@ const App: React.FC = () => {
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex-1 space-y-3 min-w-0 md:min-w-[320px] pb-4 px-4 pt-4">
+          <div
+            className="flex-1 space-y-3 min-w-0 md:min-w-[320px] pb-4 px-4 pt-4"
+            style={isMobileViewport ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } : undefined}
+          >
             <CyberPanel title="生理监测" className="mb-2" noPadding variant="gold">
               <PlayerStatePanel
                 stats={effectivePlayerStats}
@@ -8246,7 +8249,10 @@ const App: React.FC = () => {
             }}
           />
 
-          <div className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md">
+          <div
+            className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md"
+            style={isMobileViewport ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } : undefined}
+          >
             <div className="flex gap-2">
               <span className="px-2 py-3 text-fuchsia-500 font-mono text-lg">{'>'}</span>
               <input
@@ -8281,11 +8287,11 @@ const App: React.FC = () => {
           onClick={e => e.stopPropagation()}
           className={`border-l border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 h-full transition-all duration-300 absolute md:relative right-0 ${
             rightOpen
-              ? 'w-[calc(100%-3.5rem)] max-w-[420px] md:w-[450px] md:max-w-none translate-x-0'
+              ? 'w-full max-w-none md:w-[450px] md:max-w-none translate-x-0'
               : 'w-0 translate-x-full md:w-0 overflow-hidden border-none'
           }`}
         >
-          <div className="flex border-b border-white/10 min-w-0 md:min-w-[380px]">
+          <div className="flex border-b border-white/10 min-w-0 overflow-x-auto md:min-w-[380px] md:overflow-visible">
             {[
               { id: 'contacts', icon: <Users className="w-4 h-4" />, label: '标记人物' },
               { id: 'phone', icon: <Smartphone className="w-4 h-4" />, label: '手机' },
@@ -8295,7 +8301,7 @@ const App: React.FC = () => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as RightPanelTab)}
-                className={`flex-1 py-3 text-xs font-bold uppercase flex flex-col items-center gap-1 transition-all ${
+                className={`flex min-w-[78px] flex-1 flex-col items-center gap-1 py-3 text-xs font-bold uppercase transition-all md:min-w-0 ${
                   activeTab === tab.id ? 'text-fuchsia-400 bg-fuchsia-950/20 border-b-2 border-fuchsia-400' : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
@@ -8307,7 +8313,10 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 pr-6 ln-carbon min-w-0 md:min-w-[380px] custom-scrollbar scrollbar-hidden">
+          <div
+            className="flex-1 min-w-0 overflow-y-auto p-4 pr-4 ln-carbon custom-scrollbar scrollbar-hidden md:min-w-[380px] md:pr-6"
+            style={isMobileViewport ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } : undefined}
+          >
             {activeTab === 'contacts' && (
               <div className="space-y-6 h-full flex flex-col">
                 {!selectedNPC ? (

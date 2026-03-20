@@ -121,7 +121,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, on
         <div className="mt-2 max-w-2xl text-xs leading-6 text-emerald-100/75">
           暗网独立维护人物志、节点画像与黑市记录，不再复用灵网动态流。这里更像受限终端，不是社交主页。
         </div>
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-2 text-[11px] sm:grid-cols-4">
           <div className="rounded-md border border-emerald-500/15 bg-black/35 px-3 py-2">
             <div className="tracking-[0.24em] uppercase text-emerald-400/70">Indexed</div>
             <div className="mt-1 text-lg font-semibold text-white">{indexedCount}</div>

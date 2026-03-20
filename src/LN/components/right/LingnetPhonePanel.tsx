@@ -231,6 +231,14 @@ const JURISDICTION_TONE_CLASS = {
   slate: 'border-white/10 bg-white/[0.03] text-slate-100',
 } as const;
 
+const PHONE_TABS: Array<{ id: PhoneView; label: string; icon: React.ReactNode }> = [
+  { id: 'lingnet', label: '灵网', icon: <Sparkles className="w-3.5 h-3.5" /> },
+  { id: 'darknet', label: '暗网', icon: <BookOpen className="w-3.5 h-3.5" /> },
+  { id: 'dm', label: '私信', icon: <MessageCircle className="w-3.5 h-3.5" /> },
+  { id: 'wallet', label: '钱包', icon: <Wallet className="w-3.5 h-3.5" /> },
+  { id: 'import', label: '导入', icon: <Import className="w-3.5 h-3.5" /> },
+];
+
 const LingnetPhonePanel: React.FC<Props> = ({
   npcs,
   playerName,
@@ -351,6 +359,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const phoneTheme = PHONE_THEMES[activeView];
   const jurisdiction = useMemo(() => resolveLocationJurisdiction(currentLocation), [currentLocation]);
   const reduceMotion = motionMode === 'lite';
+  const phoneContentInsetStyle = isCompactViewport
+    ? ({ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } as const)
+    : undefined;
   const resolveBatchSize = (base: number, compact: number, lite = compact) => {
     if (isCompactViewport) return compact;
     if (reduceMotion) return lite;
@@ -932,7 +943,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
               <div className="mt-3 text-sm leading-6 text-slate-200">
                 {activeProfileNpc.socialBio || `${activeProfileNpc.affiliation} · ${activeProfileNpc.position}`}
               </div>
-              <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-4">
+              <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300 sm:grid-cols-4">
                 <div className="rounded-[16px] border border-cyan-400/10 bg-black/25 px-3 py-2">
                   {activeProfileNpc.socialFeed.length} 动态
                 </div>
@@ -995,7 +1006,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 space-y-4">
       <div className="ln-float-soft rounded-[26px] border border-fuchsia-400/14 bg-[radial-gradient(circle_at_top_left,_rgba(217,70,239,0.16),_transparent_28%),linear-gradient(180deg,rgba(20,10,28,0.98),rgba(10,7,16,0.98))] px-4 py-4">
         <div className="text-[10px] uppercase tracking-[0.22em] text-fuchsia-100/60">Direct Message Lane</div>
-        <div className="mt-2 grid gap-2 text-sm text-slate-200 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-2 gap-2 text-sm text-slate-200 sm:grid-cols-3">
           <div>{dmAccounts.length} 个可用会话</div>
           <div>{paymentEntries.length} 笔关联转账</div>
           <div>{activeDmNpc ? `当前联系人 ${activeDmNpc.name}` : '等待新的链路'}</div>
@@ -1151,7 +1162,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
         <div className="mt-2 text-sm leading-6 text-amber-50/80">
           当前月结周期：{walletSummary.cycleLabel}。钱包需要同时承担灵网支付、税务扣缴和历史欠缴情形清偿。
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
           <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
             <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Balance</div>
             <div className="mt-2 text-3xl font-semibold text-white">{playerCredits}</div>
@@ -1219,7 +1230,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
         <div className="mt-2 text-sm leading-6 text-amber-50/80">
           当前月结周期：{walletSummary.cycleLabel}。钱包现在同时承担灵网支付、税务扣缴和历史欠缴情形清偿。
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-4">
           <div className="rounded-[20px] border border-amber-300/15 bg-black/20 p-4">
             <div className="text-[10px] uppercase tracking-[0.22em] text-amber-200/60">Balance</div>
             <div className="mt-2 text-3xl font-semibold text-white">{playerCredits}</div>
@@ -1241,7 +1252,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <div className="mt-2 text-xs text-amber-100/70">当期税额、维持费和风险扣款合计形成的结算压力。</div>
           </div>
         </div>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <div className="rounded-[18px] border border-amber-300/10 bg-black/20 px-3 py-3">
             <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Ledger Count</div>
             <div className="mt-1 text-lg font-semibold text-white">{ledgerEntries.length}</div>
@@ -1564,7 +1575,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <div className="text-[11px] font-semibold text-white">{jurisdiction.regionLabel}</div>
           </div>
           <div className="mt-2 text-[11px] leading-5 text-slate-200/85">{jurisdiction.summary}</div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {jurisdiction.chips.map(chip => (
               <div key={chip.label} className="rounded-[16px] border border-white/8 bg-black/20 px-3 py-2">
                 <div className="text-[10px] uppercase tracking-[0.18em] text-white/45">{chip.label}</div>
@@ -1575,19 +1586,26 @@ const LingnetPhonePanel: React.FC<Props> = ({
         </div>
       </div>
       <div className="px-4 pt-3">
-        <div className={`grid grid-cols-5 gap-2 rounded-[24px] border p-1 ${phoneTheme.navWrap}`}>
-          {[
-            { id: 'lingnet', label: '灵网', icon: <Sparkles className="w-3.5 h-3.5" /> },
-            { id: 'darknet', label: '暗网', icon: <BookOpen className="w-3.5 h-3.5" /> },
-            { id: 'dm', label: '私信', icon: <MessageCircle className="w-3.5 h-3.5" /> },
-            { id: 'wallet', label: '钱包', icon: <Wallet className="w-3.5 h-3.5" /> },
-            { id: 'import', label: '导入', icon: <Import className="w-3.5 h-3.5" /> },
-          ].map(tab => (
+        <div
+          className={
+            isCompactViewport ? '-mx-1 overflow-x-auto px-1 custom-scrollbar scrollbar-hidden' : undefined
+          }
+        >
+          <div
+            className={`gap-2 rounded-[24px] border p-1 ${phoneTheme.navWrap} ${
+              isCompactViewport ? 'flex min-w-max snap-x snap-mandatory' : 'grid grid-cols-5'
+            }`}
+          >
+            {PHONE_TABS.map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => switchView(tab.id as PhoneView)}
-              className={`ln-card-lift rounded-[18px] px-2 py-2 text-[11px] font-semibold flex flex-col sm:flex-row items-center justify-center gap-1.5 transition active:scale-[0.99] ${activeView === tab.id ? phoneTheme.navActive : phoneTheme.navIdle}`}
+              className={`ln-card-lift rounded-[18px] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.99] ${
+                isCompactViewport
+                  ? 'min-w-[92px] shrink-0 snap-start flex-col px-3 py-3'
+                  : 'flex-col px-2 py-2 sm:flex-row'
+              } ${activeView === tab.id ? phoneTheme.navActive : phoneTheme.navIdle}`}
             >
               {tab.icon}
               <span>{tab.label}</span>
@@ -1595,7 +1613,11 @@ const LingnetPhonePanel: React.FC<Props> = ({
           ))}
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 custom-scrollbar">
+      </div>
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 custom-scrollbar"
+        style={phoneContentInsetStyle}
+      >
         {uiFeedback ? (
           <div className="sticky top-0 z-10 pointer-events-none">
             <div
@@ -1617,7 +1639,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div className={`animate-in fade-in ${phoneTheme.sceneClass}`}>
             <div className="rounded-[24px] border border-cyan-400/12 bg-cyan-500/5 px-4 py-3">
               <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/60">Lingnet Layer</div>
-              <div className="mt-1 grid gap-2 text-sm text-slate-200 sm:grid-cols-3">
+              <div className="mt-1 grid grid-cols-2 gap-2 text-sm text-slate-200 sm:grid-cols-3">
                 <div>{lingnetStats.accounts} 个活跃账号</div>
                 <div>{lingnetStats.posts} 条公开动态</div>
                 <div>{lingnetStats.mutuals} 个互关联系人</div>
