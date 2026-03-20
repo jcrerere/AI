@@ -4,6 +4,7 @@ type LingnetTodoDraft = Omit<RuntimeTodoRecord, 'id' | 'unread'>;
 
 const TODO_LIMIT = 120;
 const MINUTES_PER_DAY = 24 * 60;
+const TODO_GRACE_MINUTES = 120;
 
 const normalizeKey = (value: string): string =>
   `${value || ''}`
@@ -234,6 +235,7 @@ export const upsertRuntimeTodo = (
     id: `todo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     ...draft,
     unread: true,
+    timelineState: draft.dueAtMinutes === null ? undefined : draft.dueAtMinutes <= draft.createdAtMinutes ? 'due' : 'upcoming',
   };
 
   return {
@@ -269,4 +271,65 @@ export const buildTodoDigest = (todos: RuntimeTodoRecord[]): string => {
   const activeTodos = todos.filter(todo => todo.status === 'active' || todo.status === 'ready').slice(0, 3);
   if (activeTodos.length === 0) return '';
   return activeTodos.map(todo => `${todo.title}@${todo.locationLabel}`).join(' | ');
+};
+
+export const buildDueTodoDigest = (todos: RuntimeTodoRecord[]): string => {
+  const dueTodos = todos.filter(todo => todo.status === 'ready').slice(0, 3);
+  if (dueTodos.length === 0) return '';
+  return dueTodos.map(todo => `${todo.title}@${todo.locationLabel}`).join(' | ');
+};
+
+export const buildOverdueTodoDigest = (todos: RuntimeTodoRecord[]): string => {
+  const missedTodos = todos.filter(todo => todo.status === 'failed').slice(0, 3);
+  if (missedTodos.length === 0) return '';
+  return missedTodos.map(todo => `${todo.title}@${todo.locationLabel}`).join(' | ');
+};
+
+type TodoTimelineEvent = {
+  todo: RuntimeTodoRecord;
+  event: 'due' | 'missed';
+};
+
+export const advanceRuntimeTodoTimeline = (
+  runtime: CityRuntimeData,
+  currentElapsedMinutes: number,
+): { runtime: CityRuntimeData; events: TodoTimelineEvent[]; changed: boolean } => {
+  const events: TodoTimelineEvent[] = [];
+  let changed = false;
+
+  const todos = runtime.todos.map(todo => {
+    if (todo.status === 'completed' || todo.status === 'cancelled' || todo.dueAtMinutes === null) {
+      return todo;
+    }
+
+    if ((todo.status === 'active' || todo.status === 'ready') && currentElapsedMinutes >= todo.dueAtMinutes + TODO_GRACE_MINUTES) {
+      if (todo.status !== 'failed' || todo.timelineState !== 'missed') {
+        changed = true;
+        const nextTodo = { ...todo, status: 'failed' as const, unread: true, timelineState: 'missed' as const };
+        events.push({ todo: nextTodo, event: 'missed' });
+        return nextTodo;
+      }
+      return todo;
+    }
+
+    if (todo.status === 'active' && currentElapsedMinutes >= todo.dueAtMinutes) {
+      changed = true;
+      const nextTodo = { ...todo, status: 'ready' as const, unread: true, timelineState: 'due' as const };
+      events.push({ todo: nextTodo, event: 'due' });
+      return nextTodo;
+    }
+
+    if (todo.timelineState !== 'upcoming' && currentElapsedMinutes < todo.dueAtMinutes) {
+      changed = true;
+      return { ...todo, timelineState: 'upcoming' as const };
+    }
+
+    return todo;
+  });
+
+  return {
+    runtime: changed ? { ...runtime, todos } : runtime,
+    events,
+    changed,
+  };
 };

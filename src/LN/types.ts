@@ -689,6 +689,7 @@ export interface RuntimeTodoRecord {
   detail: string;
   unread: boolean;
   routeHint: string | null;
+  timelineState?: 'upcoming' | 'due' | 'missed';
 }
 
 export interface TransportStopRecord {

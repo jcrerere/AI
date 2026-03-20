@@ -103,7 +103,7 @@ const SceneActionModal: React.FC<Props> = props => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold text-amber-300">¥{item.price}</div>
+                          <div className="font-semibold text-amber-300">{item.price} 灵能币</div>
                           <button
                             type="button"
                             onClick={() => setNotice(props.onBuy?.(item.id).message || '购物接口未接入。')}
@@ -143,7 +143,7 @@ const SceneActionModal: React.FC<Props> = props => {
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="font-semibold text-amber-300">¥{item.price}</div>
+                            <div className="font-semibold text-amber-300">{item.price} 灵能币</div>
                             <button
                               type="button"
                               onClick={() => setNotice(props.onBuy?.(item.id).message || '购物接口未接入。')}
@@ -208,7 +208,7 @@ const SceneActionModal: React.FC<Props> = props => {
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-right text-xs text-slate-400">
-                          <div>车费 ¥{option.fare}</div>
+                          <div>车费 {option.fare} 灵能币</div>
                           <div>耗时 {option.minutes} 分钟</div>
                         </div>
                         <button

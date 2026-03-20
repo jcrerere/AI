@@ -72,7 +72,7 @@ import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
 import { applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
-import { buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
+import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -3442,6 +3442,8 @@ const App: React.FC = () => {
   }, [npcs]);
   const unreadCityTodoCount = useMemo(() => cityRuntime.todos.filter(todo => todo.unread).length, [cityRuntime.todos]);
   const todoDigest = useMemo(() => buildTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
+  const todoDueDigest = useMemo(() => buildDueTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
+  const todoOverdueDigest = useMemo(() => buildOverdueTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -4816,6 +4818,8 @@ const App: React.FC = () => {
             current_anchor_id: cityRuntime.currentAnchorId || '',
             todo_digest: todoDigest,
             todo_unread_count: unreadCityTodoCount,
+            todo_due_digest: todoDueDigest,
+            todo_overdue_digest: todoOverdueDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -6005,7 +6009,7 @@ const App: React.FC = () => {
       return { ok: false, message: '当前货架已失效，请重新打开购物接口。' };
     }
     if (playerStats.credits < target.price) {
-      return { ok: false, message: `余额不足，当前购买需要 ¥${target.price}。` };
+      return { ok: false, message: `余额不足，当前购买需要 ${target.price} 灵能币。` };
     }
 
     setPlayerStats(prev => ({
@@ -6099,7 +6103,7 @@ const App: React.FC = () => {
       return { ok: false, message: '当前线路数据已失效，请重新打开地铁线路。' };
     }
     if (playerStats.credits < option.fare) {
-      return { ok: false, message: `余额不足，当前车费需要 ¥${option.fare}。` };
+      return { ok: false, message: `余额不足，当前车费需要 ${option.fare} 灵能币。` };
     }
 
     const primaryLine = metro.lines.find(line => option.lineIds.includes(line.id))?.name || option.lineIds[0]?.toUpperCase() || '线路';
@@ -7955,6 +7959,67 @@ const App: React.FC = () => {
     playerResidence,
     stateLock,
   ]);
+
+  useEffect(() => {
+    if (gameStage !== 'game' || cityRuntime.todos.length === 0) return;
+    const advanced = advanceRuntimeTodoTimeline(cityRuntime, mapRuntime.elapsedMinutes || 0);
+    if (!advanced.changed) return;
+
+    setCityRuntime(advanced.runtime);
+    if (advanced.events.length === 0) return;
+
+    const nowLabel = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const layerMessages: Message[] = [];
+
+    advanced.events.forEach(({ todo, event }) => {
+      if (event === 'due') {
+        layerMessages.push({
+          id: `todo_due_${todo.id}_${Date.now()}`,
+          sender: 'System',
+          content: `待办到点：${todo.title}。地点参考：${todo.locationLabel}。`,
+          timestamp: nowLabel,
+          type: 'narrative',
+        });
+        return;
+      }
+
+      layerMessages.push({
+        id: `todo_missed_${todo.id}_${Date.now()}`,
+        sender: 'System',
+        content: `你错过了待办「${todo.title}」，相关对象会察觉你未按时赴约或取件。`,
+        timestamp: nowLabel,
+        type: 'narrative',
+      });
+
+      if (todo.sourceType === 'lingnet' || todo.sourceType === 'npc') {
+        setNpcs(prev =>
+          prev.map(npc => {
+            if (npc.id !== todo.sourceId) return npc;
+            const nextThread: DirectMessage[] = [
+              ...(npc.dmThread || []),
+              {
+                id: `dm_todo_missed_${todo.id}`,
+                sender: 'npc',
+                content: todo.category === 'meeting' ? '你没来。下次至少提前说一声。' : '你这边失约了，事情我先记下。',
+                timestamp: new Date().toISOString(),
+                kind: 'text',
+              },
+            ];
+            return normalizeNpcForUi({
+              ...npc,
+              affection: npc.gender === 'female' ? Math.max(0, (npc.affection || 0) - 3) : npc.affection,
+              trust: npc.gender === 'male' ? Math.max(0, (npc.trust || 0) - 3) : npc.trust,
+              dmThread: nextThread,
+            });
+          }),
+        );
+      }
+    });
+
+    if (layerMessages.length > 0) {
+      setMessages(prev => [...prev, ...layerMessages]);
+    }
+  }, [gameStage, cityRuntime, mapRuntime.elapsedMinutes]);
 
   const handleContinueGame = () => {
     const lastId = window.localStorage.getItem(lastArchiveStorageKey) || selectedArchiveId;

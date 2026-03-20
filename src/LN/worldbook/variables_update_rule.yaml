@@ -37,6 +37,11 @@ rules:
       - 仅写最近活跃待办的摘要，不回填完整待办正文
       - todo_unread_count 必须大于等于 0
       - 若当前没有待办，todo_digest 允许为空字符串
+  world.todo_due_digest / world.todo_overdue_digest:
+    type: string
+    check:
+      - 仅写当前到点或超期待办的压缩摘要
+      - 若没有到点/超期待办，允许为空字符串
 
   world.current_district:
     type: string
