@@ -37,6 +37,7 @@ interface Props {
   playerName: string;
   playerCredits: number;
   currentLocation: string;
+  launchIntent?: { route: 'wallet_black_race'; nonce: number } | null;
   financeLedger: FinanceLedgerEntry[];
   blackRaceMarket: BlackRaceMarket | null;
   blackRaceHistory: BlackRaceBetRecord[];
@@ -251,6 +252,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
   playerName,
   playerCredits,
   currentLocation,
+  launchIntent = null,
   financeLedger,
   blackRaceMarket,
   blackRaceHistory,
@@ -544,6 +546,14 @@ const LingnetPhonePanel: React.FC<Props> = ({
       accent,
     });
   };
+
+  useEffect(() => {
+    if (!launchIntent) return;
+    if (launchIntent.route === 'wallet_black_race') {
+      setActiveView('wallet');
+      pushFeedback('下注终端已接入', '已切换到黑赛盘口页。', 'info', 'wallet');
+    }
+  }, [launchIntent?.nonce]);
 
   const switchView = (
     view: PhoneView,

@@ -14,6 +14,7 @@ import InventoryModal from './components/ui/InventoryModal';
 import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import LocationControlHint from './components/ui/LocationControlHint';
+import SceneActionModal from './components/ui/SceneActionModal';
 import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
 import GameSetup from './components/flow/GameSetup';
@@ -47,7 +48,7 @@ import {
   PlayerResidenceState,
   ResidenceProfile,
 } from './types';
-import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum } from './utils/pseudoLayer';
+import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum, replaceUiActions } from './utils/pseudoLayer';
 import {
   MOCK_MESSAGES,
   MOCK_CHIPS,
@@ -66,6 +67,7 @@ import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTu
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
+import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -1143,6 +1145,7 @@ const PSEUDO_LAYER_RESPONSE_RULES = [
   '只输出以下两个模块，禁止输出额外标题、解释、代码块或 Markdown 包裹：',
   '<maintext>...</maintext>',
   '<sum>...</sum>',
+  '如场景明确进入购物 / 黑赛下注 / 地铁线路，可额外输出可选模块 <ui_actions>shop|black_race_bet|metro_route</ui_actions>。',
   'maintext 只写正文推进与对白，不要在开头重复时间、地点、时段，不要输出选项。',
   'sum 只写本层小总结，保持单行，尽量包含“地点 / 时间 / 状态”三个字段。',
 ].join('\n');
@@ -2488,7 +2491,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
   // Strict fallback:
   // If model mixed modules in one response and forgot <maintext>,
   // only keep the prefix before <sum>/<UpdateVariable>.
-  const splitIndex = text.search(/<(?:sum|npcdata|update(?:variable)?)\b/i);
+  const splitIndex = text.search(/<(?:sum|npcdata|ui_actions|update(?:variable)?)\b/i);
   if (splitIndex > 0) {
     const prefix = stripLeadingStatusLinesFromMaintext(text.slice(0, splitIndex));
     if (prefix) return prefix;
@@ -2501,6 +2504,7 @@ const extractMaintextFromApiOutput = (raw: string): string => {
       .replace(/<thinking\b[^>]*>[\s\S]*?<\/thinking>/gi, '')
       .replace(/<sum\b[^>]*>[\s\S]*?<\/sum>/gi, '')
       .replace(/<npcdata\b[^>]*>[\s\S]*?<\/npcdata>/gi, '')
+      .replace(/<ui_actions\b[^>]*>[\s\S]*?<\/ui_actions>/gi, '')
       .replace(/<update(?:variable)?\b[^>]*>[\s\S]*?<\/update(?:variable)?>/gi, '')
       .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, '')
       .replace(/<jsonpatch\b[^>]*>[\s\S]*?<\/jsonpatch>/gi, '')
@@ -2535,6 +2539,7 @@ const extractTaggedTextFromApiOutput = (raw: string, tags: string[]): string | n
 };
 
 const extractSumFromApiOutput = (raw: string): string | null => extractTaggedTextFromApiOutput(raw, ['sum', 'summary', 'recap']);
+const extractUiActionsFromApiOutput = (raw: string): string | null => extractTaggedTextFromApiOutput(raw, ['ui_actions']);
 
 type VariablePatchOperation =
   | { op: 'replace'; path: string; value: unknown }
@@ -2546,6 +2551,7 @@ type VariablePatchOperation =
 type ParsedApiOutput = {
   maintext: string | null;
   sum: string | null;
+  uiActions: string | null;
   npcDataRecords: NearbyNpcRecord[];
   npcDataParseError: string | null;
   patchOperations: VariablePatchOperation[];
@@ -2902,6 +2908,7 @@ const parseApiOutputPayload = (raw: string): ParsedApiOutput => {
   return {
     maintext,
     sum: extractSumFromApiOutput(clean),
+    uiActions: extractUiActionsFromApiOutput(clean),
     npcDataRecords: npcDataParsed.records,
     npcDataParseError: npcDataParsed.error,
     patchOperations: operations,
@@ -3389,6 +3396,8 @@ const App: React.FC = () => {
   const [financeLedger, setFinanceLedger] = useState<FinanceLedgerEntry[]>([]);
   const [blackRaceMarket, setBlackRaceMarket] = useState<BlackRaceMarket>(() => buildBlackRaceMarket());
   const [blackRaceHistory, setBlackRaceHistory] = useState<BlackRaceBetRecord[]>([]);
+  const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
+  const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -4237,6 +4246,22 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+  const latestPlayerInputForSceneAction = useMemo(() => {
+    if (!activeLayerMessage) return '';
+    const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
+    const timeline = layerIndex >= 0 ? messages.slice(0, layerIndex) : messages;
+    return [...timeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
+  }, [activeLayerMessage, messages]);
+  const sceneActionState = useMemo(
+    () =>
+      inferSceneActionState({
+        rawLayerContent: activeLayerMessage?.content || '',
+        currentLocation: currentNarrativeLocation || playerFaction.headquarters || '未知区域',
+        latestPlayerInput: latestPlayerInputForSceneAction,
+        layerId: activeLayerMessage?.id || 'scene_idle',
+      }),
+    [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters],
+  );
   const lingshuRuntimeAffixes = useMemo(
     () => playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name }))),
     [playerLingshu],
@@ -5866,6 +5891,113 @@ const App: React.FC = () => {
     });
   };
 
+  const handleTriggerSceneAction = (action: SceneActionDescriptor) => {
+    if (action.route === 'black_race_bet') {
+      setActiveTab('phone');
+      setRightOpen(true);
+      if (isMobileViewport) setLeftOpen(false);
+      setPhoneLaunchIntent({ route: 'wallet_black_race', nonce: Date.now() });
+      return;
+    }
+
+    if (action.route === 'shop' && sceneActionState.shop) {
+      setSceneModal({ mode: 'shop', shop: sceneActionState.shop });
+      return;
+    }
+
+    if (action.route === 'metro_route' && sceneActionState.metro) {
+      setSceneModal({ mode: 'metro', metro: sceneActionState.metro });
+    }
+  };
+
+  const handleBuySceneShopItem = (itemId: string): { ok: boolean; message: string } => {
+    const shop = sceneModal?.mode === 'shop' ? sceneModal.shop : null;
+    const target = shop?.items.find(item => item.id === itemId);
+    if (!shop || !target) {
+      return { ok: false, message: '当前货架已失效，请重新打开购物接口。' };
+    }
+    if (playerStats.credits < target.price) {
+      return { ok: false, message: `余额不足，当前购买需要 ¥${target.price}。` };
+    }
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - target.price),
+    }));
+    addInventoryItem({
+      id: target.id,
+      name: target.name,
+      quantity: 1,
+      icon: target.icon,
+      description: target.description,
+      category: target.category,
+      rank: target.rank,
+    });
+    pushFinanceLedgerEntry({
+      kind: 'system',
+      title: '场景购物',
+      detail: `在 ${shop.title} 购入 ${target.name}`,
+      amount: -target.price,
+      counterparty: shop.title,
+    });
+    spawnFloatingText(`-${target.price} 灵能币`, 'text-amber-300');
+    return { ok: true, message: `已购入 ${target.name}，货物已写入背包。` };
+  };
+
+  const handleTravelByMetro = (stopId: string): { ok: boolean; message: string } => {
+    const metro = sceneModal?.mode === 'metro' ? sceneModal.metro : null;
+    const option = metro?.options.find(entry => entry.stop.id === stopId);
+    if (!metro || !option) {
+      return { ok: false, message: '当前线路数据已失效，请重新打开地铁线路。' };
+    }
+    if (playerStats.credits < option.fare) {
+      return { ok: false, message: `余额不足，当前车费需要 ¥${option.fare}。` };
+    }
+
+    const primaryLine = metro.lines.find(line => option.lineIds.includes(line.id))?.name || option.lineIds[0]?.toUpperCase() || '线路';
+    const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + option.minutes;
+    const nextTimeLabel = formatGameTime(nextElapsedMinutes);
+    const layerId = `metro_arrival_${Date.now()}`;
+    const layerContent = buildPseudoLayerFromParts({
+      maintext: [
+        `你刷票进入${primaryLine}，列车沿既定轨道驶向${option.stop.label}。`,
+        `车门滑开后，你从站台步出，新的场景接口已经挂到当前位置。`,
+      ].join('\n\n'),
+      sum: `地点:${option.stop.label} | 时间:${nextTimeLabel} | 状态:地铁抵达`,
+    });
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - option.fare),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'system',
+      title: '地铁车费',
+      detail: `${metro.currentStop.label} -> ${option.stop.label}`,
+      amount: -option.fare,
+      counterparty: primaryLine,
+    });
+    setMapRuntime(prev => ({
+      ...prev,
+      elapsedMinutes: nextElapsedMinutes,
+      logs: [...(prev.logs || []), `轨道通勤 ${metro.currentStop.label} -> ${option.stop.label}`].slice(-30),
+    }));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: layerId,
+        sender: 'System',
+        content: layerContent,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    setFocusedLayerId(layerId);
+    setSceneModal(null);
+    spawnFloatingText(`-${option.fare} 灵能币`, 'text-amber-300');
+    return { ok: true, message: `已乘车前往 ${option.stop.label}。` };
+  };
+
   const handleLearnLingshuSkill = (partId: string, materialId: string) => {
     const targetPart = playerLingshu.find(part => part.id === partId);
     if (!targetPart) return;
@@ -6673,6 +6805,9 @@ const App: React.FC = () => {
         if (apiPayload?.sum) {
           layerContent = replaceSum(layerContent, apiPayload.sum);
         }
+        if (apiPayload?.uiActions) {
+          layerContent = replaceUiActions(layerContent, apiPayload.uiActions);
+        }
         if (apiPayload?.npcDataRecords?.length) {
           layerContent = replaceNpcData(layerContent, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
         }
@@ -6827,6 +6962,9 @@ const App: React.FC = () => {
         }
         if (apiPayload?.sum) {
           nextLayer = replaceSum(nextLayer, apiPayload.sum);
+        }
+        if (apiPayload?.uiActions) {
+          nextLayer = replaceUiActions(nextLayer, apiPayload.uiActions);
         }
         if (apiPayload?.npcDataRecords?.length) {
           nextLayer = replaceNpcData(nextLayer, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
@@ -8498,6 +8636,38 @@ const App: React.FC = () => {
             }}
           />
 
+          <div className="border-t border-white/5 bg-black/45 px-4 py-2 shrink-0 backdrop-blur-md">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setLeftModuleTab('economy');
+                  setLeftOpen(true);
+                  if (isMobileViewport) setRightOpen(false);
+                }}
+                className="rounded-full border border-fuchsia-500/25 bg-fuchsia-500/10 px-3 py-1.5 text-[11px] font-semibold text-fuchsia-100 hover:bg-fuchsia-500/18"
+              >
+                灵能操作
+              </button>
+              {sceneActionState.actions.length > 0 ? (
+                sceneActionState.actions.slice(0, 2).map(action => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => handleTriggerSceneAction(action)}
+                    className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/18"
+                  >
+                    {action.label}
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+                  NULL
+                </div>
+              )}
+            </div>
+          </div>
+
           <div
             className="p-4 border-t border-white/5 bg-black/60 shrink-0 backdrop-blur-md"
             style={isMobileViewport ? { paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } : undefined}
@@ -8595,6 +8765,7 @@ const App: React.FC = () => {
                   playerName={playerName}
                   playerCredits={playerStats.credits}
                   currentLocation={currentNarrativeLocation || '未知区域'}
+                  launchIntent={phoneLaunchIntent}
                   financeLedger={financeLedger}
                   blackRaceMarket={blackRaceMarket}
                   blackRaceHistory={blackRaceHistory}
@@ -8810,6 +8981,15 @@ const App: React.FC = () => {
             )}
           </div>
         </aside>
+
+        {sceneModal && (
+          <SceneActionModal
+            {...sceneModal}
+            onClose={() => setSceneModal(null)}
+            onBuy={handleBuySceneShopItem}
+            onTravel={handleTravelByMetro}
+          />
+        )}
 
         {layerMenu && (
           <div

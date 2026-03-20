@@ -2,12 +2,14 @@ export interface ParsedPseudoLayer {
   maintext: string;
   sum: string;
   npcdata: string;
+  uiActions: string;
 }
 
 export interface PseudoLayerParts {
   maintext: string;
   sum?: string;
   npcdata?: string;
+  uiActions?: string;
 }
 
 const readTag = (content: string, tag: string): string => {
@@ -22,10 +24,11 @@ export const parsePseudoLayer = (content: string): ParsedPseudoLayer => {
   const maintext = readTag(content, 'maintext');
   const sum = readTag(content, 'sum');
   const npcdata = readTag(content, 'npcdata');
-  return { maintext, sum, npcdata };
+  const uiActions = readTag(content, 'ui_actions');
+  return { maintext, sum, npcdata, uiActions };
 };
 
-export const buildPseudoLayerFromParts = ({ maintext, sum, npcdata }: PseudoLayerParts): string => {
+export const buildPseudoLayerFromParts = ({ maintext, sum, npcdata, uiActions }: PseudoLayerParts): string => {
   const blocks = [`<maintext>\n${maintext.trim()}\n</maintext>`];
 
   if ((npcdata || '').trim()) {
@@ -34,6 +37,10 @@ export const buildPseudoLayerFromParts = ({ maintext, sum, npcdata }: PseudoLaye
 
   if ((sum || '').trim()) {
     blocks.push(`<sum>${sum!.trim()}</sum>`);
+  }
+
+  if ((uiActions || '').trim()) {
+    blocks.push(`<ui_actions>\n${uiActions!.trim()}\n</ui_actions>`);
   }
 
   return blocks.join('\n\n');
@@ -76,6 +83,22 @@ export const replaceNpcData = (content: string, nextNpcData: string): string => 
   if (/<sum>[\s\S]*?<\/sum>/i.test(content)) {
     return content.replace(/<sum>[\s\S]*?<\/sum>/i, `${block}\n\n$&`);
   }
+  return `${content.trim()}\n\n${block}`;
+};
+
+export const replaceUiActions = (content: string, nextUiActions: string): string => {
+  if (!hasPseudoLayer(content)) return content;
+  const trimmed = nextUiActions.trim();
+  const block = trimmed ? `<ui_actions>\n${trimmed}\n</ui_actions>` : '';
+
+  if (/<ui_actions>[\s\S]*?<\/ui_actions>/i.test(content)) {
+    if (!block) {
+      return content.replace(/\n*\s*<ui_actions>[\s\S]*?<\/ui_actions>\s*\n*/i, '\n').trim();
+    }
+    return content.replace(/<ui_actions>[\s\S]*?<\/ui_actions>/i, block);
+  }
+
+  if (!block) return content;
   return `${content.trim()}\n\n${block}`;
 };
 
