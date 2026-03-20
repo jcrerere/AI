@@ -49,7 +49,7 @@ interface Props {
   };
   onToggleFollow: (npcId: string) => void;
   onAddComment: (npcId: string, postId: string, content: string) => void;
-  onSendDm: (npcId: string, content: string) => void;
+  onSendDm: (npcId: string, content: string) => { ok: boolean; message?: string; todoTitle?: string; todoCreated?: boolean };
   onSpendOnNpc: (payload: SocialSpendPayload) => { ok: boolean; message?: string };
   onPurchaseDarknetService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
   onPlaceBlackRaceBet: (payload: {
@@ -724,8 +724,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
       pushFeedback('私信链路未开放', '需要互相关注后才能继续发送', 'warn', 'dm');
       return;
     }
-    onSendDm(activeDmNpc.id, text);
+    const result = onSendDm(activeDmNpc.id, text);
+    if (!result.ok) {
+      pushFeedback('私信发送失败', result.message || '链路暂时不可用', 'warn', 'dm');
+      return;
+    }
     setDmDraft('');
+    if (result.todoTitle) {
+      pushFeedback(result.todoCreated ? '待办已登记' : '待办已刷新', `已同步到城域账本：${result.todoTitle}`, 'success', 'dm');
+      return;
+    }
     pushFeedback('私信已送达', `当前线程：${activeDmNpc.name}`, 'success', 'dm');
   };
 

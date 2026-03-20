@@ -71,6 +71,7 @@ import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
+import { buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -3438,6 +3439,8 @@ const App: React.FC = () => {
       .map(({ score, ...rest }) => rest);
     return list;
   }, [npcs]);
+  const unreadCityTodoCount = useMemo(() => cityRuntime.todos.filter(todo => todo.unread).length, [cityRuntime.todos]);
+  const todoDigest = useMemo(() => buildTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -4810,6 +4813,8 @@ const App: React.FC = () => {
             current_location: nextNarrativeLocation,
             current_cell_id: cityRuntime.currentCellId || '',
             current_anchor_id: cityRuntime.currentAnchorId || '',
+            todo_digest: todoDigest,
+            todo_unread_count: unreadCityTodoCount,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -5371,9 +5376,30 @@ const App: React.FC = () => {
     );
   };
 
-  const handleSendSocialDm = (npcId: string, content: string) => {
+  const handleSendSocialDm = (
+    npcId: string,
+    content: string,
+  ): { ok: boolean; message?: string; todoTitle?: string; todoCreated?: boolean } => {
     const trimmed = content.trim();
-    if (!trimmed) return;
+    if (!trimmed) return { ok: false, message: '消息为空。' };
+    const targetNpc = npcs.find(npc => npc.id === npcId);
+    if (!targetNpc || !(targetNpc.playerFollows && targetNpc.followsPlayer)) {
+      return { ok: false, message: '当前私信链路未开放。' };
+    }
+
+    const todoDraft = inferLingnetTodoFromMessage({
+      npcId,
+      npcName: targetNpc.name,
+      npcLocation: targetNpc.location,
+      currentLocation: currentNarrativeLocation || playerFaction.headquarters || targetNpc.location || '待定地点',
+      content: trimmed,
+      currentElapsedMinutes: mapRuntime.elapsedMinutes || 0,
+    });
+    const todoResult = todoDraft ? upsertRuntimeTodo(cityRuntime, todoDraft) : null;
+    if (todoResult) {
+      setCityRuntime(todoResult.runtime);
+    }
+
     setNpcs(prev =>
       prev.map(npc => {
         if (npc.id !== npcId || !(npc.playerFollows && npc.followsPlayer)) return npc;
@@ -5393,10 +5419,26 @@ const App: React.FC = () => {
             timestamp: new Date().toISOString(),
             kind: 'text',
           },
+          ...(todoResult
+            ? [
+                {
+                  id: `dm_todo_${Date.now() + 2}`,
+                  sender: 'system' as const,
+                  content: `${todoResult.created ? '待办已登记' : '待办已刷新'}：${todoResult.todo.title}`,
+                  timestamp: new Date().toISOString(),
+                  kind: 'text' as const,
+                },
+              ]
+            : []),
         ];
         return normalizeNpcForUi({ ...npc, dmThread: nextThread });
       }),
     );
+    return {
+      ok: true,
+      todoTitle: todoResult?.todo.title,
+      todoCreated: todoResult?.created,
+    };
   };
 
   const handleSpendOnSocial = ({
@@ -6038,6 +6080,26 @@ const App: React.FC = () => {
     spawnFloatingText(`-${option.fare} 灵能币`, 'text-amber-300');
     return { ok: true, message: `已乘车前往 ${option.stop.label}。` };
   };
+
+  const handleMarkCityTodoRead = useCallback((todoId: string) => {
+    setCityRuntime(prev => markTodoRead(prev, todoId));
+  }, []);
+
+  const handleUpdateCityTodoStatus = useCallback((todoId: string, status: 'active' | 'ready' | 'completed' | 'failed' | 'cancelled') => {
+    setCityRuntime(prev => updateTodoStatus(prev, todoId, status));
+  }, []);
+
+  const openCityLedger = useCallback(
+    (consumeUnread = true) => {
+      setLeftModuleTab('city');
+      setLeftOpen(true);
+      if (isMobileViewport) setRightOpen(false);
+      if (consumeUnread) {
+        setCityRuntime(prev => (prev.todos.some(todo => todo.unread) ? markAllTodosRead(prev) : prev));
+      }
+    },
+    [isMobileViewport],
+  );
 
   const handleLearnLingshuSkill = (partId: string, materialId: string) => {
     const targetPart = playerLingshu.find(part => part.id === partId);
@@ -8509,14 +8571,27 @@ const App: React.FC = () => {
                   {moduleTabs.map(tab => (
                     <button
                       key={tab.id}
-                      onClick={() => setLeftModuleTab(tab.id)}
+                      onClick={() => {
+                        if (tab.id === 'city') {
+                          openCityLedger();
+                          return;
+                        }
+                        setLeftModuleTab(tab.id);
+                      }}
                       className={`border px-2 py-1.5 text-xs font-bold transition-colors ${
                         leftModuleTab === tab.id
                           ? 'border-fuchsia-500 bg-fuchsia-900/20 text-fuchsia-300'
                           : 'border-slate-700 text-slate-400 hover:border-slate-500'
                       }`}
                     >
-                      {tab.label}
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>{tab.label}</span>
+                        {tab.id === 'city' && unreadCityTodoCount > 0 && (
+                          <span className="min-w-[18px] rounded-full border border-amber-400/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] leading-none text-amber-200">
+                            {Math.min(unreadCityTodoCount, 99)}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -8618,7 +8693,12 @@ const App: React.FC = () => {
             {leftModuleTab === 'city' && (
               <CyberPanel title="鍩庡煙璐︽湰" className="flex-1 min-h-[180px]" allowExpand collapsible>
                 <div className="p-3 bg-black/50 min-h-full">
-                  <CityRuntimePanel runtime={cityRuntime} currentLocation={currentNarrativeLocation || playerFaction.headquarters || '鏈煡鍖哄煙'} />
+                  <CityRuntimePanel
+                    runtime={cityRuntime}
+                    currentLocation={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
+                    onMarkTodoRead={handleMarkCityTodoRead}
+                    onUpdateTodoStatus={handleUpdateCityTodoStatus}
+                  />
                 </div>
               </CyberPanel>
             )}
@@ -8699,6 +8779,20 @@ const App: React.FC = () => {
                 className="rounded-full border border-fuchsia-500/25 bg-fuchsia-500/10 px-3 py-1.5 text-[11px] font-semibold text-fuchsia-100 hover:bg-fuchsia-500/18"
               >
                 灵能操作
+              </button>
+              <button
+                type="button"
+                onClick={() => openCityLedger()}
+                className="rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/18"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <span>待办</span>
+                  {unreadCityTodoCount > 0 && (
+                    <span className="min-w-[18px] rounded-full border border-rose-400/25 bg-rose-500/20 px-1.5 py-0.5 text-[10px] leading-none text-rose-100">
+                      {Math.min(unreadCityTodoCount, 99)}
+                    </span>
+                  )}
+                </span>
               </button>
               {sceneActionState.actions.length > 0 ? (
                 sceneActionState.actions.slice(0, 2).map(action => (

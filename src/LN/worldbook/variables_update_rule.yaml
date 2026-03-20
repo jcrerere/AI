@@ -31,6 +31,13 @@ rules:
       - 允许为空字符串
       - 如已锁定当前地点，应与 LN 本地运行时的当前区块/锚点一致
 
+  world.todo_digest / world.todo_unread_count:
+    type: string_and_integer
+    check:
+      - 仅写最近活跃待办的摘要，不回填完整待办正文
+      - todo_unread_count 必须大于等于 0
+      - 若当前没有待办，todo_digest 允许为空字符串
+
   world.current_district:
     type: string
     check:
