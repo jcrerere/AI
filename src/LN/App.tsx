@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CyberPanel from './components/ui/CyberPanel';
 import { Suspense, lazy } from 'react';
 import PlayerStatePanel from './components/left/PlayerStatePanel';
@@ -306,31 +306,31 @@ interface AirelaFacilityBinding {
 const AIRELA_TAX_DISTRICTS: AirelaTaxDistrict[] = [
   {
     id: 'north_gate',
-    name: '艾瑞拉·北门分区',
+    name: '艾瑞拉区·北门分区',
     aliases: ['北门', '北门分区'],
-    officeAddress: '艾瑞拉·北门分区税务局',
+    officeAddress: '艾瑞拉区·北门分区税务局',
     officerName: '夜莺税务官·岚绯',
-    officerAffiliation: '夜莺驻艾瑞拉税务署',
+    officerAffiliation: '夜莺驻艾瑞拉区税务署',
     xStationId: 'X1',
     hxDormId: 'H10',
   },
   {
     id: 'central_ring',
-    name: '艾瑞拉·中环分区',
+    name: '艾瑞拉区·中环分区',
     aliases: ['中环', '中环分区'],
-    officeAddress: '艾瑞拉·中环税务局',
+    officeAddress: '艾瑞拉区·中环税务局',
     officerName: '夜莺税务官·绫织',
-    officerAffiliation: '夜莺驻艾瑞拉税务署',
+    officerAffiliation: '夜莺驻艾瑞拉区税务署',
     xStationId: 'X2',
     hxDormId: 'H18',
   },
   {
     id: 'south_dock',
-    name: '艾瑞拉·南港分区',
+    name: '艾瑞拉区·南港分区',
     aliases: ['南港', '南港分区'],
-    officeAddress: '艾瑞拉·南港税务局',
+    officeAddress: '艾瑞拉区·南港税务局',
     officerName: '夜莺税务官·璃棠',
-    officerAffiliation: '夜莺驻艾瑞拉税务署',
+    officerAffiliation: '夜莺驻艾瑞拉区税务署',
     xStationId: 'X4',
     hxDormId: 'H27',
   },
@@ -349,11 +349,11 @@ const pickAirelaTaxDistrict = (citizenId: string): AirelaTaxDistrict => {
   if (list.length === 0) {
     return {
       id: 'fallback',
-      name: '艾瑞拉·临时分区',
+      name: '艾瑞拉区·临时分区',
       aliases: ['临时分区'],
-      officeAddress: '艾瑞拉·临时税务局',
+      officeAddress: '艾瑞拉区·临时税务局',
       officerName: '夜莺税务官·临时代理',
-      officerAffiliation: '夜莺驻艾瑞拉税务署',
+      officerAffiliation: '夜莺驻艾瑞拉区税务署',
       xStationId: 'X0',
       hxDormId: 'H00',
     };
@@ -457,7 +457,7 @@ const resolveAirelaSceneState = (
     };
   }
 
-  const isAirelaText = /(艾瑞拉|北门|中环|南港|X\d{1,2}性控所|H\d{1,3}男奴公寓)/u.test(text);
+  const isAirelaText = /(艾瑞拉区|北门|中环|南港|X\d{1,2}性控所|H\d{1,3}男奴公寓)/u.test(text);
   return {
     currentDistrict: matchedDistrict?.name || (isAirelaText ? fallbackBinding?.districtName || '' : ''),
     currentSiteType: '',
@@ -524,10 +524,10 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
     case 'aerila':
       return {
         id: 'airela_civic_capsule',
-        label: `${districtLabel || '艾瑞拉'}·民政夜栖舱`,
+        label: `${districtLabel || '艾瑞拉区'}·民政夜栖舱`,
         kind: 'rental',
         source: 'civic',
-        districtLabel: districtLabel || '艾瑞拉法域',
+        districtLabel: districtLabel || '艾瑞拉区法域',
         summary: '首都法域下的标准化夜栖舱，手续快，但监控和宵禁都更重。',
         safety: 'High',
         privacy: 'Low',
@@ -681,7 +681,7 @@ const buildResidenceProfiles = (params: {
       label: params.status.assignedHXDormLabel,
       kind: 'official',
       source: 'beta',
-      districtLabel: params.status.assignedDistrict || '艾瑞拉·官方分区',
+      districtLabel: params.status.assignedDistrict || '艾瑞拉区·官方分区',
       summary: 'Beta 管理链登记宿位，通行与税务最稳定，但夜禁、点名和监管都会更密。',
       safety: 'High',
       privacy: 'Low',
@@ -804,7 +804,7 @@ const getExchangeRegionFactor = (location: string, gender: 'male' | 'female'): n
   if (text.includes('圣教')) return null;
   if (text.includes('诺丝')) return 0.45;
   if (text.includes('汐屿')) return 0.55;
-  if (text.includes('淬灵') || text.includes('艾瑞拉')) {
+  if (text.includes('淬灵') || text.includes('艾瑞拉区')) {
     return gender === 'female' ? 1.0 : 0.55;
   }
   return 1.0;
@@ -823,7 +823,7 @@ const DEFAULT_STAT_EXCHANGE_RULES = {
   same_level_theoretical_rate: 1.0,
   cross_level_loss_rate: 0.8,
   region_modifier: {
-    艾瑞拉: { male: 0.55, female: 1.0 },
+    艾瑞拉区: { male: 0.55, female: 1.0 },
     淬灵区: { male: 0.55, female: 1.0 },
     汐屿区: { male: 0.55, female: 0.55 },
     诺丝区: { male: 0.45, female: 0.45 },
@@ -916,7 +916,7 @@ const buildLocationControlProfile = (
 ) => {
   const text = `${location || ''}`;
   const riskTone: 'safe' | 'watch' | 'danger' =
-    creditScore <= 40 || (/艾瑞拉/.test(text) && protocol === 'none' && gender === 'male')
+    creditScore <= 40 || (/艾瑞拉区/.test(text) && protocol === 'none' && gender === 'male')
       ? 'danger'
       : /诺丝|圣教/.test(text)
       ? 'watch'
@@ -926,7 +926,7 @@ const buildLocationControlProfile = (
     regionFactor === null ? '本地禁兑' : `官方倍率 ${(regionFactor || 1).toFixed(2)}x`;
   const hints = [sceneHint];
 
-  if (/艾瑞拉/.test(text)) {
+  if (/艾瑞拉区/.test(text)) {
     hints.push(protocol === 'beta' ? '首都毒素已被协议抑制，但夜间检查更严。' : '首都存在男性毒素环境，无协议将持续承压。');
     if (phase === '夜晚' || phase === '深夜') hints.push('夜间居住与出行更容易触发证件抽查。');
   } else if (/淬灵/.test(text)) {
@@ -958,9 +958,9 @@ const buildLocationControlProfile = (
 
 const OUT_OF_WORLD_TERMS = ['荒坂', '夜之城', 'NCPD', '赛博朋克', '荒坂塔', '军用义体公司'];
 const LOCAL_LOCATION_POOL = [
-  '艾瑞拉中环',
-  '艾瑞拉旧港',
-  '艾瑞拉北门',
+  '艾瑞拉区中环',
+  '艾瑞拉区旧港',
+  '艾瑞拉区北门',
   '淬灵区内环',
   '汐屿区灰堤',
   '诺丝工业带',
@@ -981,7 +981,7 @@ const softNormalizeOutOfWorldText = (text: string, fallbackLocation: string) => 
   const safeLocation =
     fallbackLocation && fallbackLocation.trim()
       ? fallbackLocation.trim()
-      : LOCAL_LOCATION_POOL[hashTextToIndex(text, LOCAL_LOCATION_POOL.length)] || '艾瑞拉中环';
+      : LOCAL_LOCATION_POOL[hashTextToIndex(text, LOCAL_LOCATION_POOL.length)] || '艾瑞拉区中环';
   let next = text;
   OUT_OF_WORLD_TERMS.forEach(term => {
     next = next.split(term).join(safeLocation);
@@ -1587,7 +1587,7 @@ const NEARBY_NPC_NAME_STOPWORDS = new Set([
   '开局叙事',
   '继续',
   '行动',
-  '艾瑞拉',
+  '艾瑞拉区',
   '黄昏',
 ]);
 

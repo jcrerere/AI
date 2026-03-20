@@ -27,8 +27,8 @@ rules:
   world.current_district:
     type: string
     check:
-      - 艾瑞拉场景应优先写官方分区名（北门分区 / 中环分区 / 南港分区）
-      - 非艾瑞拉场景可留空，不要沿用过期分区
+      - 艾瑞拉区场景应优先写官方分区名（北门分区 / 中环分区 / 南港分区）
+      - 非艾瑞拉区场景可留空，不要沿用过期分区
 
   world.current_site_type / world.current_site_id / world.current_site_label:
     type: object
@@ -47,7 +47,7 @@ rules:
     check:
       - same_level_theoretical_rate 固定为 1.0
       - cross_level_loss_rate 固定为 0.80
-      - 艾瑞拉/淬灵区: male=0.55, female=1.00
+      - 艾瑞拉区/淬灵区: male=0.55, female=1.00
       - 汐屿区: male=0.55, female=0.55
       - 诺丝区: male=0.45, female=0.45
       - 圣教区: exchange_enabled=false
@@ -112,14 +112,14 @@ rules:
     check:
       - current_residence_id / current_residence_label 必须同步维护
       - unlocked_residence_ids 应保留已获得住处，不要无故丢失
-      - 艾瑞拉若未明确搬迁，可默认沿用 assigned_hx_dorm_label 作为官方住册住处
+      - 艾瑞拉区若未明确搬迁，可默认沿用 assigned_hx_dorm_label 作为官方住册住处
 
   player.chip:
     type: object
     check:
       - beta_equipped 为 true 且 tax_officer_id 为空时，应触发税务官分配
       - assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* / tax_arrears 需同步维护
-      - 艾瑞拉 Beta 管理链默认使用分区 + 编号设施，不要只写“X号性控所 / HX男奴公寓”而不给编号
+      - 艾瑞拉区 Beta 管理链默认使用分区 + 编号设施，不要只写“X号性控所 / HX男奴公寓”而不给编号
 
   player.status_tags / player.core_affixes:
     type: list

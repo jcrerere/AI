@@ -18,7 +18,7 @@ stat_data:
       same_level_theoretical_rate: 1.0
       cross_level_loss_rate: 0.80
       region_modifier:
-        艾瑞拉:
+        艾瑞拉区:
           male: 0.55
           female: 0.55
         淬灵区:
@@ -122,7 +122,7 @@ stat_data:
 2) 地点阵营：位移必须更新 world.current_location 与 player.region；势力变化同步 world.current_faction 与 player.faction。
 3) 状态资源：受伤/治疗改 hp；灵能消耗/恢复改 mp 与 psionic.energy_value.current；精神冲击改 sanity；所有 current 必须在 [0,max]。
 4) 兑换规则：同级理论1:1；实际受 conversion_rate 与 region_modifier 影响；跨级固定损耗 cross_level_loss_rate；圣教区禁止兑换。
-5) 艾瑞拉编号设施：若进入 X/H 编号设施，应同步 world.current_district / current_site_type / current_site_id / current_site_label。
+5) 艾瑞拉区编号设施：若进入 X/H 编号设施，应同步 world.current_district / current_site_type / current_site_id / current_site_label。
 6) Beta税务官：beta_equipped=true 且 tax_officer_id 为空时，必须触发分配事件并写入 assigned_district / assigned_x_station_* / assigned_hx_dorm_* / tax_officer_* / tax_rate。
 7) 开局主导：flags.opening_locked=true 时，AI只给环境与入口，不得替玩家预写既成开局。
 ```

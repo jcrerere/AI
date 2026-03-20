@@ -16,7 +16,7 @@ export interface LocationVisualTheme {
 const LOCATION_THEME_MAP: Record<string, LocationVisualTheme> = {
   aerila: {
     key: 'aerila',
-    label: '艾瑞拉规制层',
+    label: '艾瑞拉区规制层',
     mainClass:
       'bg-[radial-gradient(circle_at_top,_rgba(34,211,238,0.08),_transparent_28%),linear-gradient(180deg,rgba(4,12,18,0.98),rgba(6,8,14,0.98))]',
     headerClass: 'border-white/8 bg-[linear-gradient(90deg,rgba(8,24,34,0.92),rgba(5,9,16,0.88))]',

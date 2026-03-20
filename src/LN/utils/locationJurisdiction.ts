@@ -33,10 +33,10 @@ const JURISDICTION_MAP: Array<{
   status: JurisdictionStatus;
 }> = [
   {
-    match: /(艾瑞拉|北门|中环|旧港|南港|首都|X\d{1,2}性控所|H\d{1,3}男奴公寓)/,
+    match: /(艾瑞拉区|北门|中环|旧港|南港|首都|X\d{1,2}性控所|H\d{1,3}男奴公寓)/,
     status: {
       key: 'aerila',
-      regionLabel: '艾瑞拉法域',
+      regionLabel: '艾瑞拉区法域',
       tone: 'cyan',
       summary: '首都高压秩序区。Beta 协议、夜间抽查、税务绑定和官方兑换都最强势。',
       chips: [
@@ -89,9 +89,9 @@ const JURISDICTION_MAP: Array<{
       key: 'north',
       regionLabel: '诺丝区法域',
       tone: 'fuchsia',
-      summary: '半自治商业灰区。官方汇率更低，黑市与灰网活跃，执法存在弹性和买通空间。',
+      summary: '帝国内商业灰区。地方利益与市场秩序主导，黑市与灰网活跃，执法存在弹性和买通空间。',
       chips: [
-        { label: '协议', value: '半自治' },
+        { label: '协议', value: '地方主导' },
         { label: '宵禁', value: '无硬夜禁' },
         { label: '税务', value: '商会抽成' },
         { label: '兑换', value: '0.45x' },

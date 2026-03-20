@@ -86,7 +86,7 @@ const LN_AUTHOR_LINGXIAN_POOL: Skill[] = [
   { id: 'lss_10', name: '灵弦：脉冲净化', level: 1, description: '小幅净化杂质并修复波形。' },
 ];
 
-export const LN_AUTHOR_ZONE_OPTIONS = ['艾瑞拉', '淬灵区', '汐屿区', '诺丝区', '栖灵区', '圣教区', '交界地', '南荒'];
+export const LN_AUTHOR_ZONE_OPTIONS = ['艾瑞拉区', '淬灵区', '汐屿区', '诺丝区', '栖灵区', '圣教区', '交界地', '南荒'];
 
 export const LN_AUTHOR_CAREER_TRACKS: CareerTrack[] = [
   {

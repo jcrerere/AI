@@ -39,10 +39,10 @@ example=|-
   <JSONPatch>
   [
     { "op": "replace", "path": "/stat_data/world/current_time", "value": "2077-11-03 21:10" },
-    { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉·中环分区·H18男奴公寓" },
-    { "op": "replace", "path": "/stat_data/world/current_district", "value": "艾瑞拉·中环分区" },
-    { "op": "replace", "path": "/stat_data/world/current_site_label", "value": "艾瑞拉·中环分区·H18男奴公寓" },
-    { "op": "replace", "path": "/stat_data/player/residence/current_residence_label", "value": "艾瑞拉·中环分区·H18男奴公寓" },
+    { "op": "replace", "path": "/stat_data/world/current_location", "value": "艾瑞拉区·中环分区·H18男奴公寓" },
+    { "op": "replace", "path": "/stat_data/world/current_district", "value": "艾瑞拉区·中环分区" },
+    { "op": "replace", "path": "/stat_data/world/current_site_label", "value": "艾瑞拉区·中环分区·H18男奴公寓" },
+    { "op": "replace", "path": "/stat_data/player/residence/current_residence_label", "value": "艾瑞拉区·中环分区·H18男奴公寓" },
     { "op": "delta", "path": "/stat_data/player/core_status/reputation/current", "value": -2 },
     { "op": "insert", "path": "/stat_data/player/core_affixes/-", "value": { "name": "状态：目标锁定", "desc": "夜莺开始追查玩家。", "type": "debuff", "source": "交涉后续" } }
   ]

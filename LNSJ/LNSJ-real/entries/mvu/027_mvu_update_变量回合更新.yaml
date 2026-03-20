@@ -6,7 +6,7 @@ A. 时间与场景
 - 更新 stat_data.world.current_time
 - 更新 stat_data.world.current_period（清晨/白天/黄昏/夜晚/深夜）
 - 如发生位移，更新 stat_data.world.current_location 与 stat_data.player.region
-- 艾瑞拉场景应补充 stat_data.world.current_district；进入编号设施时补充 current_site_type / current_site_id / current_site_label
+- 艾瑞拉区场景应补充 stat_data.world.current_district；进入编号设施时补充 current_site_type / current_site_id / current_site_label
 
 B. 阵营与身份
 - 势力变化时更新 stat_data.world.current_faction 与 stat_data.player.faction
@@ -27,12 +27,12 @@ D. 经济与兑换
 
 E. 住所与住册
 - 回住 / 过夜 / 搬迁时更新 stat_data.player.residence.current_residence_id / current_residence_label / unlocked_residence_ids
-- 艾瑞拉未明确搬迁时，可沿用 assigned_hx_dorm_label 作为官方住册住处
+- 艾瑞拉区未明确搬迁时，可沿用 assigned_hx_dorm_label 作为官方住册住处
 
 F. Beta税务官事件
 - beta_equipped=false 时 tax_officer_* 可为空
 - beta_equipped=true 且 tax_officer_id为空时，必须本回合分配税务官并写回 chip 字段
-- 艾瑞拉 Beta 管理链要同步 assigned_district / assigned_x_station_* / assigned_hx_dorm_*
+- 艾瑞拉区 Beta 管理链要同步 assigned_district / assigned_x_station_* / assigned_hx_dorm_*
 
 G. 输出约束
 - 不得改名/拆分 stat_data 根结构

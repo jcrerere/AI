@@ -20,7 +20,7 @@
   world.current_district / world.current_site_*:
     type: object
     check:
-      - 艾瑞拉场景应优先维护官方分区与编号设施信息
+      - 艾瑞拉区场景应优先维护官方分区与编号设施信息
       - current_site_type 仅使用 x_station / hx_dorm / tax_office / 空字符串
       - 若不在编号设施内，current_site_id / current_site_label 可留空
 

@@ -17,7 +17,7 @@ world:
     same_level_theoretical_rate: 1.0
     cross_level_loss_rate: 0.80
     region_modifier:
-      艾瑞拉:
+      艾瑞拉区:
         male: 0.55
         female: 1.00
       淬灵区:
