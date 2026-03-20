@@ -3,6 +3,7 @@ import { FinanceLedgerEntry, NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
 import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
+import { resolveLocationVisualTheme } from '../../utils/locationTheme';
 import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 export interface SocialImportDraft {
@@ -301,8 +302,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const deferredKeyword = useDeferredValue(keyword);
 
   const socialAccounts = useMemo(
-    () =>
-      npcs.filter(
+    () => {
+      if (activeView === 'darknet') return [];
+      return npcs.filter(
         npc =>
           npc.socialFeed.length > 0 ||
           !!npc.socialHandle ||
@@ -310,11 +312,13 @@ const LingnetPhonePanel: React.FC<Props> = ({
           (npc.dmThread || []).length > 0 ||
           npc.playerFollows ||
           npc.followsPlayer,
-      ),
-    [npcs],
+      );
+    },
+    [activeView, npcs],
   );
 
   const filteredAccounts = useMemo(() => {
+    if (activeView !== 'lingnet') return socialAccounts;
     const search = deferredKeyword.trim().toLowerCase();
     if (!search) return socialAccounts;
     return socialAccounts.filter(npc =>
@@ -322,31 +326,40 @@ const LingnetPhonePanel: React.FC<Props> = ({
         .toLowerCase()
         .includes(search),
     );
-  }, [deferredKeyword, socialAccounts]);
+  }, [activeView, deferredKeyword, socialAccounts]);
 
   const feedEntries = useMemo(
-    () =>
-      filteredAccounts
+    () => {
+      if (activeView !== 'lingnet' || lingnetMode === 'profile') return [];
+      return filteredAccounts
         .flatMap(npc => npc.socialFeed.map(post => ({ npc, post, sortKey: Date.parse(post.timestamp) || 0 })))
-        .sort((a, b) => b.sortKey - a.sortKey || b.post.id.localeCompare(a.post.id)),
-    [filteredAccounts],
+        .sort((a, b) => b.sortKey - a.sortKey || b.post.id.localeCompare(a.post.id));
+    },
+    [activeView, filteredAccounts, lingnetMode],
   );
 
   const dmAccounts = useMemo(
-    () => socialAccounts.filter(npc => isMutualFollow(npc) || (npc.dmThread || []).length > 0),
-    [socialAccounts],
+    () => {
+      if (activeView !== 'dm') return [];
+      return socialAccounts.filter(npc => isMutualFollow(npc) || (npc.dmThread || []).length > 0);
+    },
+    [activeView, socialAccounts],
   );
   const paymentEntries = useMemo(
-    () =>
-      socialAccounts
+    () => {
+      if (activeView !== 'wallet') return [];
+      return socialAccounts
         .flatMap(npc => (npc.dmThread || []).filter(item => !!item.amount).map(item => ({ npc, item })))
-        .sort((a, b) => (Date.parse(b.item.timestamp) || 0) - (Date.parse(a.item.timestamp) || 0)),
-    [socialAccounts],
+        .sort((a, b) => (Date.parse(b.item.timestamp) || 0) - (Date.parse(a.item.timestamp) || 0));
+    },
+    [activeView, socialAccounts],
   );
   const ledgerEntries = useMemo(
-    () =>
-      [...financeLedger].sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0)),
-    [financeLedger],
+    () => {
+      if (activeView !== 'wallet') return [];
+      return [...financeLedger].sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
+    },
+    [activeView, financeLedger],
   );
   const activeProfileNpc = useMemo(
     () => socialAccounts.find(npc => npc.id === selectedNpcId) || socialAccounts[0] || null,
@@ -358,6 +371,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
   );
   const phoneTheme = PHONE_THEMES[activeView];
   const jurisdiction = useMemo(() => resolveLocationJurisdiction(currentLocation), [currentLocation]);
+  const locationVisualTheme = useMemo(() => resolveLocationVisualTheme(currentLocation), [currentLocation]);
   const reduceMotion = motionMode === 'lite';
   const phoneContentInsetStyle = isCompactViewport
     ? ({ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' } as const)
@@ -1532,6 +1546,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
     <div
       className={`relative h-full flex flex-col overflow-hidden rounded-[32px] border shadow-[0_24px_80px_rgba(0,0,0,0.55)] ${phoneTheme.shell} ${reduceMotion ? 'ln-motion-lite' : ''}`}
     >
+      <div className={`pointer-events-none absolute inset-0 ${locationVisualTheme.phoneOverlayClass}`} />
       <div className="pointer-events-none absolute inset-0 ln-scanlines" />
       <div className={`pointer-events-none ln-hud-sweep ${phoneTheme.sweepClass}`} />
       {uiFeedback ? (
@@ -1557,6 +1572,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div>
             <div className="text-2xl font-semibold tracking-tight text-white">灵能手机</div>
             <div className="mt-1 text-[11px] text-slate-400">{phoneTheme.headerDescription}</div>
+            <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] ${locationVisualTheme.phoneRegionPillClass}`}>
+              {locationVisualTheme.label}
+            </div>
             <div
               className={`mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.22em] ${phoneTheme.chipClass}`}
             >
@@ -1573,6 +1591,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div className="flex items-center justify-between gap-3">
             <div className="text-[10px] uppercase tracking-[0.22em] text-white/60">Jurisdiction Layer</div>
             <div className="text-[11px] font-semibold text-white">{jurisdiction.regionLabel}</div>
+          </div>
+          <div className={`mt-2 inline-flex items-center rounded-full border px-2 py-1 text-[10px] ${locationVisualTheme.phoneRegionPillClass}`}>
+            {locationVisualTheme.label}
           </div>
           <div className="mt-2 text-[11px] leading-5 text-slate-200/85">{jurisdiction.summary}</div>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">

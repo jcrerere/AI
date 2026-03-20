@@ -1,17 +1,13 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CyberPanel from './components/ui/CyberPanel';
+import { Suspense, lazy } from 'react';
 import PlayerStatePanel from './components/left/PlayerStatePanel';
 import ChipPanel from './components/left/ChipPanel';
 import PsionicEconomyPanel from './components/left/PsionicEconomyPanel';
 import StatusPenaltyPanel from './components/left/StatusPenaltyPanel';
 import LingshuStatusPanel from './components/left/LingshuStatusPanel';
 import SpiritNexus from './components/right/SpiritNexus';
-import NPCProfile from './components/right/NPCProfile';
-import ContactList from './components/right/ContactList';
-import LingnetPhonePanel, { SocialImportDraft } from './components/right/LingnetPhonePanel';
-import MonthlySettlementPanel from './components/right/MonthlySettlementPanel';
-import ResidencePanel from './components/right/ResidencePanel';
-import TaxDossierPanel from './components/right/TaxDossierPanel';
+import type { SocialImportDraft } from './components/right/LingnetPhonePanel';
 import NarrativeFeed from './components/center/NarrativeFeed';
 import ItemDetailView from './components/ui/ItemDetailView';
 import InventoryModal from './components/ui/InventoryModal';
@@ -67,6 +63,7 @@ import { buildDefaultSetupPack, cloneCareerTracks, cloneChipList } from './data/
 import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTurns, getNpcDirectorLookupTokens } from './data/npcCodex';
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
+import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -79,6 +76,26 @@ const LN_AUTO_ARCHIVE_ID = 'archive_auto_latest_v1';
 const MAX_ARCHIVE_SLOTS = 20;
 const LN_DEFAULT_ARCHIVE_SCOPE = 'global';
 const LN_DEFAULT_PLAYER_NAME = '未命名接入者';
+
+const ContactList = lazy(() => import('./components/right/ContactList'));
+const NPCProfile = lazy(() => import('./components/right/NPCProfile'));
+const LingnetPhonePanel = lazy(() => import('./components/right/LingnetPhonePanel'));
+const MonthlySettlementPanel = lazy(() => import('./components/right/MonthlySettlementPanel'));
+const ResidencePanel = lazy(() => import('./components/right/ResidencePanel'));
+const TaxDossierPanel = lazy(() => import('./components/right/TaxDossierPanel'));
+
+const LazyPanelFallback: React.FC<{ title: string; detail?: string }> = ({ title, detail }) => (
+  <CyberPanel title={title} noPadding allowExpand collapsible>
+    <div className="space-y-3 p-4 bg-black/35">
+      <div className="h-3 w-24 rounded-full bg-white/8" />
+      <div className="h-3 w-full rounded-full bg-white/6" />
+      <div className="h-3 w-5/6 rounded-full bg-white/6" />
+      <div className="rounded-xl border border-white/6 bg-white/[0.02] px-3 py-3 text-xs text-slate-500">
+        {detail || '模块正在按需装载。'}
+      </div>
+    </div>
+  </CyberPanel>
+);
 
 const getBetaTierTitle = (level: number) => {
   if (level >= 5) return '秩序代行体';
@@ -4148,6 +4165,10 @@ const App: React.FC = () => {
       ),
     [currentNarrativeLocation, playerFaction.headquarters, gameDayPhase, playerNeuralProtocol, playerGender, betaStatus.creditScore, gameSceneHint],
   );
+  const currentLocationVisualTheme = useMemo(
+    () => resolveLocationVisualTheme(currentNarrativeLocation || playerFaction.headquarters || '未知区域'),
+    [currentNarrativeLocation, playerFaction.headquarters],
+  );
   const residenceProfiles = useMemo(
     () =>
       buildResidenceProfiles({
@@ -8045,7 +8066,7 @@ const App: React.FC = () => {
 
         <aside
           onClick={e => e.stopPropagation()}
-          className={`border-r border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 md:h-full transition-all duration-300 absolute md:relative h-full overflow-y-auto custom-scrollbar scrollbar-hidden ${
+          className={`border-r flex flex-col z-40 md:h-full transition-all duration-300 absolute md:relative h-full overflow-y-auto custom-scrollbar scrollbar-hidden ${currentLocationVisualTheme.asideClass} ${
             leftOpen
               ? 'w-full max-w-none md:w-80 md:max-w-none translate-x-0'
               : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
@@ -8196,8 +8217,8 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 min-w-0 flex flex-col relative z-0 h-full w-full bg-[#080408]">
-          <div className="border-b border-white/5 px-4 py-3 bg-black/40 shrink-0 backdrop-blur-sm">
+        <main className={`flex-1 min-w-0 flex flex-col relative z-0 h-full w-full ${currentLocationVisualTheme.mainClass}`}>
+          <div className={`border-b px-4 py-3 shrink-0 backdrop-blur-sm ${currentLocationVisualTheme.headerClass}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="md:hidden">
                 <button
@@ -8211,9 +8232,14 @@ const App: React.FC = () => {
                 </button>
               </div>
               <div className="flex flex-1 flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
-                <MapIcon className="w-4 h-4 text-fuchsia-500" />
+                <MapIcon className={`w-4 h-4 ${currentLocationVisualTheme.iconClass}`} />
                 <span>区域：</span>
-                <span className="text-white font-bold">{currentNarrativeLocation || '未知区域'}</span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${currentLocationVisualTheme.locationPillClass}`}>
+                  {currentNarrativeLocation || '未知区域'}
+                </span>
+                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${currentLocationVisualTheme.hintClass}`}>
+                  {currentLocationVisualTheme.label}
+                </span>
                 <span className="text-slate-600">|</span>
                 <span>时间：</span>
                 <span className="text-cyan-300 font-bold">{gameTimeText}</span>
@@ -8230,6 +8256,9 @@ const App: React.FC = () => {
                   <Users className="w-5 h-5" />
                 </button>
               </div>
+            </div>
+            <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${currentLocationVisualTheme.hintClass}`}>
+              当前区域协议已切换到 {currentLocationVisualTheme.label}
             </div>
             <LocationControlHint
               headline={locationControlProfile.headline}
@@ -8285,7 +8314,7 @@ const App: React.FC = () => {
 
         <aside
           onClick={e => e.stopPropagation()}
-          className={`border-l border-fuchsia-900/20 flex flex-col bg-[#050205]/95 z-40 h-full transition-all duration-300 absolute md:relative right-0 ${
+          className={`border-l flex flex-col z-40 h-full transition-all duration-300 absolute md:relative right-0 ${currentLocationVisualTheme.asideClass} ${
             rightOpen
               ? 'w-full max-w-none md:w-[450px] md:max-w-none translate-x-0'
               : 'w-0 translate-x-full md:w-0 overflow-hidden border-none'
@@ -8319,74 +8348,80 @@ const App: React.FC = () => {
           >
             {activeTab === 'contacts' && (
               <div className="space-y-6 h-full flex flex-col">
-                {!selectedNPC ? (
-                  <ContactList
-                    npcs={npcs}
-                    onSelect={setSelectedNPC}
-                    onUpdateNpc={handleUpdateNpc}
-                    groups={contactGroups}
-                    onUpdateGroups={setContactGroups}
-                    onDeleteGroup={handleRemoveGroup}
-                    currentLocation={currentNarrativeLocation || '未知区域'}
-                  />
-                ) : (
-                  <NPCProfile
-                    npc={selectedNPC}
-                    onBack={() => setSelectedNPC(null)}
-                  />
-                )}
+                <Suspense fallback={<LazyPanelFallback title="标记人物" detail="联系人与人物档案正在载入。" />}>
+                  {!selectedNPC ? (
+                    <ContactList
+                      npcs={npcs}
+                      onSelect={setSelectedNPC}
+                      onUpdateNpc={handleUpdateNpc}
+                      groups={contactGroups}
+                      onUpdateGroups={setContactGroups}
+                      onDeleteGroup={handleRemoveGroup}
+                      currentLocation={currentNarrativeLocation || '未知区域'}
+                    />
+                  ) : (
+                    <NPCProfile
+                      npc={selectedNPC}
+                      onBack={() => setSelectedNPC(null)}
+                    />
+                  )}
+                </Suspense>
               </div>
             )}
             {activeTab === 'phone' && (
-              <LingnetPhonePanel
-                npcs={npcs}
-                playerName={playerName}
-                playerCredits={playerStats.credits}
-                currentLocation={currentNarrativeLocation || '未知区域'}
-                financeLedger={financeLedger}
-                walletSummary={{
-                  cycleLabel: monthlySettlementPreview.cycleLabel,
-                  currentTaxDue: monthlySettlementPreview.currentTaxDue,
-                  taxArrears: Math.max(0, betaStatus.taxArrears || 0),
-                  settlementExposure:
-                    monthlySettlementPreview.taxDue +
-                    monthlySettlementPreview.maintenanceCost +
-                    monthlySettlementPreview.penaltyCost,
-                }}
-                onToggleFollow={handleToggleSocialFollow}
-                onAddComment={handleAddSocialComment}
-                onSendDm={handleSendSocialDm}
-                onSpendOnNpc={handleSpendOnSocial}
-                onPurchaseDarknetService={handlePurchaseDarknetService}
-                onImportPost={handleImportSocialPost}
-              />
-            )}
-            {activeTab === 'system' && (
-              <div className="space-y-4">
-                <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
-                <ResidencePanel
-                  hasOfficialRegistry={hasOfficialBetaControl}
-                  residence={playerResidence}
-                  residenceOptions={residenceProfiles}
-                  status={betaStatus}
-                  currentLocation={currentNarrativeLocation || '未知区域'}
-                  playerCredits={playerStats.credits}
-                  onSwitchResidence={handleSwitchResidence}
-                  onRestAtResidence={handleRestAtResidence}
-                />
-                <TaxDossierPanel
-                  status={betaStatus}
+              <Suspense fallback={<LazyPanelFallback title="手机" detail="灵网、暗网与钱包模块正在载入。" />}>
+                <LingnetPhonePanel
+                  npcs={npcs}
                   playerName={playerName}
                   playerCredits={playerStats.credits}
-                  factionName={playerFaction.name}
                   currentLocation={currentNarrativeLocation || '未知区域'}
-                  neuralProtocol={playerNeuralProtocol}
-                  onNavigateToTax={handleNavToTax}
-                  onPickTaxOfficer={handleAddTaxOfficerContact}
-                  onPayArrears={handlePayTaxArrears}
-                  onOpenCareerIdentity={() => setIsCareerEditorOpen(true)}
+                  financeLedger={financeLedger}
+                  walletSummary={{
+                    cycleLabel: monthlySettlementPreview.cycleLabel,
+                    currentTaxDue: monthlySettlementPreview.currentTaxDue,
+                    taxArrears: Math.max(0, betaStatus.taxArrears || 0),
+                    settlementExposure:
+                      monthlySettlementPreview.taxDue +
+                      monthlySettlementPreview.maintenanceCost +
+                      monthlySettlementPreview.penaltyCost,
+                  }}
+                  onToggleFollow={handleToggleSocialFollow}
+                  onAddComment={handleAddSocialComment}
+                  onSendDm={handleSendSocialDm}
+                  onSpendOnNpc={handleSpendOnSocial}
+                  onPurchaseDarknetService={handlePurchaseDarknetService}
+                  onImportPost={handleImportSocialPost}
                 />
-              </div>
+              </Suspense>
+            )}
+            {activeTab === 'system' && (
+              <Suspense fallback={<LazyPanelFallback title="档案" detail="月结、住所和税务档案正在载入。" />}>
+                <div className="space-y-4">
+                  <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
+                  <ResidencePanel
+                    hasOfficialRegistry={hasOfficialBetaControl}
+                    residence={playerResidence}
+                    residenceOptions={residenceProfiles}
+                    status={betaStatus}
+                    currentLocation={currentNarrativeLocation || '未知区域'}
+                    playerCredits={playerStats.credits}
+                    onSwitchResidence={handleSwitchResidence}
+                    onRestAtResidence={handleRestAtResidence}
+                  />
+                  <TaxDossierPanel
+                    status={betaStatus}
+                    playerName={playerName}
+                    playerCredits={playerStats.credits}
+                    factionName={playerFaction.name}
+                    currentLocation={currentNarrativeLocation || '未知区域'}
+                    neuralProtocol={playerNeuralProtocol}
+                    onNavigateToTax={handleNavToTax}
+                    onPickTaxOfficer={handleAddTaxOfficerContact}
+                    onPayArrears={handlePayTaxArrears}
+                    onOpenCareerIdentity={() => setIsCareerEditorOpen(true)}
+                  />
+                </div>
+              </Suspense>
             )}
             {activeTab === 'settings' && (
               <div className="space-y-4">
