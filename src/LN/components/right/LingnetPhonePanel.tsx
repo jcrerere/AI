@@ -47,6 +47,7 @@ interface Props {
   onAddComment: (npcId: string, postId: string, content: string) => void;
   onSendDm: (npcId: string, content: string) => void;
   onSpendOnNpc: (payload: SocialSpendPayload) => { ok: boolean; message?: string };
+  onPurchaseDarknetService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
   onImportPost: (payload: SocialImportDraft) => void;
 }
 
@@ -241,6 +242,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
   onAddComment,
   onSendDm,
   onSpendOnNpc,
+  onPurchaseDarknetService,
   onImportPost,
 }) => {
   const [activeView, setActiveView] = useState<PhoneView>('lingnet');
@@ -1692,7 +1694,13 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div
             className={`animate-in fade-in ${phoneTheme.sceneClass} h-full min-h-[560px] rounded-[18px] border border-emerald-500/20 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,6,5,0.98))] p-3`}
           >
-            <NpcCodexPanel npcs={npcs} selectedNpcId={selectedDarknetNpcId} onSelectNpcId={setSelectedDarknetNpcId} />
+            <NpcCodexPanel
+              npcs={npcs}
+              playerCredits={playerCredits}
+              selectedNpcId={selectedDarknetNpcId}
+              onSelectNpcId={setSelectedDarknetNpcId}
+              onPurchaseService={onPurchaseDarknetService}
+            />
           </div>
         )}
         {activeView === 'dm' && renderDmView()}

@@ -115,6 +115,7 @@ export interface DeductionRecord {
 
 export type FinanceLedgerKind =
   | 'social'
+  | 'darknet'
   | 'tax'
   | 'settlement'
   | 'task'
@@ -279,6 +280,8 @@ export type NpcDarknetRisk = 'low' | 'medium' | 'high' | 'sealed';
 
 export type NpcDarknetRecordKind = 'intel' | 'leak' | 'transaction' | 'sighting' | 'contract';
 
+export type NpcDarknetServiceKind = 'intel' | 'medical' | 'rewrite' | 'smuggling' | 'bounty';
+
 export interface NpcDarknetRecord {
   id: string;
   title: string;
@@ -293,6 +296,19 @@ export interface NpcDarknetRecord {
   image?: string;
 }
 
+export interface NpcDarknetService {
+  id: string;
+  title: string;
+  summary: string;
+  price: number;
+  kind: NpcDarknetServiceKind;
+  unlockLevel?: number;
+  risk?: NpcDarknetRisk;
+  availability?: string;
+  delivery?: string;
+  tags?: string[];
+}
+
 export interface NpcDarknetProfile {
   handle?: string;
   alias?: string;
@@ -305,6 +321,7 @@ export interface NpcDarknetProfile {
   knownAssociates?: string[];
   lastSeen?: string;
   intelRecords?: NpcDarknetRecord[];
+  services?: NpcDarknetService[];
 }
 
 export interface NpcUnlockState {

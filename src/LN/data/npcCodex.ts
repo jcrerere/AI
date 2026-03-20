@@ -1,4 +1,4 @@
-import { NPC, NpcAiDirectorCard, NpcAiPromptBlock, NpcDarknetProfile, NpcDarknetRecord } from '../types';
+import { NPC, NpcAiDirectorCard, NpcAiPromptBlock, NpcDarknetProfile, NpcDarknetRecord, NpcDarknetService } from '../types';
 
 export interface NpcCodexEntry {
   ids?: string[];
@@ -280,6 +280,105 @@ const AUTHOR_NPC_CODEX: NpcCodexEntry[] = [
       },
     },
   },
+  {
+    ids: ['n1'],
+    patch: {
+      darknetProfile: {
+        services: [
+          {
+            id: 'velvet_patch_medical',
+            title: '黑诊疗急修',
+            summary: '处理开放性创伤、弹片残留和追踪点摘除，适合刚从热区撤下的人。',
+            price: 320,
+            kind: 'medical',
+            unlockLevel: 2,
+            risk: 'medium',
+            availability: '夜间优先 / 熟人单优先',
+            delivery: '薇尔薇特已安排一轮黑诊疗急修，伤口处理和定位摘除痕迹会在后续剧情中体现。',
+            tags: ['黑诊疗', '急修', '去定位'],
+          },
+          {
+            id: 'velvet_coldchain_smuggle',
+            title: '冷链转运洗号',
+            summary: '把敏感器官或高风险义体部件包装成民用维修件，从后门冷链转运出去。',
+            price: 540,
+            kind: 'smuggling',
+            unlockLevel: 3,
+            risk: 'high',
+            availability: '需后门通道未封锁',
+            delivery: '冷链转运与洗号路线已临时接通，相关敏感物会以维修件名义离场。',
+            tags: ['冷链', '洗号', '后门通道'],
+          },
+        ],
+      },
+    },
+  },
+  {
+    ids: ['n2'],
+    patch: {
+      darknetProfile: {
+        services: [
+          {
+            id: 'aria_scrub_trace',
+            title: '痕迹清洗包',
+            summary: '重置出入权限、抹掉监控回写和内部接触痕迹，适合高压区撤离后的善后。',
+            price: 680,
+            kind: 'rewrite',
+            unlockLevel: 3,
+            risk: 'sealed',
+            availability: '仅限封存链路时段',
+            delivery: '艾莉亚已放出一轮痕迹清洗包，监控回写和权限残影会被压低到内部审查以下。',
+            tags: ['痕迹清洗', '权限重置', '封存链路'],
+          },
+          {
+            id: 'aria_internal_bounty',
+            title: '内部回收悬单',
+            summary: '接入一张企业内部红级回收悬单，代价高，但能换到更深的塔内情报。',
+            price: 920,
+            kind: 'bounty',
+            unlockLevel: 4,
+            risk: 'sealed',
+            availability: '只在深链节点开放',
+            delivery: '一张企业内部回收悬单已被挂到你的暗网链路上，后续可在剧情中作为高压任务线使用。',
+            tags: ['回收悬单', '塔内情报', '红级任务'],
+          },
+        ],
+      },
+    },
+  },
+  {
+    ids: ['n3'],
+    patch: {
+      darknetProfile: {
+        services: [
+          {
+            id: 'jack_route_escort',
+            title: '撤离护送线',
+            summary: '用旧车队和酒吧关系网把人从热区带回安全卡座，适合短线脱离。',
+            price: 260,
+            kind: 'smuggling',
+            unlockLevel: 2,
+            risk: 'medium',
+            availability: '夜间与酒吧营业时段优先',
+            delivery: '杰克放出一条临时撤离护送线，热区回撤将优先走他保留的旧路线。',
+            tags: ['撤离', '护送', '旧车队'],
+          },
+          {
+            id: 'jack_backroom_intel',
+            title: '酒吧后场情报包',
+            summary: '汇总来生后场的接单风向、封口单传闻和近期熟客名单。',
+            price: 180,
+            kind: 'intel',
+            unlockLevel: 2,
+            risk: 'low',
+            availability: '现货',
+            delivery: '来生后场的接单风向和熟客名单已经整理进你的暗网缓存，可作为后续接触入口。',
+            tags: ['酒吧情报', '接单风向', '熟客名单'],
+          },
+        ],
+      },
+    },
+  },
 ];
 
 const matchesEntry = (npc: NPC, entry: NpcCodexEntry): boolean => {
@@ -319,6 +418,22 @@ const mergeDarknetRecords = (base: NpcDarknetRecord[] | undefined, extra: NpcDar
   return merged.size > 0 ? [...merged.values()] : undefined;
 };
 
+const mergeDarknetServices = (base: NpcDarknetService[] | undefined, extra: NpcDarknetService[] | undefined): NpcDarknetService[] | undefined => {
+  const merged = new Map<string, NpcDarknetService>();
+  [...(base || []), ...(extra || [])].forEach((service, index) => {
+    const id = `${service?.id || `darknet_service_${index + 1}`}`.trim();
+    if (!id) return;
+    const previous = merged.get(id);
+    merged.set(id, {
+      ...previous,
+      ...service,
+      id,
+      tags: mergeStringArray(previous?.tags, service?.tags),
+    });
+  });
+  return merged.size > 0 ? [...merged.values()] : undefined;
+};
+
 const mergeDarknetProfile = (base: NpcDarknetProfile | undefined, extra: NpcDarknetProfile | undefined): NpcDarknetProfile | undefined => {
   if (!base && !extra) return undefined;
   return {
@@ -327,6 +442,7 @@ const mergeDarknetProfile = (base: NpcDarknetProfile | undefined, extra: NpcDark
     tags: mergeStringArray(base?.tags, extra?.tags),
     knownAssociates: mergeStringArray(base?.knownAssociates, extra?.knownAssociates),
     intelRecords: mergeDarknetRecords(base?.intelRecords, extra?.intelRecords),
+    services: mergeDarknetServices(base?.services, extra?.services),
   };
 };
 

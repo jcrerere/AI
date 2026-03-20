@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { NPC, NpcDossierSection, NpcGalleryImage, NpcDarknetRecord } from '../../types';
+import { NPC, NpcDossierSection, NpcGalleryImage, NpcDarknetRecord, NpcDarknetService } from '../../types';
 import { resolveNpcCodexAccessState, resolveNpcIntelUnlockedCount } from '../../utils/npcCodex';
 import CyberPanel from '../ui/CyberPanel';
 import ImageLightbox from '../ui/ImageLightbox';
-import { BadgeInfo, BookOpen, Globe2, Image as ImageIcon, Lock } from 'lucide-react';
+import { BadgeInfo, BookOpen, BriefcaseBusiness, Coins, Globe2, Image as ImageIcon, Lock } from 'lucide-react';
 import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 interface Props {
   npc: NPC;
+  playerCredits: number;
   onBack: () => void;
+  onPurchaseService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
 }
 
-type CodexSection = 'clue' | 'dossier' | 'album' | 'darknet';
+type CodexSection = 'clue' | 'dossier' | 'album' | 'market' | 'darknet';
 
 const GALLERY_BATCH_SIZE = 6;
 const RECORD_BATCH_SIZE = 6;
@@ -36,16 +38,26 @@ const getRiskClassName = (record: NpcDarknetRecord): string => {
   return 'border-cyan-500/30 bg-cyan-950/25 text-cyan-200';
 };
 
-const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
+const getServiceKindLabel = (service: NpcDarknetService): string => {
+  if (service.kind === 'medical') return '黑诊疗';
+  if (service.kind === 'rewrite') return '清洗';
+  if (service.kind === 'smuggling') return '转运';
+  if (service.kind === 'bounty') return '悬单';
+  return '情报';
+};
+
+const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPurchaseService }) => {
   const [activeSection, setActiveSection] = useState<CodexSection>('clue');
   const [lightboxImage, setLightboxImage] = useState<{ src: string; title: string; subtitle?: string } | null>(null);
   const [visibleGalleryCount, setVisibleGalleryCount] = useState(GALLERY_BATCH_SIZE);
   const [visibleRecordCount, setVisibleRecordCount] = useState(RECORD_BATCH_SIZE);
+  const [serviceFeedback, setServiceFeedback] = useState<{ tone: 'success' | 'warn'; text: string } | null>(null);
   const isCompactViewport = useCompactViewport();
 
   const access = useMemo(() => resolveNpcCodexAccessState(npc), [npc]);
   const darkProfile = npc.darknetProfile;
   const darknetRecords = darkProfile?.intelRecords || [];
+  const darknetServices = darkProfile?.services || [];
 
   const clueNotes = useMemo(() => {
     if ((npc.clueNotes || []).length > 0) return npc.clueNotes || [];
@@ -162,9 +174,21 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
     setVisibleRecordCount(recordBatchSize);
   }, [darknetRecords.length, npc.id, recordBatchSize]);
 
+  useEffect(() => {
+    setServiceFeedback(null);
+  }, [npc.id]);
+
   const maskedCitizenId = access.dossierLevel >= 3 ? npc.citizenId || '未登记' : '信息未解锁';
   const maskedSocialHandle = access.socialUnlocked ? npc.socialHandle || '未绑定账号' : '需提升关系后解锁';
   const maskedDarknetHandle = access.darknetUnlocked ? darkProfile?.handle || '未登记句柄' : '需建立接入权限后解锁';
+
+  const handlePurchaseService = (service: NpcDarknetService) => {
+    const result = onPurchaseService({ npcId: npc.id, serviceId: service.id });
+    setServiceFeedback({
+      tone: result.ok ? 'success' : 'warn',
+      text: result.message || (result.ok ? `已采购 ${service.title}` : '采购失败'),
+    });
+  };
 
   return (
     <div className="relative h-full flex flex-col animate-in slide-in-from-right-4 duration-300 font-mono">
@@ -347,6 +371,78 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, onBack }) => {
 
         {activeSection === 'darknet' && (
           <CyberPanel title="暗网记录" variant="terminal" className="p-4 space-y-3">
+            {access.darknetUnlocked ? (
+              <div className="rounded-sm border border-emerald-500/15 bg-black/25 p-3 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-emerald-200">
+                    <BriefcaseBusiness className="w-3.5 h-3.5" />
+                    黑市服务层
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] text-amber-200">
+                    <Coins className="w-3.5 h-3.5" />
+                    余额 {playerCredits}
+                  </div>
+                </div>
+                {serviceFeedback ? (
+                  <div className={`rounded-sm border px-3 py-2 text-[11px] ${serviceFeedback.tone === 'success' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/25 bg-amber-500/10 text-amber-200'}`}>
+                    {serviceFeedback.text}
+                  </div>
+                ) : null}
+                {darknetServices.length === 0 ? (
+                  <div className="rounded-sm border border-dashed border-emerald-500/15 bg-black/20 px-4 py-4 text-sm text-slate-500">
+                    当前没有可采购的黑市服务，先推进关系或补作者档案。
+                  </div>
+                ) : (
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {darknetServices.map(service => {
+                      const unlocked = access.darknetLevel >= (service.unlockLevel || 1);
+                      const affordable = playerCredits >= service.price;
+                      return (
+                        <div key={service.id} className="rounded-sm border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))] p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-white">{service.title}</div>
+                              <div className="mt-1 text-[11px] text-slate-500">
+                                {getServiceKindLabel(service)} · {service.availability || '暗网节点交割'}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${getRiskClassName({ risk: service.risk } as NpcDarknetRecord)}`}>
+                              {getRiskLabel({ risk: service.risk } as NpcDarknetRecord)}
+                            </span>
+                          </div>
+                          <div className={`mt-3 text-sm leading-6 ${unlocked ? 'text-slate-200' : 'text-slate-600 blur-[2px] select-none'}`}>
+                            {unlocked ? service.summary : `需要暗网等级 Lv.${service.unlockLevel || 2} 后解锁服务说明。`}
+                          </div>
+                          {(service.tags || []).length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {(service.tags || []).map(tag => (
+                                <span key={tag} className="rounded-sm border border-emerald-500/15 bg-black/20 px-2 py-1 text-[10px] text-slate-300">
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Price</div>
+                              <div className="mt-1 text-lg font-semibold text-amber-200">¥{service.price.toLocaleString()}</div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!unlocked || !affordable}
+                              onClick={() => handlePurchaseService(service)}
+                              className="rounded-sm border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100 transition hover:border-emerald-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                            >
+                              {!unlocked ? `需 Lv.${service.unlockLevel || 2}` : affordable ? '采购' : '余额不足'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : null}
             {!access.darknetUnlocked ? (
               <div className="rounded-sm border border-dashed border-emerald-500/15 bg-black/20 px-4 py-6 text-center text-sm text-slate-500">
                 当前还无法查看该人物的暗网节点。

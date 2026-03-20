@@ -43,6 +43,7 @@ import {
   MonthlySettlementRecord,
   NpcDarknetProfile,
   NpcDarknetRecord,
+  NpcDarknetService,
   FinanceLedgerEntry,
 } from './types';
 import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum } from './utils/pseudoLayer';
@@ -1025,6 +1026,25 @@ const normalizeDarknetRecord = (npc: NPC, record: NpcDarknetRecord, index: numbe
   image: record?.image?.trim() || undefined,
 });
 
+const normalizeDarknetService = (service: NpcDarknetService, index: number): NpcDarknetService => ({
+  id: service?.id || `darknet_service_${index + 1}`,
+  title: `${service?.title || `暗网服务 ${index + 1}`}`.trim(),
+  summary: `${service?.summary || ''}`.trim() || '该服务未返回说明。',
+  price: Number.isFinite(service?.price) ? Math.max(1, Math.floor(Number(service.price))) : 100,
+  kind:
+    service?.kind === 'bounty' || service?.kind === 'intel' || service?.kind === 'medical' || service?.kind === 'rewrite' || service?.kind === 'smuggling'
+      ? service.kind
+      : 'intel',
+  unlockLevel: Number.isFinite(service?.unlockLevel) ? Math.min(4, Math.max(1, Math.floor(Number(service.unlockLevel)))) : 2,
+  risk:
+    service?.risk === 'sealed' || service?.risk === 'high' || service?.risk === 'medium' || service?.risk === 'low'
+      ? service.risk
+      : 'medium',
+  availability: `${service?.availability || ''}`.trim() || undefined,
+  delivery: `${service?.delivery || ''}`.trim() || undefined,
+  tags: normalizeUniqueStrings(service?.tags),
+});
+
 const normalizeDarknetProfile = (npc: NPC, profile: NpcDarknetProfile | undefined): NpcDarknetProfile => {
   const fallback = buildFallbackDarknetProfile(npc);
   const sourceRecords = Array.isArray(profile?.intelRecords) ? profile.intelRecords : fallback.intelRecords || [];
@@ -1044,6 +1064,9 @@ const normalizeDarknetProfile = (npc: NPC, profile: NpcDarknetProfile | undefine
     intelRecords: sourceRecords
       .map((record, index) => normalizeDarknetRecord(npc, record, index))
       .sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0) || a.id.localeCompare(b.id)),
+    services: Array.isArray(profile?.services)
+      ? profile.services.map((service, index) => normalizeDarknetService(service, index))
+      : undefined,
   };
 };
 
@@ -1077,6 +1100,26 @@ const buildImportedDarknetRecord = (
   unlockLevel: draft.visibility === 'premium' ? 4 : 2,
   tags: normalizeUniqueStrings([draft.platform.toUpperCase(), '来源映射', '公开素材导入']),
   image: draft.imageUrl.trim() || undefined,
+});
+
+const buildPurchasedDarknetServiceRecord = (
+  npc: NPC,
+  service: NpcDarknetService,
+  timestamp: string,
+  fallbackLocation: string,
+): NpcDarknetRecord => ({
+  id: `darknet_service_record_${npc.id}_${service.id}_${Date.now()}`,
+  title: `${service.title} · 已交割`,
+  content:
+    service.delivery
+    || `${npc.name} 已通过暗网节点交付「${service.title}」，相关影响将在后续剧情与系统互动中兑现。`,
+  timestamp,
+  source: npc.darknetProfile?.handle || `${npc.name} 暗网节点`,
+  location: fallbackLocation || npc.darknetProfile?.lastSeen || npc.location || '暗网节点',
+  risk: service.risk || 'medium',
+  kind: service.kind === 'bounty' ? 'contract' : service.kind === 'intel' ? 'intel' : 'transaction',
+  unlockLevel: 2,
+  tags: normalizeUniqueStrings([...(service.tags || []), '服务交割', service.kind]),
 });
 
 const normalizeSocialPost = (npc: NPC, post: SocialPost, index: number): SocialPost => ({
@@ -4889,6 +4932,81 @@ const App: React.FC = () => {
     return { ok: true };
   };
 
+  const handlePurchaseDarknetService = ({
+    npcId,
+    serviceId,
+  }: {
+    npcId: string;
+    serviceId: string;
+  }): { ok: boolean; message?: string } => {
+    const target = npcs.find(npc => npc.id === npcId);
+    const service = target?.darknetProfile?.services?.find(item => item.id === serviceId);
+    if (!target || !service) return { ok: false, message: '目标服务不存在。' };
+
+    const access = resolveNpcCodexAccessState(target);
+    const requiredLevel = Math.max(1, service.unlockLevel || 1);
+    if (!access.darknetUnlocked || access.darknetLevel < requiredLevel) {
+      return { ok: false, message: `暗网等级不足，需达到 Lv.${requiredLevel}。` };
+    }
+    if (playerStats.credits < service.price) {
+      return { ok: false, message: '灵币不足。' };
+    }
+
+    const nowIso = new Date().toISOString();
+    const nowDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const deliveryRecord = buildPurchasedDarknetServiceRecord(
+      target,
+      service,
+      nowIso,
+      currentNarrativeLocation || target.location || target.darknetProfile?.lastSeen || '暗网节点',
+    );
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - service.price),
+    }));
+    setNpcs(prev =>
+      prev.map(npc => {
+        if (npc.id !== npcId) return npc;
+        const currentProfile = npc.darknetProfile || {};
+        const nextRecords = [deliveryRecord, ...(currentProfile.intelRecords || [])];
+        return normalizeNpcForUi({
+          ...npc,
+          darknetProfile: {
+            ...currentProfile,
+            lastSeen: currentNarrativeLocation || currentProfile.lastSeen || npc.location,
+            intelRecords: nextRecords,
+          },
+          unlockState: {
+            ...(npc.unlockState || {}),
+            dossierLevel: Math.max(3, npc.unlockState?.dossierLevel || 0),
+            darknetLevel: Math.max(requiredLevel, npc.unlockState?.darknetLevel || 0),
+            darknetUnlocked: true,
+            intelUnlockedCount: Math.max(nextRecords.length, npc.unlockState?.intelUnlockedCount || 0),
+          },
+        });
+      }),
+    );
+    pushFinanceLedgerEntry({
+      kind: 'darknet',
+      title: '暗网服务采购',
+      detail: `向 ${target.name} 采购「${service.title}」。`,
+      amount: -service.price,
+      counterparty: target.name,
+    });
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `darknet_service_${Date.now()}`,
+        sender: 'System',
+        content: `暗网采购完成：已向 ${target.name} 支付 ${service.price} 灵币，服务「${service.title}」已接入当前链路。`,
+        timestamp: nowDisplay,
+        type: 'narrative',
+      },
+    ]);
+    return { ok: true, message: `已采购 ${service.title}` };
+  };
+
   const handleImportSocialPost = (draft: SocialImportDraft) => {
     const now = new Date().toISOString();
     const existingTarget = draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
@@ -7737,6 +7855,7 @@ const App: React.FC = () => {
                 onAddComment={handleAddSocialComment}
                 onSendDm={handleSendSocialDm}
                 onSpendOnNpc={handleSpendOnSocial}
+                onPurchaseDarknetService={handlePurchaseDarknetService}
                 onImportPost={handleImportSocialPost}
               />
             )}

@@ -7,8 +7,10 @@ import { useCompactViewport } from '../../hooks/useCompactViewport';
 
 interface Props {
   npcs: NPC[];
+  playerCredits: number;
   selectedNpcId: string | null;
   onSelectNpcId: (npcId: string | null) => void;
+  onPurchaseService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
 }
 
 const INDEX_BATCH_SIZE = 10;
@@ -47,6 +49,7 @@ const buildSearchHaystack = (npc: NPC): string =>
     npc.darknetProfile?.summary,
     npc.darknetProfile?.accessTier,
     npc.darknetProfile?.marketVector,
+    ...((npc.darknetProfile?.services || []).flatMap(service => [service.title, service.summary, service.kind, ...(service.tags || [])])),
     ...(npc.clueNotes || []),
     ...(npc.darknetProfile?.tags || []),
     ...(npc.darknetProfile?.knownAssociates || []),
@@ -55,7 +58,7 @@ const buildSearchHaystack = (npc: NPC): string =>
     .join(' ')
     .toLowerCase();
 
-const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) => {
+const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, onSelectNpcId, onPurchaseService }) => {
   const [keyword, setKeyword] = useState('');
   const [visibleEntryCount, setVisibleEntryCount] = useState(INDEX_BATCH_SIZE);
   const isCompactViewport = useCompactViewport();
@@ -90,13 +93,21 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
 
   const indexedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).dossierLevel > 0).length, [entries]);
   const deepLinkedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).darknetLevel >= 3).length, [entries]);
+  const serviceNodeCount = useMemo(() => entries.filter(npc => (npc.darknetProfile?.services || []).length > 0).length, [entries]);
 
   useEffect(() => {
     setVisibleEntryCount(indexBatchSize);
   }, [deferredKeyword, entries.length, indexBatchSize]);
 
   if (selectedNpc) {
-    return <NpcCodexEntryPanel npc={selectedNpc} onBack={() => onSelectNpcId(null)} />;
+    return (
+      <NpcCodexEntryPanel
+        npc={selectedNpc}
+        playerCredits={playerCredits}
+        onBack={() => onSelectNpcId(null)}
+        onPurchaseService={onPurchaseService}
+      />
+    );
   }
 
   return (
@@ -110,7 +121,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
         <div className="mt-2 max-w-2xl text-xs leading-6 text-emerald-100/75">
           暗网独立维护人物志、节点画像与黑市记录，不再复用灵网动态流。这里更像受限终端，不是社交主页。
         </div>
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-3">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-4">
           <div className="rounded-md border border-emerald-500/15 bg-black/35 px-3 py-2">
             <div className="tracking-[0.24em] uppercase text-emerald-400/70">Indexed</div>
             <div className="mt-1 text-lg font-semibold text-white">{indexedCount}</div>
@@ -122,6 +133,10 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, selectedNpcId, onSelectNpcId }) 
           <div className="rounded-md border border-amber-500/15 bg-black/35 px-3 py-2">
             <div className="tracking-[0.24em] uppercase text-amber-300/70">Scan</div>
             <div className="mt-1 text-lg font-semibold text-white">{entries.length}</div>
+          </div>
+          <div className="rounded-md border border-cyan-500/15 bg-black/35 px-3 py-2">
+            <div className="tracking-[0.24em] uppercase text-cyan-300/70">Market</div>
+            <div className="mt-1 text-lg font-semibold text-white">{serviceNodeCount}</div>
           </div>
         </div>
       </div>
