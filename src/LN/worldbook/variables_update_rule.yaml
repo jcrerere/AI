@@ -43,6 +43,12 @@ rules:
       - 仅写当前到点或超期待办的压缩摘要
       - 若没有到点/超期待办，允许为空字符串
 
+  world.economy_digest:
+    type: string
+    check:
+      - 浠呭啓褰撳墠鍒嗗尯鐨勭粡娴庢憳瑕侊紝鍖呭惈鐢熷瓨绾裤€佹秷璐瑰拰鏀跺叆鏂瑰悜
+      - 涓嶅洖鍐欏畬鏁翠环鐩垨鏁翠釜浠锋牸鐭╅樀
+
   world.current_district:
     type: string
     check:

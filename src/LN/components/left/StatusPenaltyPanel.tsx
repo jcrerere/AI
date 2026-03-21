@@ -51,7 +51,7 @@ const StatusPenaltyPanel: React.FC<Props> = ({ affixes, warnings, taxAmount, tax
               <ScrollText className="w-3.5 h-3.5" />
               本期待缴
             </div>
-            <div className="mt-2 text-lg font-black text-white">¥{taxAmount.toLocaleString()}</div>
+            <div className="mt-2 text-lg font-black text-white">{taxAmount.toLocaleString()} 灵能币</div>
             <div className="text-[11px] text-slate-500">会在月结和税务面板共同结算</div>
           </div>
         </div>
@@ -63,7 +63,7 @@ const StatusPenaltyPanel: React.FC<Props> = ({ affixes, warnings, taxAmount, tax
                 <div className="text-[11px] font-bold text-amber-200">累计欠缴情形</div>
                 <div className="mt-1 text-[11px] text-slate-400">欠缴情形会在后续月结中持续并入应缴税额，直到手动补缴。</div>
               </div>
-              <div className="font-mono text-lg text-amber-200">¥{taxArrears.toLocaleString()}</div>
+              <div className="font-mono text-lg text-amber-200">{taxArrears.toLocaleString()} 灵能币</div>
             </div>
           </div>
         ) : null}

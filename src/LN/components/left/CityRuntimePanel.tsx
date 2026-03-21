@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { CityRuntimeData, RuntimeTodoStatus } from '../../types';
 import { getCurrentDistrictLabel, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
+import { buildEconomyBenchmarkSnapshot } from '../../utils/economyRuntime';
 
 interface Props {
   runtime: CityRuntimeData;
@@ -49,6 +50,10 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
         .slice(0, 5),
     [runtime.todos],
   );
+  const economy = useMemo(
+    () => buildEconomyBenchmarkSnapshot(runtime.currentDistrictId, currentLocation),
+    [runtime.currentDistrictId, currentLocation],
+  );
 
   return (
     <div className="space-y-3">
@@ -78,6 +83,39 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
             <span className="ml-2 text-slate-500">{currentAnchor.kind}</span>
           </div>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-amber-500/15 bg-amber-950/10 p-3">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-amber-200/70">经济层</div>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold text-amber-50">{economy.structureLabel}</div>
+          <div className="text-[11px] text-amber-200/80">{economy.label}</div>
+        </div>
+        <div className="mt-1 text-[11px] leading-5 text-slate-400">{economy.note}</div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-300 md:grid-cols-5">
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">生存线</div>
+            <div className="mt-1 text-amber-100">{economy.minimumDailyCash}/{economy.minimumDailyEquivalent}</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">中位消费</div>
+            <div className="mt-1 text-amber-100">{economy.medianDailyConsumption}</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">均值消费</div>
+            <div className="mt-1 text-amber-100">{economy.averageDailyConsumption}</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">中位/均收</div>
+            <div className="mt-1 text-amber-100">
+              {economy.medianDailyIncome}/{economy.averageDailyIncome}
+            </div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">恩格尔</div>
+            <div className="mt-1 text-amber-100">{economy.engelMedian}%</div>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-white/8 bg-black/30 p-3">

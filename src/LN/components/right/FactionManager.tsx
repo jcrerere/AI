@@ -66,20 +66,20 @@ const FactionManager: React.FC<Props> = ({ faction, zones }) => {
                     <CyberPanel title="财务报表" noPadding className="p-4">
                         <div className="flex justify-between items-center mb-4">
                             <span className="text-xs text-slate-400">当前资金池</span>
-                            <span className="text-xl font-bold font-mono text-yellow-400">¥ {faction.economy.treasury.toLocaleString()}</span>
+                            <span className="text-xl font-bold font-mono text-yellow-400">{faction.economy.treasury.toLocaleString()} 灵能币</span>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="bg-slate-900/50 p-3 border border-slate-800 rounded">
                                 <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
                                     <TrendingUp className="w-3 h-3 text-green-500" /> 月度收入
                                 </div>
-                                <div className="text-sm font-bold text-green-400">+ ¥{faction.economy.monthlyIncome.toLocaleString()}</div>
+                                <div className="text-sm font-bold text-green-400">+ {faction.economy.monthlyIncome.toLocaleString()} 灵能币</div>
                             </div>
                             <div className="bg-slate-900/50 p-3 border border-slate-800 rounded">
                                 <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-1">
                                     <TrendingDown className="w-3 h-3 text-red-500" /> 月度维护
                                 </div>
-                                <div className="text-sm font-bold text-red-400">- ¥{faction.economy.monthlyUpkeep.toLocaleString()}</div>
+                                <div className="text-sm font-bold text-red-400">- {faction.economy.monthlyUpkeep.toLocaleString()} 灵能币</div>
                             </div>
                         </div>
                     </CyberPanel>
@@ -114,8 +114,8 @@ const FactionManager: React.FC<Props> = ({ faction, zones }) => {
                                  <div className="text-[10px] text-slate-500">{ind.type} // LV.{ind.level}</div>
                              </div>
                              <div className="text-right">
-                                 <div className="text-xs font-mono text-green-400">+¥{ind.output}/wk</div>
-                                 <div className="text-[10px] font-mono text-red-400">-¥{ind.upkeep}/wk</div>
+                                 <div className="text-xs font-mono text-green-400">+{ind.output} 灵能币/wk</div>
+                                 <div className="text-[10px] font-mono text-red-400">-{ind.upkeep} 灵能币/wk</div>
                              </div>
                         </div>
                     ))}
@@ -148,7 +148,7 @@ const FactionManager: React.FC<Props> = ({ faction, zones }) => {
                             <div key={task.id} className="bg-black/30 border border-slate-800 p-3 hover:border-slate-600 transition-colors">
                                 <div className="flex justify-between items-start mb-2">
                                     <div className="font-bold text-sm text-slate-200">{task.title}</div>
-                                    <div className="text-xs font-mono text-yellow-400">¥{task.reward}</div>
+                                    <div className="text-xs font-mono text-yellow-400">{task.reward}</div>
                                 </div>
                                 <p className="text-[10px] text-slate-500 mb-2">{task.description}</p>
                                 <div className="flex justify-between items-center text-[10px]">
@@ -294,7 +294,7 @@ const FactionManager: React.FC<Props> = ({ faction, zones }) => {
                                     <div className="text-xs text-slate-300">未知雇佣兵 #{2077+i}</div>
                                     <div className="text-[9px] text-slate-500">突击兵 | Lv.2</div>
                                 </div>
-                                <button className="text-[9px] border border-yellow-800 text-yellow-500 px-2 py-0.5">雇佣 (¥500)</button>
+                                <button className="text-[9px] border border-yellow-800 text-yellow-500 px-2 py-0.5">雇佣 (500 灵能币)</button>
                             </div>
                         ))}
                     </div>

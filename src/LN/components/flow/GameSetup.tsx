@@ -688,7 +688,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                 <input type="range" min="1" max="5" value={rankValue(psionicRank)} onChange={e => setPsionicRank(`Lv.${e.target.value}` as Rank)} className="w-full accent-purple-500" />
               </div>
               <div className="border border-slate-800 p-3">
-                <div className="flex justify-between text-xs mb-2"><span className="text-slate-400 flex items-center gap-1"><CreditCard className="w-3 h-3" />灵能币</span><span className="text-yellow-400">¥ {credits.toLocaleString()}</span></div>
+                <div className="flex justify-between text-xs mb-2"><span className="text-slate-400 flex items-center gap-1"><CreditCard className="w-3 h-3" />灵能币</span><span className="text-yellow-400">{credits.toLocaleString()} 灵能币</span></div>
                 <input type="range" min="0" max="50000" step="1000" value={credits} onChange={e => setCredits(parseInt(e.target.value, 10))} className="w-full accent-yellow-500" />
               </div>
               <div className="border border-slate-800 p-3">

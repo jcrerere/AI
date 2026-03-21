@@ -425,7 +425,7 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                           <div className="mt-4 flex items-center justify-between gap-3">
                             <div>
                               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Price</div>
-                              <div className="mt-1 text-lg font-semibold text-amber-200">¥{service.price.toLocaleString()}</div>
+                              <div className="mt-1 text-lg font-semibold text-amber-200">{service.price.toLocaleString()} 灵能币</div>
                             </div>
                             <button
                               type="button"

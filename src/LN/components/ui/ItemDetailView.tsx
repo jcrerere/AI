@@ -77,7 +77,7 @@ const ItemDetailView: React.FC<Props> = ({ item, onClose, onUse }) => {
                      </div>
                      <div className="flex justify-between text-[10px]">
                          <span className="text-slate-400">黑市估值</span>
-                         <span className="font-mono text-yellow-400">¥ 150</span>
+                         <span className="font-mono text-yellow-400">150 灵能币</span>
                      </div>
                  </div>
              </div>

@@ -442,7 +442,7 @@ export const MOCK_QUESTS: Quest[] = [
         description: '帮我从第7区废品站找回一个型号为Mk.II的义眼。',
         objectives: ['前往废品站', '找到义眼', '交还给薇尔薇特'],
         issuer: '薇尔薇特',
-        reward: '¥ 500',
+        reward: '500 灵能币',
         difficulty: Rank.Lv1,
         status: 'active',
         deadline: '24h'
@@ -453,7 +453,7 @@ export const MOCK_QUESTS: Quest[] = [
         description: '一个荒坂特工正在调查我们的据点，让他消失。',
         objectives: ['定位特工', '消灭目标'],
         issuer: '第7区帮派',
-        reward: '¥ 2000',
+        reward: '2000 灵能币',
         difficulty: Rank.Lv3,
         status: 'active'
     }

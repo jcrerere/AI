@@ -25,6 +25,7 @@ export const MvuStatDataSchema = z.object({
     todo_unread_count: z.number().int().min(0),
     todo_due_digest: z.string(),
     todo_overdue_digest: z.string(),
+    economy_digest: z.string(),
     current_district: z.string(),
     current_site_type: z.string(),
     current_site_id: z.string(),

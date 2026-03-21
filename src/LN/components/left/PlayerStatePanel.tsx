@@ -307,7 +307,7 @@ const PlayerStatePanel: React.FC<Props> = ({
             <Coins className="w-3 h-3 text-amber-500" />
             <span className="text-[10px] text-slate-400 font-bold">灵能币</span>
           </div>
-          <div className="text-lg font-bold text-amber-400 truncate leading-none font-mono mt-auto">¥ {stats.credits.toLocaleString()}</div>
+          <div className="text-lg font-bold text-amber-400 truncate leading-none font-mono mt-auto">{stats.credits.toLocaleString()} 灵能币</div>
         </div>
       </div>
 

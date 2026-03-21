@@ -105,7 +105,7 @@ const ResidencePanel: React.FC<Props> = ({
             </div>
             <div className="rounded border border-slate-800/90 bg-slate-950/40 p-2">
               <div className="text-slate-500">月维持费</div>
-              <div className="mt-1 font-mono text-slate-200">¥{(currentResidence?.monthlyCost || 0).toLocaleString()}</div>
+              <div className="mt-1 font-mono text-slate-200">{(currentResidence?.monthlyCost || 0).toLocaleString()} 灵能币</div>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -157,13 +157,13 @@ const ResidencePanel: React.FC<Props> = ({
               <BedDouble className="w-3.5 h-3.5 text-amber-300" />
               可切换住处
             </div>
-            <div className="text-[11px] text-slate-500">余额 ¥{playerCredits.toLocaleString()}</div>
+            <div className="text-[11px] text-slate-500">余额 {playerCredits.toLocaleString()} 灵能币</div>
           </div>
           <div className="space-y-2">
             {residenceOptions.map(option => {
               const isCurrent = option.id === residence.currentResidenceId;
               const isUnlocked = residence.unlockedResidenceIds.includes(option.id);
-              const actionLabel = isCurrent ? '当前住处' : isUnlocked ? '迁入' : option.switchCost > 0 ? `登记 ¥${option.switchCost}` : '登记';
+              const actionLabel = isCurrent ? '当前住处' : isUnlocked ? '迁入' : option.switchCost > 0 ? `登记 ${option.switchCost} 灵能币` : '登记';
               return (
                 <div key={option.id} className="rounded-xl border border-slate-800/90 bg-slate-950/40 p-3">
                   <div className="flex items-start justify-between gap-3">
@@ -200,7 +200,7 @@ const ResidencePanel: React.FC<Props> = ({
                     </div>
                     <div className="rounded border border-slate-800/90 bg-black/30 p-2">
                       <div className="text-slate-500">费用</div>
-                      <div className="mt-1 text-slate-200">登记者 ¥{option.switchCost} / 月维持 ¥{option.monthlyCost}</div>
+                      <div className="mt-1 text-slate-200">登记者 {option.switchCost} 灵能币 / 月维持 {option.monthlyCost} 灵能币</div>
                     </div>
                   </div>
                   <div className="mt-2 flex items-start gap-1 text-[11px] text-slate-500">

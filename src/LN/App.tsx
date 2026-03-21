@@ -69,6 +69,7 @@ import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTu
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
+import { buildEconomyDigest } from './utils/economyRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
 import { applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
@@ -4257,6 +4258,10 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+  const economyDigest = useMemo(
+    () => buildEconomyDigest(cityRuntime.currentDistrictId, currentNarrativeLocation),
+    [cityRuntime.currentDistrictId, currentNarrativeLocation],
+  );
   const latestPlayerInputForSceneAction = useMemo(() => {
     if (!activeLayerMessage) return '';
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
@@ -4398,9 +4403,9 @@ const App: React.FC = () => {
       netDelta,
       notes: [
         `基础津贴由派系月度净收入、Beta 等级和信誉补贴共同决定。`,
-        arrearsDue > 0 ? `当前累计欠缴情形 ¥${arrearsDue.toLocaleString()}，本次会并入应缴税额。` : `当前没有历史欠缴情形，月结只计算本期税额。`,
+        arrearsDue > 0 ? `当前累计欠缴情形 ${arrearsDue.toLocaleString()} 灵能币，本次会并入应缴税额。` : `当前没有历史欠缴情形，月结只计算本期税额。`,
         currentResidenceProfile
-          ? `当前住所「${currentResidenceProfile.label}」会带来 ¥${(pendingMonths * residenceUpkeep).toLocaleString()} 的住处维持费。`
+          ? `当前住所「${currentResidenceProfile.label}」会带来 ${(pendingMonths * residenceUpkeep).toLocaleString()} 灵能币的住处维持费。`
           : `当前还没有稳定住所，月结暂不计入住处维持费。`,
         `灵枢部件、已装配芯片和异常状态会持续抬高维持费与风险扣款。`,
         `若结算后余额不足，会记为欠缴并直接压低信誉值。`,
@@ -4820,6 +4825,7 @@ const App: React.FC = () => {
             todo_unread_count: unreadCityTodoCount,
             todo_due_digest: todoDueDigest,
             todo_overdue_digest: todoOverdueDigest,
+            economy_digest: economyDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -4901,6 +4907,13 @@ const App: React.FC = () => {
     playerChips,
     storageChips,
     coinVault,
+    cityRuntime.currentCellId,
+    cityRuntime.currentAnchorId,
+    unreadCityTodoCount,
+    todoDigest,
+    todoDueDigest,
+    todoOverdueDigest,
+    economyDigest,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -5686,7 +5699,7 @@ const App: React.FC = () => {
       },
     ]);
     spawnFloatingText(
-      `${net >= 0 ? '+' : '-'}¥${Math.abs(net).toLocaleString()}`,
+      `${net >= 0 ? '+' : '-'}${Math.abs(net).toLocaleString()} 灵能币`,
       net >= 0 ? 'text-emerald-300' : 'text-red-300',
     );
     return {
@@ -8076,7 +8089,7 @@ const App: React.FC = () => {
     }
     const alreadyUnlocked = playerResidence.unlockedResidenceIds.includes(target.id);
     if (!alreadyUnlocked && target.switchCost > playerStats.credits) {
-      return { ok: false, message: `余额不足，当前登记需要 ¥${target.switchCost.toLocaleString()}。` };
+      return { ok: false, message: `余额不足，当前登记需要 ${target.switchCost.toLocaleString()} 灵能币。` };
     }
 
     if (!alreadyUnlocked && target.switchCost > 0) {
@@ -8090,7 +8103,7 @@ const App: React.FC = () => {
         detail: `已登记住处「${target.label}」。`,
         amount: -target.switchCost,
       });
-      spawnFloatingText(`-¥${target.switchCost.toLocaleString()}`, 'text-cyan-300');
+      spawnFloatingText(`-${target.switchCost.toLocaleString()} 灵能币`, 'text-cyan-300');
     }
 
     setPlayerResidence(prev =>
@@ -8182,7 +8195,7 @@ const App: React.FC = () => {
       netDelta: monthlySettlementPreview.netDelta,
       status: shortfall > 0 ? 'arrears' : 'processed',
       processedAt,
-      notes: shortfall > 0 ? [...monthlySettlementPreview.notes, `本次仍有 ¥${shortfall.toLocaleString()} 未能完成缴付。`] : monthlySettlementPreview.notes,
+      notes: shortfall > 0 ? [...monthlySettlementPreview.notes, `本次仍有 ${shortfall.toLocaleString()} 灵能币未能完成缴付。`] : monthlySettlementPreview.notes,
     };
 
     setPlayerStats(prev => ({
@@ -8194,7 +8207,7 @@ const App: React.FC = () => {
     setBetaStatus(prev => {
       const filteredWarnings = (prev.warnings || []).filter(warning => !warning.startsWith('月结欠缴情形'));
       const nextWarnings =
-        shortfall > 0 ? [`月结欠缴情形 · 缺口 ¥${shortfall.toLocaleString()}`, ...filteredWarnings].slice(0, 8) : filteredWarnings;
+        shortfall > 0 ? [`月结欠缴情形 · 缺口 ${shortfall.toLocaleString()} 灵能币`, ...filteredWarnings].slice(0, 8) : filteredWarnings;
       const nextScore = Math.max(0, Math.min(120, prev.creditScore + (shortfall > 0 ? -Math.max(8, monthlySettlementPreview.pendingMonths * 6) : Math.min(3, monthlySettlementPreview.pendingMonths))));
       return {
         ...prev,
@@ -8222,7 +8235,7 @@ const App: React.FC = () => {
         {
           id: 'monthly_arrears_affix',
           name: '状态：月结欠缴',
-          description: `存在 ¥${shortfall.toLocaleString()} 未结清税务与维持成本。`,
+          description: `存在 ${shortfall.toLocaleString()} 灵能币未结清税务与维持成本。`,
           type: 'debuff',
           source: '月结',
         },
@@ -8233,12 +8246,12 @@ const App: React.FC = () => {
       title: shortfall > 0 ? '月结完成，转入欠缴' : '月结完成',
       detail:
         shortfall > 0
-          ? `${monthlySettlementPreview.cycleLabel} 仍有 ¥${shortfall.toLocaleString()} 未结清，已转入累计欠缴情形。`
+          ? `${monthlySettlementPreview.cycleLabel} 仍有 ${shortfall.toLocaleString()} 灵能币未结清，已转入累计欠缴情形。`
           : `${monthlySettlementPreview.cycleLabel} 已完成结算。`,
       amount: actualCreditDelta,
     });
     spawnFloatingText(
-      `${actualCreditDelta >= 0 ? '+' : '-'}¥${Math.abs(actualCreditDelta).toLocaleString()}`,
+      `${actualCreditDelta >= 0 ? '+' : '-'}${Math.abs(actualCreditDelta).toLocaleString()} 灵能币`,
       actualCreditDelta >= 0 ? 'text-emerald-300' : 'text-red-300',
     );
   };
@@ -8259,7 +8272,7 @@ const App: React.FC = () => {
       const filteredWarnings = (prev.warnings || []).filter(warning => !warning.startsWith('月结欠缴情形'));
       const nextWarnings =
         remainingArrears > 0
-          ? [`月结欠缴情形 · 缺口 ¥${remainingArrears.toLocaleString()}`, ...filteredWarnings].slice(0, 8)
+          ? [`月结欠缴情形 · 缺口 ${remainingArrears.toLocaleString()} 灵能币`, ...filteredWarnings].slice(0, 8)
           : filteredWarnings;
       const nextScore = remainingArrears > 0 ? prev.creditScore : Math.min(120, prev.creditScore + 4);
       return {
@@ -8287,7 +8300,7 @@ const App: React.FC = () => {
         {
           id: 'monthly_arrears_affix',
           name: '状态：月结欠缴',
-          description: `仍有 ¥${remainingArrears.toLocaleString()} 未结清税务与维持成本。`,
+          description: `仍有 ${remainingArrears.toLocaleString()} 灵能币未结清税务与维持成本。`,
           type: 'debuff',
           source: '月结',
         },
@@ -8298,8 +8311,8 @@ const App: React.FC = () => {
       title: remainingArrears > 0 ? '补缴情税款（部分）' : '补缴情税款',
       detail:
         remainingArrears > 0
-          ? `已补缴 ¥${paidAmount.toLocaleString()}，剩余欠缴情形 ¥${remainingArrears.toLocaleString()}。`
-          : `已结清累计欠缴情形 ¥${paidAmount.toLocaleString()}。`,
+          ? `已补缴 ${paidAmount.toLocaleString()} 灵能币，剩余欠缴情形 ${remainingArrears.toLocaleString()} 灵能币。`
+          : `已结清累计欠缴情形 ${paidAmount.toLocaleString()} 灵能币。`,
       amount: -paidAmount,
     });
     setMessages(prev => [
@@ -8315,7 +8328,7 @@ const App: React.FC = () => {
         type: 'narrative',
       },
     ]);
-    spawnFloatingText(`-¥${paidAmount.toLocaleString()}`, 'text-amber-300');
+    spawnFloatingText(`-${paidAmount.toLocaleString()} 灵能币`, 'text-amber-300');
   };
 
   const bindTaxOfficer = (candidate: TaxOfficerCandidate) => {

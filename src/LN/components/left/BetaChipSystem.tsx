@@ -71,7 +71,7 @@ const BetaChipSystem: React.FC<Props> = ({ chips, status, onChipClick }) => {
                   </div>
                   <div className="bg-red-950/30 border border-red-900/50 p-2 rounded flex justify-between items-center">
                       <div>
-                          <div className="text-xs text-red-300">欠款: ¥{status.taxAmount.toLocaleString()}</div>
+                          <div className="text-xs text-red-300">欠款: {status.taxAmount.toLocaleString()} 灵能币</div>
                           <div className="text-[10px] text-red-500/70 font-mono">{status.taxDeadline}</div>
                       </div>
                       <button className="text-[10px] bg-red-900/50 hover:bg-red-800 text-red-200 px-2 py-1 rounded border border-red-700 transition-colors">

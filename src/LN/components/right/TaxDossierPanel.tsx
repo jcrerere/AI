@@ -93,7 +93,7 @@ const TaxDossierPanel: React.FC<Props> = ({
             </div>
             <div className="rounded border border-slate-800/90 bg-slate-950/40 p-2">
               <div className="text-slate-500">本期待缴</div>
-              <div className="mt-1 font-mono text-red-200">¥{status.taxAmount.toLocaleString()}</div>
+              <div className="mt-1 font-mono text-red-200">{status.taxAmount.toLocaleString()} 灵能币</div>
             </div>
             <div className="rounded border border-slate-800/90 bg-slate-950/40 p-2">
               <div className="text-slate-500">截止时间</div>
@@ -110,7 +110,7 @@ const TaxDossierPanel: React.FC<Props> = ({
             </div>
             <div className="text-right">
               <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Arrears</div>
-              <div className="mt-1 font-mono text-lg text-amber-200">¥{Math.max(0, status.taxArrears || 0).toLocaleString()}</div>
+              <div className="mt-1 font-mono text-lg text-amber-200">{Math.max(0, status.taxArrears || 0).toLocaleString()} 灵能币</div>
             </div>
           </div>
           <button
@@ -120,7 +120,7 @@ const TaxDossierPanel: React.FC<Props> = ({
             className="w-full rounded border border-amber-700 px-3 py-2 text-xs text-amber-200 hover:border-amber-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {(status.taxArrears || 0) > 0
-              ? `使用当前余额补缴情税款（可用 ¥${playerCredits.toLocaleString()}）`
+              ? `使用当前余额补缴情税款（可用 ${playerCredits.toLocaleString()} 灵能币）`
               : '当前没有需要补缴情税款'}
           </button>
         </div>

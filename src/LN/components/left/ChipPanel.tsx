@@ -324,7 +324,7 @@ const ChipPanel: React.FC<Props> = ({
 
                   <div className="border border-red-900/40 rounded p-3 bg-black/50">
                     <div className="text-[10px] text-red-500 uppercase tracking-wider">本期应缴</div>
-                    <div className="text-3xl font-black text-red-300 mt-1">¥{taxAmountByLevel.toLocaleString()}</div>
+                    <div className="text-3xl font-black text-red-300 mt-1">{taxAmountByLevel.toLocaleString()} 灵能币</div>
                     <div className="text-[10px] text-slate-500 mt-1">等级系数: Beta Lv.{betaLevel}</div>
                   </div>
 

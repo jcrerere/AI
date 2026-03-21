@@ -126,7 +126,7 @@ const InventoryModal: React.FC<Props> = ({ title, items, onClose, isOwner = true
                                      </div>
                                      <div className="flex justify-between">
                                          <span className="text-slate-500">Value</span>
-                                         <span className="text-yellow-500">¥ 150</span>
+                                         <span className="text-yellow-500">150 灵能币</span>
                                      </div>
                                 </div>
                             </div>

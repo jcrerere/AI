@@ -54,23 +54,23 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
           <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
             <div>
               <div className="text-[10px] text-slate-500">基础津贴</div>
-              <div className="text-sm font-bold text-emerald-300">+¥{preview.baseAllowance.toLocaleString()}</div>
+              <div className="text-sm font-bold text-emerald-300">+{preview.baseAllowance.toLocaleString()} 灵能币</div>
             </div>
             <div>
               <div className="text-[10px] text-slate-500">应缴税额</div>
-              <div className="text-sm font-bold text-red-300">-¥{preview.taxDue.toLocaleString()}</div>
+              <div className="text-sm font-bold text-red-300">-{preview.taxDue.toLocaleString()} 灵能币</div>
             </div>
             <div>
               <div className="text-[10px] text-slate-500">住所维持</div>
-              <div className="text-sm font-bold text-cyan-300">-¥{preview.residenceCost.toLocaleString()}</div>
+              <div className="text-sm font-bold text-cyan-300">-{preview.residenceCost.toLocaleString()} 灵能币</div>
             </div>
             <div>
               <div className="text-[10px] text-slate-500">总维持费</div>
-              <div className="text-sm font-bold text-amber-300">-¥{preview.maintenanceCost.toLocaleString()}</div>
+              <div className="text-sm font-bold text-amber-300">-{preview.maintenanceCost.toLocaleString()} 灵能币</div>
             </div>
             <div>
               <div className="text-[10px] text-slate-500">风险扣款</div>
-              <div className="text-sm font-bold text-fuchsia-300">-¥{preview.penaltyCost.toLocaleString()}</div>
+              <div className="text-sm font-bold text-fuchsia-300">-{preview.penaltyCost.toLocaleString()} 灵能币</div>
             </div>
           </div>
           <div className="mt-3 rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
@@ -80,7 +80,7 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
                 月结净变化
               </div>
               <div className={`text-base font-black ${preview.netDelta >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                {preview.netDelta >= 0 ? '+' : '-'}¥{Math.abs(preview.netDelta).toLocaleString()}
+                {preview.netDelta >= 0 ? '+' : '-'}{Math.abs(preview.netDelta).toLocaleString()} 灵能币
               </div>
             </div>
           </div>
@@ -90,11 +90,11 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
           <div className="grid gap-2 sm:grid-cols-2">
             <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Current Tax</div>
-              <div className="mt-1 text-sm font-semibold text-red-300">-¥{preview.currentTaxDue.toLocaleString()}</div>
+              <div className="mt-1 text-sm font-semibold text-red-300">-{preview.currentTaxDue.toLocaleString()} 灵能币</div>
             </div>
             <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2">
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Arrears Carryover</div>
-              <div className="mt-1 text-sm font-semibold text-amber-300">-¥{preview.arrearsDue.toLocaleString()}</div>
+              <div className="mt-1 text-sm font-semibold text-amber-300">-{preview.arrearsDue.toLocaleString()} 灵能币</div>
             </div>
             <div className="rounded border border-slate-800/90 bg-slate-950/40 px-3 py-2 sm:col-span-2">
               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Residence Anchor</div>
@@ -133,7 +133,7 @@ const MonthlySettlementPanel: React.FC<Props> = ({ preview, records, onSettle })
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-[11px] text-slate-300">{record.cycleLabel}</div>
                   <div className={`text-[11px] font-mono ${record.status === 'arrears' ? 'text-red-300' : 'text-emerald-300'}`}>
-                    {record.netDelta >= 0 ? '+' : '-'}¥{Math.abs(record.netDelta).toLocaleString()}
+                    {record.netDelta >= 0 ? '+' : '-'}{Math.abs(record.netDelta).toLocaleString()} 灵能币
                   </div>
                 </div>
                 <div className="mt-1 text-[10px] text-slate-500">{record.processedAt}</div>

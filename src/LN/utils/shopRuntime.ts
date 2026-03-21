@@ -1,4 +1,5 @@
-import { Item, Rank, RuntimeShopRecord, RuntimeShopTier, RuntimeShopType } from '../types';
+import { Item, Rank, RuntimeShopRecord, RuntimeShopType } from '../types';
+import { buildRegionalRetailPrice, resolveShopPriceCategory } from './economyRuntime';
 
 export interface RuntimeShopItem extends Item {
   price: number;
@@ -81,13 +82,6 @@ const rankBasePrice = (rank: Rank) => {
     default:
       return 100;
   }
-};
-
-const discountMultiplier = (discountTier: number): number => {
-  if (discountTier >= 3) return 0.84;
-  if (discountTier === 2) return 0.9;
-  if (discountTier === 1) return 0.95;
-  return 1;
 };
 
 const resolveArchetypeFromShopType = (type: RuntimeShopType): ShopArchetype => {
@@ -188,19 +182,6 @@ const BACKROOM_CATALOG: Record<ShopArchetype, CatalogItem[]> = {
   ],
 };
 
-const resolveTierPriceFactor = (tier: RuntimeShopTier): number => {
-  switch (tier) {
-    case 'elite':
-      return 1.45;
-    case 'premium':
-      return 1.22;
-    case 'standard':
-      return 1;
-    default:
-      return 0.86;
-  }
-};
-
 export const resolveShopRefreshEpoch = (elapsedMinutes: number): number => Math.max(1, Math.floor((elapsedMinutes || 0) / MINUTES_PER_DAY) + 1);
 
 const filterCatalogByStyles = (items: CatalogItem[], styles: string[]): CatalogItem[] => {
@@ -227,13 +208,23 @@ const buildShopItem = (params: {
   availability: 'front' | 'backroom';
   shopName: string;
 }): RuntimeShopItem => {
-  const tierFactor = resolveTierPriceFactor(params.shop.tier);
-  const rng = createRng(`${params.shop.refreshSeed}|${params.epoch}|${params.slot}|${params.item.name}`);
-  const priceFactor = 0.9 + rng() * 0.25;
-  const discount = discountMultiplier(params.shop.discountTier);
   const basePrice = rankBasePrice(params.item.rank);
-  const backroomFactor = params.availability === 'backroom' ? 1.28 : 1;
-  const price = Math.max(30, Math.round(basePrice * tierFactor * priceFactor * backroomFactor * discount));
+  const priceCategory = resolveShopPriceCategory({
+    shopType: params.shop.type,
+    itemCategory: params.item.category,
+    styleTags: params.item.styles,
+    availability: params.availability,
+    restricted: params.item.tag === 'restricted',
+  });
+  const price = buildRegionalRetailPrice({
+    basePrice,
+    category: priceCategory,
+    districtId: params.shop.districtId,
+    tier: params.shop.tier,
+    discountTier: params.shop.discountTier,
+    seedText: `${params.shop.refreshSeed}|${params.epoch}|${params.slot}|${params.item.name}`,
+    extraFactor: params.availability === 'backroom' ? 1.18 : 1,
+  });
   return {
     id: buildItemId(params.shop.id, params.epoch, params.slot, params.item.name),
     name: params.item.name,
