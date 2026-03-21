@@ -404,6 +404,30 @@ const ChipPanel: React.FC<Props> = ({
                 <div className="mt-3 text-[11px] text-slate-400 leading-relaxed border border-slate-800 rounded p-3 bg-black/40">
                   {selectedChip.description}
                 </div>
+
+                {selectedChip.forgeProfile && (
+                  <div className="mt-3 rounded border border-cyan-500/20 bg-cyan-500/[0.06] p-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-cyan-200/70">工坊词条</div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] text-cyan-100">
+                        {selectedChip.forgeProfile.quality}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-slate-200">
+                        工坊Lv.{selectedChip.forgeProfile.crafterLevel}
+                      </span>
+                    </div>
+                    <div className="mt-2 space-y-2 text-[11px] text-slate-300">
+                      {selectedChip.forgeProfile.affixes.map(affix => (
+                        <div key={affix.id} className="rounded border border-white/10 bg-black/20 px-2 py-2">
+                          <div className="font-semibold text-white">
+                            {affix.label}{affix.valueLabel}
+                          </div>
+                          <div className="mt-1 text-slate-400">{affix.summary}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             );
           })()}

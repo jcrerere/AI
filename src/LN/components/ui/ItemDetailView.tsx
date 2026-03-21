@@ -100,6 +100,39 @@ const ItemDetailView: React.FC<Props> = ({ item, onClose, onUse }) => {
                  </div>
              )}
 
+             {item.forgeProfile && (
+                 <div className="bg-cyan-950/20 p-3 border border-cyan-500/20 rounded">
+                     <h4 className="text-[9px] font-bold text-cyan-200/80 uppercase mb-2">工坊语义</h4>
+                     <div className="space-y-2 text-[11px] text-slate-300">
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">品质</span>
+                             <span>{item.forgeProfile.quality}</span>
+                         </div>
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">蓝图</span>
+                             <span>{item.forgeProfile.blueprintLabel}</span>
+                         </div>
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">工坊等级</span>
+                             <span>Lv.{item.forgeProfile.crafterLevel}</span>
+                         </div>
+                         <div>
+                             <div className="text-slate-500 mb-1">锻造词条</div>
+                             <div className="space-y-2">
+                                 {item.forgeProfile.affixes.map(affix => (
+                                     <div key={affix.id} className="rounded border border-white/10 bg-black/20 px-2 py-2">
+                                         <div className="font-semibold text-white">
+                                             {affix.label}{affix.valueLabel}
+                                         </div>
+                                         <div className="mt-1 text-slate-400">{affix.summary}</div>
+                                     </div>
+                                 ))}
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+             )}
+
              <div className="bg-black/30 p-3 border border-slate-800/60 rounded">
                  <h4 className="text-[9px] font-bold text-slate-500 uppercase mb-2">属性预览</h4>
                  <div className="space-y-2">

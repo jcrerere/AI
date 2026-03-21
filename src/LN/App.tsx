@@ -18,6 +18,7 @@ import LocationControlHint from './components/ui/LocationControlHint';
 import SceneActionModal from './components/ui/SceneActionModal';
 import GamblingHubModal from './components/ui/GamblingHubModal';
 import BlackMarketHubModal from './components/ui/BlackMarketHubModal';
+import ForgeWorkshopModal from './components/ui/ForgeWorkshopModal';
 import TravelPlannerModal from './components/ui/TravelPlannerModal';
 import TravelSettlementModal from './components/ui/TravelSettlementModal';
 import StartScreen from './components/flow/StartScreen';
@@ -48,6 +49,8 @@ import {
   NpcDarknetRecord,
   NpcDarknetService,
   FinanceLedgerEntry,
+  ForgeWorkshopState,
+  ForgeWorkshopTab,
   BlackRaceBetRecord,
   BlackRaceMarket,
   BlackMarketHubTab,
@@ -107,6 +110,18 @@ import {
 } from './utils/cityRuntime';
 import { applyRuntimeRestaurantVisit, applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
 import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
+import {
+  appendForgeRecord,
+  buildForgeDigest,
+  buildForgeRecord,
+  createEmptyForgeWorkshopState,
+  createForgedChip,
+  createForgedCyberware,
+  FORGE_BLUEPRINTS,
+  normalizeForgeWorkshopState,
+  resolveForgeLockSlots,
+  resolveForgeOutcome,
+} from './utils/forgeRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
@@ -277,6 +292,7 @@ interface LnSaveData {
   slotHistory?: SlotSpinRecord[];
   playerResidence?: PlayerResidenceState;
   playerWardrobe?: PlayerWardrobeState;
+  forgeWorkshopState?: ForgeWorkshopState;
   stateLock?: StateLockConfig;
 }
 
@@ -3893,10 +3909,12 @@ const App: React.FC = () => {
   const [blackMarketVenue, setBlackMarketVenue] = useState<BlackMarketVenue | null>(null);
   const [blackMarketHistory, setBlackMarketHistory] = useState<BlackMarketRecord[]>([]);
   const [slotHistory, setSlotHistory] = useState<SlotSpinRecord[]>([]);
+  const [forgeWorkshopState, setForgeWorkshopState] = useState<ForgeWorkshopState>(() => createEmptyForgeWorkshopState());
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
   const [gamblingHubState, setGamblingHubState] = useState<{ initialTab: GamblingHubTab } | null>(null);
   const [blackMarketState, setBlackMarketState] = useState<{ initialTab: BlackMarketHubTab } | null>(null);
+  const [forgeWorkshopOpen, setForgeWorkshopOpen] = useState<{ initialTab: ForgeWorkshopTab } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
   const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
@@ -3955,6 +3973,7 @@ const App: React.FC = () => {
     }),
     [currentWardrobeRecord, playerWardrobe.records.length],
   );
+  const forgeDigest = useMemo(() => buildForgeDigest(forgeWorkshopState), [forgeWorkshopState]);
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -4878,6 +4897,17 @@ const App: React.FC = () => {
       : sceneActionState.lifeActions;
     return filtered.slice(0, canOpenGamblingHub ? 1 : 2);
   }, [canOpenGamblingHub, sceneActionState.lifeActions]);
+  const forgeChipTargets = useMemo(
+    () =>
+      [...playerChips, ...storageChips].filter(
+        chip => chip.type !== 'board' && chip.type !== 'beta',
+      ),
+    [playerChips, storageChips],
+  );
+  const forgeCyberwareTargets = useMemo(
+    () => playerInventory.filter(item => item.forgeProfile?.kind === 'cyberware'),
+    [playerInventory],
+  );
   const redLightAuthoredCandidates = useMemo(
     () =>
       npcs
@@ -5306,6 +5336,7 @@ const App: React.FC = () => {
       taskLayerDigest,
       travelRuleDigest,
       lifeStateDigest,
+      forgeDigest,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -5499,10 +5530,11 @@ const App: React.FC = () => {
             todo_due_digest: todoDueDigest,
             todo_overdue_digest: todoOverdueDigest,
             economy_digest: economyDigest,
-            local_map_digest: localMapDigest,
-            task_layer_digest: taskLayerDigest,
-            travel_rule_digest: travelRuleDigest,
-            life_state_digest: lifeStateDigest,
+          local_map_digest: localMapDigest,
+          task_layer_digest: taskLayerDigest,
+          travel_rule_digest: travelRuleDigest,
+          life_state_digest: lifeStateDigest,
+          forge_digest: forgeDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -5599,6 +5631,7 @@ const App: React.FC = () => {
     taskLayerDigest,
     travelRuleDigest,
     lifeStateDigest,
+    forgeDigest,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -5684,6 +5717,7 @@ const App: React.FC = () => {
     slotHistory,
     playerResidence,
     playerWardrobe,
+    forgeWorkshopState,
     stateLock,
   });
 
@@ -5774,6 +5808,7 @@ const App: React.FC = () => {
     setSlotHistory(payload.slotHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setPlayerWardrobe(normalizeWardrobeState(payload.playerWardrobe));
+    setForgeWorkshopState(normalizeForgeWorkshopState(payload.forgeWorkshopState));
     setStateLock(
       payload.stateLock || {
         lockTime: false,
@@ -5904,6 +5939,7 @@ const App: React.FC = () => {
       taskLayerDigest?: string;
       travelRuleDigest?: string;
       lifeStateDigest?: string;
+      forgeDigest?: string;
     },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
@@ -5926,6 +5962,7 @@ const App: React.FC = () => {
             context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
             context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
             context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
+            context.forgeDigest ? `forge=${context.forgeDigest}` : '',
             '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
             PSEUDO_LAYER_RESPONSE_RULES,
           ]
@@ -5993,6 +6030,7 @@ const App: React.FC = () => {
               context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
               context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
               context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
+              context.forgeDigest ? `forge=${context.forgeDigest}` : '',
               '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
               PSEUDO_LAYER_RESPONSE_RULES,
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
@@ -7014,6 +7052,138 @@ const App: React.FC = () => {
     ]);
     spawnFloatingText(`-${fee.toLocaleString()} 灵能币`, 'text-amber-300');
     return { ok: true, message: `${todoResult.created ? '已登记' : '已刷新'}代办待办：${todoResult.todo.title}` };
+  };
+
+  const handleExecuteForge = ({
+    kind,
+    blueprintId,
+    targetId,
+    lockedAffixIds,
+  }: {
+    kind: ForgeWorkshopTab;
+    blueprintId: string;
+    targetId?: string;
+    lockedAffixIds: string[];
+  }): { ok: boolean; message: string } => {
+    const blueprint = FORGE_BLUEPRINTS.find(entry => entry.id === blueprintId && entry.kind === kind);
+    if (!blueprint) {
+      return { ok: false, message: '当前蓝图无效，请重新选择。' };
+    }
+
+    const maxLocks = resolveForgeLockSlots(forgeWorkshopState.level);
+    const targetChip =
+      kind === 'chip' && targetId
+        ? [...playerChips, ...storageChips].find(chip => chip.id === targetId && chip.forgeProfile?.kind === 'chip') || null
+        : null;
+    const targetCyberware =
+      kind === 'cyberware' && targetId
+        ? playerInventory.find(item => item.id === targetId && item.forgeProfile?.kind === 'cyberware') || null
+        : null;
+    const lockedAffixes =
+      (kind === 'chip' ? targetChip?.forgeProfile?.affixes : targetCyberware?.forgeProfile?.affixes)?.filter(affix =>
+        lockedAffixIds.includes(affix.id),
+      ).slice(0, maxLocks) || [];
+
+    const resolution = resolveForgeOutcome(
+      blueprint,
+      forgeWorkshopState.level,
+      playerInventory,
+      lockedAffixes,
+      `${blueprint.id}|${targetId || 'new'}|${Date.now()}|${Math.random().toString(36).slice(2, 7)}`,
+    );
+    if (playerStats.credits < resolution.totalCost) {
+      return { ok: false, message: `灵能币不足，当前锻造需要 ${resolution.totalCost.toLocaleString()} 灵能币。` };
+    }
+
+    const usageCounts = new Map<string, number>();
+    resolution.usages
+      .filter(usage => usage.source === 'inventory' && usage.itemId)
+      .forEach(usage => {
+        usageCounts.set(usage.itemId!, (usageCounts.get(usage.itemId!) || 0) + usage.count);
+      });
+    if (usageCounts.size > 0) {
+      setPlayerInventory(prev =>
+        prev
+          .map(item => {
+            const used = usageCounts.get(item.id) || 0;
+            return used > 0 ? { ...item, quantity: item.quantity - used } : item;
+          })
+          .filter(item => item.quantity > 0),
+      );
+    }
+
+    const resultChip =
+      kind === 'chip'
+        ? createForgedChip(blueprint, resolution.quality, resolution.affixes, forgeWorkshopState.level, targetChip)
+        : null;
+    const resultCyberware =
+      kind === 'cyberware'
+        ? createForgedCyberware(blueprint, resolution.quality, resolution.affixes, forgeWorkshopState.level, targetCyberware)
+        : null;
+
+    if (resultChip) {
+      if (targetChip && playerChips.some(chip => chip.id === targetChip.id)) {
+        setPlayerChips(prev => prev.map(chip => (chip.id === targetChip.id ? resultChip : chip)));
+      } else if (targetChip) {
+        setStorageChips(prev => prev.map(chip => (chip.id === targetChip.id ? resultChip : chip)));
+      } else {
+        setStorageChips(prev => [resultChip, ...prev].slice(0, 80));
+      }
+    }
+
+    if (resultCyberware) {
+      if (targetCyberware) {
+        setPlayerInventory(prev => prev.map(item => (item.id === targetCyberware.id ? { ...resultCyberware, quantity: item.quantity } : item)));
+      } else {
+        addInventoryItem(resultCyberware);
+      }
+    }
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - resolution.totalCost),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'craft',
+      title: kind === 'chip' ? '芯片锻造' : '义体锻造',
+      detail: `${blueprint.label} / ${resolution.quality} / 锁词条 ${lockedAffixes.length} 条`,
+      amount: -resolution.totalCost,
+      counterparty: '灵构工坊',
+    });
+
+    const resultLabel = resultChip?.name || resultCyberware?.name || blueprint.label;
+    const resultId = resultChip?.id || resultCyberware?.id || blueprint.id;
+    const record = buildForgeRecord(
+      blueprint,
+      resultLabel,
+      resolution.quality,
+      resolution.affixes,
+      resolution.totalCost,
+      resolution.usages,
+      lockedAffixes.length,
+      resultId,
+    );
+    const nextForgeState = appendForgeRecord(forgeWorkshopState, record);
+    setForgeWorkshopState(nextForgeState);
+
+    const materialDetail = resolution.usages.map(usage => usage.itemLabel).join('、');
+    const affixDetail = resolution.affixes.map(affix => `${affix.label}${affix.valueLabel}`).join(' / ');
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `forge_${Date.now()}`,
+        sender: 'System',
+        content: `工坊结算：你完成了 ${blueprint.label} 的${targetId ? '重锻' : '新锻造'}，结果为 ${resolution.quality}${resultLabel}。\n词条：${affixDetail}\n耗材：${materialDetail}\n${nextForgeState.lastDigest}`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-${resolution.totalCost.toLocaleString()} 灵能币`, 'text-cyan-300');
+    spawnFloatingText(`${resolution.quality}${kind === 'chip' ? '芯片' : '模组'}完成`, 'text-fuchsia-300');
+    return {
+      ok: true,
+      message: `${targetId ? '重锻' : '锻造'}完成：${resolution.quality}${resultLabel}。`,
+    };
   };
 
   const handleImportSocialPost = (draft: SocialImportDraft) => {
@@ -8518,6 +8688,7 @@ const App: React.FC = () => {
           taskLayerDigest,
           travelRuleDigest,
           lifeStateDigest: requestLifeStateDigest,
+          forgeDigest,
         }, controller.signal);
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
@@ -10539,6 +10710,16 @@ const App: React.FC = () => {
                   黑市
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSceneModal(null);
+                  setForgeWorkshopOpen({ initialTab: 'chip' });
+                }}
+                className="rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1.5 text-[11px] font-semibold text-violet-100 hover:bg-violet-500/18"
+              >
+                工坊
+              </button>
               {visibleLifeActions.length > 0 ? (
                 visibleLifeActions.map(action => (
                   <button
@@ -10934,6 +11115,17 @@ const App: React.FC = () => {
             onBuyListing={handleBuyBlackMarketListing}
             onUseTreatment={handleUseStreetDoctorTreatment}
             onSubmitCommission={handleSubmitBlackMarketCommission}
+          />
+        )}
+
+        {forgeWorkshopOpen && (
+          <ForgeWorkshopModal
+            state={forgeWorkshopState}
+            chipTargets={forgeChipTargets}
+            cyberwareTargets={forgeCyberwareTargets}
+            initialTab={forgeWorkshopOpen.initialTab}
+            onClose={() => setForgeWorkshopOpen(null)}
+            onForge={handleExecuteForge}
           />
         )}
 

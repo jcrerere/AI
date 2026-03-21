@@ -21,6 +21,7 @@ export interface Chip {
   type: 'active' | 'passive' | 'process' | 'board' | 'beta';
   rank: Rank;
   description: string;
+  forgeProfile?: ForgeProfile;
 }
 
 export type ItemCategory = 'consumable' | 'equipment' | 'material' | 'quest';
@@ -48,6 +49,7 @@ export interface Item {
   clothingProfile?: ClothingProfile;
   sourceShopId?: string;
   sourceShopLabel?: string;
+  forgeProfile?: ForgeProfile;
 }
 
 export interface Message {
@@ -133,6 +135,7 @@ export type FinanceLedgerKind =
   | 'darknet'
   | 'black_market'
   | 'gambling'
+  | 'craft'
   | 'lifestyle'
   | 'tax'
   | 'settlement'
@@ -337,6 +340,53 @@ export interface BlackMarketRecord {
   amount: number;
   resolvedAt: string;
   detail: string;
+}
+
+export type ForgeWorkshopTab = 'chip' | 'cyberware';
+export type ForgeQualityTier = '粗胚' | '标准' | '精制' | '名匠' | '原型';
+
+export interface ForgeAffixRecord {
+  id: string;
+  family: string;
+  label: string;
+  valueLabel: string;
+  summary: string;
+  tier: Rank;
+}
+
+export interface ForgeProfile {
+  kind: ForgeWorkshopTab;
+  blueprintId: string;
+  blueprintLabel: string;
+  quality: ForgeQualityTier;
+  affixes: ForgeAffixRecord[];
+  crafterLevel: number;
+  forgedAt: string;
+  reforgeCount: number;
+  targetPartKey?: string;
+}
+
+export interface ForgeRecord {
+  id: string;
+  kind: ForgeWorkshopTab;
+  blueprintId: string;
+  blueprintLabel: string;
+  resultId: string;
+  resultLabel: string;
+  quality: ForgeQualityTier;
+  lockedCount: number;
+  creditsSpent: number;
+  materialLabels: string[];
+  resolvedAt: string;
+  affixes: ForgeAffixRecord[];
+}
+
+export interface ForgeWorkshopState {
+  level: number;
+  xp: number;
+  nextXp: number;
+  lastDigest: string;
+  records: ForgeRecord[];
 }
 
 export interface WardrobeRecord {

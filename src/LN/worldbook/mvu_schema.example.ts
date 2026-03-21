@@ -30,6 +30,7 @@ export const MvuStatDataSchema = z.object({
     task_layer_digest: z.string(),
     travel_rule_digest: z.string(),
     life_state_digest: z.string(),
+    forge_digest: z.string(),
     current_district: z.string(),
     current_site_type: z.string(),
     current_site_id: z.string(),
