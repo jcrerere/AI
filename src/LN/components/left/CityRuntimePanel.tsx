@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { CityRuntimeData, RuntimeTodoStatus } from '../../types';
-import { getCurrentDistrictLabel, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
+import { buildLocalMapSnapshot, buildTaskLayerDigest, getCurrentDistrictLabel, getDistrictTaskState, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
 import { buildEconomyBenchmarkSnapshot, buildEconomyScenePrices } from '../../utils/economyRuntime';
 
 interface Props {
@@ -32,6 +32,9 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
     [runtime.anchors, runtime.currentAnchorId],
   );
   const transport = useMemo(() => getDistrictTransportSnapshot(runtime, runtime.currentDistrictId), [runtime]);
+  const localMap = useMemo(() => buildLocalMapSnapshot(runtime, currentLocation), [runtime, currentLocation]);
+  const taskState = useMemo(() => getDistrictTaskState(runtime, localMap.profile.id), [runtime, localMap.profile.id]);
+  const taskLayerDigest = useMemo(() => buildTaskLayerDigest(runtime, currentLocation), [runtime, currentLocation]);
   const districtShops = useMemo(
     () => runtime.shops.filter(shop => shop.districtId === runtime.currentDistrictId).slice(-5).reverse(),
     [runtime.shops, runtime.currentDistrictId],
@@ -87,6 +90,60 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
             <span className="ml-2 text-slate-500">{currentAnchor.kind}</span>
           </div>
         )}
+      </div>
+
+      <div className="rounded-2xl border border-fuchsia-500/15 bg-fuchsia-950/10 p-3">
+        <div className="text-[10px] uppercase tracking-[0.2em] text-fuchsia-200/70">Local Map</div>
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
+          <span className="font-mono text-cyan-100">{localMap.currentCellId || 'NULL'}</span>
+          <span>
+            ({localMap.currentCoords.x}, {localMap.currentCoords.y}) / 已发现 {localMap.discoveredCellCount} 格 / {localMap.discoveredAnchorCount} 锚点
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {localMap.neighbors.map(neighbor => (
+            <div key={neighbor.direction} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{neighbor.directionLabel}</span>
+                <span className="font-mono text-[11px] text-cyan-100">{neighbor.blocked ? 'EDGE' : neighbor.cellId}</span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-300">
+                {neighbor.blocked
+                  ? '分区边界'
+                  : !neighbor.discovered
+                    ? '未发现邻格'
+                    : neighbor.anchorLabels.length > 0
+                      ? neighbor.anchorLabels.join(' / ')
+                      : '已发现，但还没有注册锚点'}
+              </div>
+              {!neighbor.blocked && neighbor.transportLabels.length > 0 && (
+                <div className="mt-1 text-[10px] text-emerald-200/80">{neighbor.transportLabels.join(' / ')}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-fuchsia-500/15 bg-fuchsia-950/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-fuchsia-200/70">Task Layer</div>
+          <div className="rounded-full border border-fuchsia-400/20 bg-fuchsia-500/10 px-2 py-1 text-[10px] text-fuchsia-100">
+            逗留 {taskState.visitRounds} 轮
+          </div>
+        </div>
+        <div className="mt-2 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-[11px] leading-5 text-slate-300">
+          {taskLayerDigest}
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+          <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">窗口数</div>
+            <div className="mt-1 text-fuchsia-100">{taskState.opportunityWindows}</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">最新进度层</div>
+            <div className="mt-1 font-mono text-fuchsia-100">{taskState.lastProgressLayerId || 'NULL'}</div>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-amber-500/15 bg-amber-950/10 p-3">

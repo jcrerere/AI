@@ -4,6 +4,7 @@ import {
   CityCellRecord,
   CityRuntimeData,
   CityTenantRecord,
+  DistrictTaskStateRecord,
   DistrictGridProfile,
   RuntimeShopRecord,
   RuntimeShopTier,
@@ -30,6 +31,42 @@ type StopPreset = {
 type DistrictProfileInternal = DistrictGridProfile & {
   match: RegExp;
 };
+
+export type LocalMapDirection = 'north' | 'south' | 'west' | 'east';
+
+export interface LocalMapNeighborSnapshot {
+  direction: LocalMapDirection;
+  directionLabel: string;
+  blocked: boolean;
+  cellId: string;
+  x: number;
+  y: number;
+  discovered: boolean;
+  anchorCount: number;
+  anchorLabels: string[];
+  transportLabels: string[];
+}
+
+export interface LocalMapSnapshot {
+  profile: DistrictGridProfile;
+  currentCellId: string;
+  currentAnchorId: string;
+  currentAnchorLabel: string;
+  currentCoords: { x: number; y: number };
+  currentAnchors: Array<{ id: string; label: string; kind: CityAnchorKind }>;
+  neighbors: LocalMapNeighborSnapshot[];
+  transportLabels: string[];
+  discoveredCellCount: number;
+  discoveredAnchorCount: number;
+}
+
+const TASK_WINDOW_ROUNDS = 5;
+const LOCAL_DIRECTION_DELTAS: Array<{ direction: LocalMapDirection; directionLabel: string; dx: number; dy: number }> = [
+  { direction: 'north', directionLabel: '北', dx: 0, dy: 1 },
+  { direction: 'south', directionLabel: '南', dx: 0, dy: -1 },
+  { direction: 'west', directionLabel: '西', dx: -1, dy: 0 },
+  { direction: 'east', directionLabel: '东', dx: 1, dy: 0 },
+];
 
 const pad = (value: number, width: number): string => String(Math.max(0, value)).padStart(width, '0');
 
@@ -391,6 +428,9 @@ export const resolveDistrictProfileFromLocation = (locationLabel: string): Distr
   return matched || districtFallbackByJurisdiction(locationLabel);
 };
 
+export const resolveDistrictProfileById = (districtId: string, fallbackLocation = ''): DistrictGridProfile =>
+  CITY_DISTRICT_PROFILES.find(profile => profile.id === districtId) || resolveDistrictProfileFromLocation(fallbackLocation);
+
 export const getDistrictProfiles = (): DistrictGridProfile[] => CITY_DISTRICT_PROFILES.map(({ match: _match, ...profile }) => ({ ...profile }));
 
 export const buildCellId = (profile: DistrictGridProfile, x: number, y: number): string =>
@@ -427,6 +467,14 @@ const createDefaultTransportStops = (): TransportStopRecord[] =>
 
 const createDefaultTransportLines = (): TransportLineRecord[] => LINE_PRESETS.map(line => ({ ...line }));
 
+const createDistrictTaskState = (districtId: string): DistrictTaskStateRecord => ({
+  districtId,
+  visitRounds: 0,
+  lastProgressLayerId: '',
+  lastSeenAtMinutes: 0,
+  opportunityWindows: 0,
+});
+
 export const createEmptyCityRuntime = (): CityRuntimeData => ({
   version: 1,
   currentDistrictId: '',
@@ -437,6 +485,7 @@ export const createEmptyCityRuntime = (): CityRuntimeData => ({
   tenants: [],
   shops: [],
   todos: [],
+  districtTaskStates: [],
   transportStops: createDefaultTransportStops(),
   transportLines: createDefaultTransportLines(),
   transportProjects: REGION_DEFAULT_PROJECTS.map(project => ({ ...project })),
@@ -461,6 +510,12 @@ export const normalizeCityRuntime = (input: unknown): CityRuntimeData | null => 
         soldItemKeys: Array.isArray(item.soldItemKeys) ? item.soldItemKeys.filter(key => typeof key === 'string') : [],
       })),
     todos: toArray(source.todos).filter(item => item && typeof item === 'object') as CityRuntimeData['todos'],
+    districtTaskStates: toArray<DistrictTaskStateRecord>(source.districtTaskStates)
+      .filter(item => item && typeof item.districtId === 'string')
+      .map(item => ({
+        ...createDistrictTaskState(item.districtId),
+        ...item,
+      })),
     transportStops: (() => {
       const fromSave = toArray<TransportStopRecord>(source.transportStops).filter(item => item && typeof item.id === 'string');
       return fromSave.length ? fromSave : base.transportStops;
@@ -675,6 +730,165 @@ export const getDistrictTransportSnapshot = (
 export const getCurrentDistrictLabel = (runtime: CityRuntimeData): string => {
   const profile = CITY_DISTRICT_PROFILES.find(item => item.id === runtime.currentDistrictId);
   return profile?.districtLabel || '未定分区';
+};
+
+export const getDistrictTaskState = (runtime: CityRuntimeData, districtId: string): DistrictTaskStateRecord =>
+  runtime.districtTaskStates.find(state => state.districtId === districtId) || createDistrictTaskState(districtId);
+
+export const progressDistrictTaskLayer = (
+  runtime: CityRuntimeData,
+  params: { districtId: string; layerId: string; elapsedMinutes: number },
+): { runtime: CityRuntimeData; state: DistrictTaskStateRecord; changed: boolean } => {
+  const districtId = `${params.districtId || ''}`.trim();
+  const layerId = `${params.layerId || ''}`.trim();
+  if (!districtId || !layerId) {
+    return { runtime, state: createDistrictTaskState(districtId || 'unknown'), changed: false };
+  }
+
+  let changed = false;
+  let found = false;
+  let targetState = createDistrictTaskState(districtId);
+  const nextStates = runtime.districtTaskStates.map(state => {
+    if (state.districtId === districtId) {
+      found = true;
+      if (state.lastProgressLayerId === layerId) {
+        targetState = state;
+        return state;
+      }
+      changed = true;
+      targetState = {
+        ...state,
+        visitRounds: state.visitRounds + 1,
+        lastProgressLayerId: layerId,
+        lastSeenAtMinutes: params.elapsedMinutes,
+        opportunityWindows: Math.floor((state.visitRounds + 1) / TASK_WINDOW_ROUNDS),
+      };
+      return targetState;
+    }
+    if (state.visitRounds === 0) return state;
+    changed = true;
+    return {
+      ...state,
+      visitRounds: 0,
+    };
+  });
+
+  if (!found) {
+    changed = true;
+    targetState = {
+      districtId,
+      visitRounds: 1,
+      lastProgressLayerId: layerId,
+      lastSeenAtMinutes: params.elapsedMinutes,
+      opportunityWindows: 0,
+    };
+    nextStates.push(targetState);
+  }
+
+  return {
+    runtime: changed ? { ...runtime, districtTaskStates: nextStates } : runtime,
+    state: targetState,
+    changed,
+  };
+};
+
+export const buildLocalMapSnapshot = (runtime: CityRuntimeData, locationLabel: string): LocalMapSnapshot => {
+  const profile = resolveDistrictProfileById(runtime.currentDistrictId, locationLabel);
+  const currentCell = runtime.cells.find(cell => cell.id === runtime.currentCellId) || null;
+  const currentAnchor = runtime.anchors.find(anchor => anchor.id === runtime.currentAnchorId) || null;
+  const fallbackCoords = resolveGridCoordinatesForLocation(profile, locationLabel || profile.districtLabel);
+  const currentCoords = currentCell ? { x: currentCell.x, y: currentCell.y } : fallbackCoords;
+  const currentCellId = currentCell?.id || buildCellId(profile, currentCoords.x, currentCoords.y);
+  const currentAnchors = runtime.anchors
+    .filter(anchor => anchor.cellId === currentCellId)
+    .map(anchor => ({ id: anchor.id, label: anchor.label, kind: anchor.kind }));
+  const transportLabels = runtime.transportStops
+    .filter(stop => stop.status === 'active' && stop.cellId === currentCellId)
+    .map(stop => stop.label);
+  const neighbors = LOCAL_DIRECTION_DELTAS.map(item => {
+    const x = currentCoords.x + item.dx;
+    const y = currentCoords.y + item.dy;
+    if (x < 1 || y < 1 || x > profile.width || y > profile.height) {
+      return {
+        direction: item.direction,
+        directionLabel: item.directionLabel,
+        blocked: true,
+        cellId: '',
+        x,
+        y,
+        discovered: false,
+        anchorCount: 0,
+        anchorLabels: [],
+        transportLabels: [],
+      };
+    }
+    const cellId = buildCellId(profile, x, y);
+    const cell = runtime.cells.find(entry => entry.id === cellId) || null;
+    const anchorLabels = runtime.anchors
+      .filter(anchor => anchor.cellId === cellId)
+      .map(anchor => anchor.label)
+      .slice(0, 3);
+    const neighborTransport = runtime.transportStops
+      .filter(stop => stop.status === 'active' && stop.cellId === cellId)
+      .map(stop => stop.label)
+      .slice(0, 2);
+    return {
+      direction: item.direction,
+      directionLabel: item.directionLabel,
+      blocked: false,
+      cellId,
+      x,
+      y,
+      discovered: !!cell,
+      anchorCount: cell?.anchorIds.length || anchorLabels.length,
+      anchorLabels,
+      transportLabels: neighborTransport,
+    };
+  });
+
+  const discoveredCellsInDistrict = runtime.cells.filter(cell => cell.districtId === profile.id).length;
+  const discoveredAnchorsInDistrict = runtime.anchors.filter(anchor => anchor.districtId === profile.id).length;
+
+  return {
+    profile,
+    currentCellId,
+    currentAnchorId: currentAnchor?.id || runtime.currentAnchorId || '',
+    currentAnchorLabel: currentAnchor?.label || locationLabel || '未定锚点',
+    currentCoords,
+    currentAnchors,
+    neighbors,
+    transportLabels,
+    discoveredCellCount: discoveredCellsInDistrict,
+    discoveredAnchorCount: discoveredAnchorsInDistrict,
+  };
+};
+
+export const buildLocalMapDigest = (runtime: CityRuntimeData, locationLabel: string): string => {
+  const snapshot = buildLocalMapSnapshot(runtime, locationLabel);
+  const neighborSummary = snapshot.neighbors
+    .map(neighbor => {
+      if (neighbor.blocked) return `${neighbor.directionLabel}:边界`;
+      if (!neighbor.discovered) return `${neighbor.directionLabel}:${neighbor.cellId}[未发现]`;
+      if (neighbor.anchorLabels.length > 0) return `${neighbor.directionLabel}:${neighbor.cellId}[${neighbor.anchorLabels.join('、')}]`;
+      if (neighbor.transportLabels.length > 0) return `${neighbor.directionLabel}:${neighbor.cellId}[${neighbor.transportLabels.join('、')}]`;
+      return `${neighbor.directionLabel}:${neighbor.cellId}[已发现]`;
+    })
+    .join(' / ');
+  const transportSummary = snapshot.transportLabels.length ? ` 交通:${snapshot.transportLabels.join('、')}` : '';
+  return `${snapshot.profile.regionLabel}·${snapshot.profile.districtLabel} cell=${snapshot.currentCellId}(${snapshot.currentCoords.x},${snapshot.currentCoords.y}) anchor=${snapshot.currentAnchorLabel}; 邻格 ${neighborSummary}; 已发现 ${snapshot.discoveredCellCount} 格/${snapshot.discoveredAnchorCount} 锚点。${transportSummary}`.trim();
+};
+
+export const buildTaskLayerDigest = (runtime: CityRuntimeData, locationLabel: string): string => {
+  const profile = resolveDistrictProfileById(runtime.currentDistrictId, locationLabel);
+  const state = getDistrictTaskState(runtime, profile.id);
+  if (state.visitRounds <= 0) {
+    return `${profile.regionLabel}·${profile.districtLabel} 当前没有累计逗留轮数，隐藏任务窗口未开启。`;
+  }
+  const roundsUntilNext = TASK_WINDOW_ROUNDS - (state.visitRounds % TASK_WINDOW_ROUNDS || TASK_WINDOW_ROUNDS);
+  if (state.opportunityWindows <= 0) {
+    return `${profile.regionLabel}·${profile.districtLabel} 已连续逗留 ${state.visitRounds} 轮，距离首个隐藏任务窗口还差 ${roundsUntilNext} 轮。`;
+  }
+  return `${profile.regionLabel}·${profile.districtLabel} 已连续逗留 ${state.visitRounds} 轮，已开启 ${state.opportunityWindows} 个隐藏任务窗口；距离下一窗口还差 ${roundsUntilNext} 轮。`;
 };
 
 export const upsertTransportProject = (runtime: CityRuntimeData, nextProject: TransportProjectRecord): CityRuntimeData => {

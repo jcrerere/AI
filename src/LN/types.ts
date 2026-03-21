@@ -692,6 +692,14 @@ export interface RuntimeTodoRecord {
   timelineState?: 'upcoming' | 'due' | 'missed';
 }
 
+export interface DistrictTaskStateRecord {
+  districtId: string;
+  visitRounds: number;
+  lastProgressLayerId: string;
+  lastSeenAtMinutes: number;
+  opportunityWindows: number;
+}
+
 export interface TransportStopRecord {
   id: string;
   districtId: string;
@@ -734,6 +742,7 @@ export interface CityRuntimeData {
   tenants: CityTenantRecord[];
   shops: RuntimeShopRecord[];
   todos: RuntimeTodoRecord[];
+  districtTaskStates: DistrictTaskStateRecord[];
   transportStops: TransportStopRecord[];
   transportLines: TransportLineRecord[];
   transportProjects: TransportProjectRecord[];

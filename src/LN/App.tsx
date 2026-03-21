@@ -72,7 +72,16 @@ import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
 import { buildRuntimeMetroNetwork } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
-import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
+import {
+  buildLocalMapDigest,
+  buildTaskLayerDigest,
+  createEmptyCityRuntime,
+  ensureAnchorForLocation,
+  ensureRuntimeShop,
+  normalizeCityRuntime,
+  progressDistrictTaskLayer,
+  resolveDistrictProfileFromLocation,
+} from './utils/cityRuntime';
 import { applyRuntimeRestaurantVisit, applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
 import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
@@ -3276,6 +3285,20 @@ const buildDialogueContextFromMessages = (timeline: Message[], maxMessages = 8):
   return `【最近对话记录】\n${lines.join('\n')}`;
 };
 
+const resolveNarrativeLocationFromLayer = (message: Message | undefined, fallbackLocation: string): string => {
+  if (!message?.content) return fallbackLocation || '未知区域';
+  const parsed = parsePseudoLayer(message.content);
+  const sumText = parsed.sum || '';
+  const sumMatch = sumText.match(/地点[:：]\s*([^|\n]+)/);
+  if (sumMatch?.[1]?.trim()) return sumMatch[1].trim();
+  const maintext = parsed.maintext || message.content;
+  const mainMatch = maintext.match(/(?:你在|位于|身处)\s*([^，。.\n]+?)(?:继续行动|行动|开展行动|、|，|\n)/);
+  if (mainMatch?.[1]?.trim()) return mainMatch[1].trim();
+  const locationLine = maintext.match(/当前地点[:：]\s*([^\n]+)/);
+  if (locationLine?.[1]?.trim()) return locationLine[1].trim();
+  return fallbackLocation || '未知区域';
+};
+
 const textMatchesNpcLookupToken = (text: string, token: string): boolean => {
   const source = `${text || ''}`.toLowerCase();
   const normalizedToken = `${token || ''}`.trim().toLowerCase();
@@ -4259,9 +4282,22 @@ const App: React.FC = () => {
     if (locationLine?.[1]?.trim()) return locationLine[1].trim();
     return playerFaction.headquarters || '未知区域';
   }, [activeLayerMessage, playerFaction.headquarters]);
+  const latestProgressLayerMessage = useMemo(() => layerMessages[layerMessages.length - 1], [layerMessages]);
+  const latestProgressLocation = useMemo(
+    () => resolveNarrativeLocationFromLayer(latestProgressLayerMessage, playerFaction.headquarters || '未知区域'),
+    [latestProgressLayerMessage, playerFaction.headquarters],
+  );
   const economyDigest = useMemo(
     () => buildEconomyDigest(cityRuntime.currentDistrictId, currentNarrativeLocation),
     [cityRuntime.currentDistrictId, currentNarrativeLocation],
+  );
+  const localMapDigest = useMemo(
+    () => buildLocalMapDigest(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
+  );
+  const taskLayerDigest = useMemo(
+    () => buildTaskLayerDigest(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
   );
   const latestPlayerInputForSceneAction = useMemo(() => {
     if (!activeLayerMessage) return '';
@@ -4295,6 +4331,19 @@ const App: React.FC = () => {
       return ensured.changed ? ensured.runtime : prev;
     });
   }, [currentNarrativeLocation, playerFaction.headquarters]);
+  useEffect(() => {
+    if (gameStage !== 'game') return;
+    if (!latestProgressLayerMessage?.id) return;
+    const districtId = resolveDistrictProfileFromLocation(latestProgressLocation).id;
+    setCityRuntime(prev => {
+      const progressed = progressDistrictTaskLayer(prev, {
+        districtId,
+        layerId: latestProgressLayerMessage.id,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+      return progressed.changed ? progressed.runtime : prev;
+    });
+  }, [gameStage, latestProgressLayerMessage?.id, latestProgressLocation, mapRuntime.elapsedMinutes]);
   const lingshuRuntimeAffixes = useMemo(
     () => playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name }))),
     [playerLingshu],
@@ -4643,6 +4692,14 @@ const App: React.FC = () => {
       lingshu: nextLingshuParts.map(part => [part.key, part.level, part.rank].join('|')),
       taxOfficerId: betaStatus.taxOfficerBoundId || null,
       chips: playerChips.map(chip => chip.id),
+      currentCellId: cityRuntime.currentCellId || null,
+      currentAnchorId: cityRuntime.currentAnchorId || null,
+      todoDigest,
+      todoDueDigest,
+      todoOverdueDigest,
+      economyDigest,
+      localMapDigest,
+      taskLayerDigest,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -4832,6 +4889,8 @@ const App: React.FC = () => {
             todo_due_digest: todoDueDigest,
             todo_overdue_digest: todoOverdueDigest,
             economy_digest: economyDigest,
+            local_map_digest: localMapDigest,
+            task_layer_digest: taskLayerDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -4920,6 +4979,8 @@ const App: React.FC = () => {
     todoDueDigest,
     todoOverdueDigest,
     economyDigest,
+    localMapDigest,
+    taskLayerDigest,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -5199,7 +5260,15 @@ const App: React.FC = () => {
 
   const requestApiMaintext = async (
     input: string,
-    context?: { gameTime?: string; dayPhase?: string; location?: string; sceneHint?: string; dialogueContext?: string },
+    context?: {
+      gameTime?: string;
+      dayPhase?: string;
+      location?: string;
+      sceneHint?: string;
+      dialogueContext?: string;
+      localMapDigest?: string;
+      taskLayerDigest?: string;
+    },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
     const runtimeMode = resolveApiRuntimeMode(apiConfig);
@@ -5217,6 +5286,8 @@ const App: React.FC = () => {
             `time=${context.gameTime || ''}${context.dayPhase ? ` (${context.dayPhase})` : ''}`,
             `location=${context.location || ''}`,
             context.sceneHint ? `scene=${context.sceneHint}` : '',
+            context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
+            context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
             '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
             PSEUDO_LAYER_RESPONSE_RULES,
           ]
@@ -5280,6 +5351,8 @@ const App: React.FC = () => {
               `time=${context.gameTime || ''}${context.dayPhase ? ` (${context.dayPhase})` : ''}`,
               `location=${context.location || ''}`,
               context.sceneHint ? `scene=${context.sceneHint}` : '',
+              context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
+              context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
               '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
               PSEUDO_LAYER_RESPONSE_RULES,
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
@@ -7034,6 +7107,8 @@ const App: React.FC = () => {
           location: currentNarrativeLocation || '未知区域',
           sceneHint: nextGameSceneHint,
           dialogueContext: requestSupportContext,
+          localMapDigest,
+          taskLayerDigest,
         }, controller.signal);
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
@@ -7192,6 +7267,8 @@ const App: React.FC = () => {
           location: currentNarrativeLocation || '未知区域',
           sceneHint: gameSceneHint,
           dialogueContext: requestSupportContext,
+          localMapDigest,
+          taskLayerDigest,
         });
         if (apiPayload?.maintext) {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);

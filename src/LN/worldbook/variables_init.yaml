@@ -11,6 +11,8 @@ world:
   todo_due_digest: ""
   todo_overdue_digest: ""
   economy_digest: ""
+  local_map_digest: ""
+  task_layer_digest: ""
   current_time: "2077-11-03 20:30"
   current_period: "夜晚"
   current_location: "开局地点"
