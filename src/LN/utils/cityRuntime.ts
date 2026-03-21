@@ -16,7 +16,7 @@ import {
 } from '../types';
 import { resolveLocationJurisdiction } from './locationJurisdiction';
 
-type ShopArchetype = 'fashion' | 'cybertech' | 'pharmacy' | 'luxury' | 'general';
+type ShopArchetype = 'fashion' | 'cybertech' | 'pharmacy' | 'luxury' | 'general' | 'restaurant';
 
 type StopPreset = {
   id: string;
@@ -321,7 +321,10 @@ const createStopCellId = (districtId: string, x: number, y: number): string => {
   return `${pad(profile.regionCode, 2)}${pad(profile.districtCode, 2)}${pad(x, 2)}${pad(y, 2)}`;
 };
 
-const inferShopType = (archetype: ShopArchetype): RuntimeShopType => {
+const inferShopType = (archetype: ShopArchetype, locationLabel: string, suggestedName: string): RuntimeShopType => {
+  if (/(餐厅|饭店|餐馆|咖啡|酒吧|茶屋|食堂|面包房|会馆|小馆|馆子)/.test(`${locationLabel} ${suggestedName}`)) {
+    return 'restaurant';
+  }
   switch (archetype) {
     case 'fashion':
       return 'clothing';
@@ -329,6 +332,8 @@ const inferShopType = (archetype: ShopArchetype): RuntimeShopType => {
       return 'chip';
     case 'pharmacy':
       return 'drug';
+    case 'restaurant':
+      return 'restaurant';
     case 'luxury':
       return 'service';
     default:
@@ -337,6 +342,13 @@ const inferShopType = (archetype: ShopArchetype): RuntimeShopType => {
 };
 
 const inferShopStyles = (archetype: ShopArchetype, locationLabel: string): string[] => {
+  if (archetype === 'restaurant') {
+    if (/(诺丝区|罪吻|夜场|酒吧)/.test(locationLabel)) return ['夜饮', '约场', '热菜'];
+    if (/(汐屿区|白湾|潮镜)/.test(locationLabel)) return ['景观', '海味', '甜点'];
+    if (/(艾瑞拉区|中环|礼序)/.test(locationLabel)) return ['礼序', '会席', '轻食'];
+    if (/(圣教区)/.test(locationLabel)) return ['配给', '汤食', '清淡'];
+    return ['常餐', '热菜', '饮品'];
+  }
   if (archetype === 'fashion') return /(夜场|罪吻|红绡|瘾巷)/.test(locationLabel) ? ['夜场', '制服', '礼服'] : ['常服', '礼服', '制服'];
   if (archetype === 'cybertech') return ['芯片', '灵构', '器件'];
   if (archetype === 'pharmacy') return ['药剂', '抑制', '恢复'];
@@ -568,7 +580,11 @@ export const ensureRuntimeShop = (
     kind: 'shop',
     tags: [params.archetype],
   });
-  const shopType = inferShopType(params.archetype);
+  const inferredArchetype: ShopArchetype =
+    /(餐厅|饭店|餐馆|咖啡|酒吧|茶屋|食堂|面包房|会馆|小馆|馆子)/.test(`${params.locationLabel} ${params.suggestedName}`)
+      ? 'restaurant'
+      : params.archetype;
+  const shopType = inferShopType(inferredArchetype, params.locationLabel, params.suggestedName);
   const shopSignature = normalizeKey(`${baseAnchor.anchor.id}|${shopType}|${params.suggestedName}`);
   const existingShop =
     baseAnchor.runtime.shops.find(shop => shop.anchorId === baseAnchor.anchor.id && normalizeKey(shop.name) === normalizeKey(params.suggestedName)) ||
@@ -593,8 +609,11 @@ export const ensureRuntimeShop = (
     name: params.suggestedName,
     type: shopType,
     tier,
-    signatureStyle: inferShopStyles(params.archetype, params.locationLabel),
-    hasBackroom: /(north|borderland)/.test(resolveDistrictProfileFromLocation(params.locationLabel).regionKey) || params.archetype === 'fashion',
+    signatureStyle: inferShopStyles(inferredArchetype, params.locationLabel),
+    hasBackroom:
+      shopType === 'restaurant'
+        ? false
+        : /(north|borderland)/.test(resolveDistrictProfileFromLocation(params.locationLabel).regionKey) || inferredArchetype === 'fashion',
     refreshSeed: `${baseAnchor.anchor.id}|${hash.toString(36)}`,
     refreshEpoch: 1,
     loyalty: 0,

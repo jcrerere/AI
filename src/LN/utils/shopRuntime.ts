@@ -1,5 +1,5 @@
 import { Item, Rank, RuntimeShopRecord, RuntimeShopType } from '../types';
-import { buildRegionalRetailPrice, resolveShopPriceCategory } from './economyRuntime';
+import { buildEconomyScenePrices, buildRegionalRetailPrice, resolveShopPriceCategory } from './economyRuntime';
 
 export interface RuntimeShopItem extends Item {
   price: number;
@@ -15,9 +15,11 @@ export interface RuntimeShopView {
   shopId: string;
   title: string;
   archetype: 'fashion' | 'cybertech' | 'pharmacy' | 'luxury' | 'general';
+  type: RuntimeShopType;
   locationLabel: string;
   summary: string;
   items: RuntimeShopItem[];
+  shopMode: 'retail' | 'restaurant';
   tier: RuntimeShopTier;
   loyalty: number;
   discountTier: number;
@@ -25,6 +27,10 @@ export interface RuntimeShopView {
   refreshEpoch: number;
   refreshLabel: string;
   commissionHint: string;
+  venueLabel?: string;
+  specialtyLabel?: string;
+  ownerLabel?: string;
+  dateFriendly?: boolean;
 }
 
 type CatalogItem = {
@@ -117,6 +123,24 @@ const SHOP_COMMISSION_HINT: Record<ShopArchetype, string> = {
   general: '例如：帮我留货 / 下期进一批我指定的东西',
 };
 
+const RESTAURANT_MENU_CATALOG: CatalogItem[] = [
+  { name: '晨港汤食', icon: '🥣', description: '偏基础与保温的热汤套餐，适合补一顿稳妥正餐。', category: 'consumable', rank: Rank.Lv1, styles: ['基础餐饮', '常餐', '热菜'] },
+  { name: '盐烤白鳞', icon: '🐟', description: '带明显地方风味的主菜，常见于景观和海湾餐厅。', category: 'consumable', rank: Rank.Lv2, styles: ['日常餐饮', '海味', '热菜'] },
+  { name: '镜糖甜塔', icon: '🍰', description: '甜点与饮品一起出，偏约会和会面场景。', category: 'consumable', rank: Rank.Lv2, styles: ['日常餐饮', '甜点', '饮品'] },
+  { name: '礼序轻席', icon: '🍱', description: '份量克制但摆盘考究，更强调礼仪感和面子。', category: 'consumable', rank: Rank.Lv3, styles: ['约场餐饮', '会席', '轻食'] },
+  { name: '霓雾调酒', icon: '🍸', description: '夜场餐吧偏爱的发光调酒，适合拖长谈话时间。', category: 'consumable', rank: Rank.Lv2, styles: ['约场餐饮', '夜饮', '饮品'] },
+  { name: '双人包席', icon: '🍽️', description: '适合正式邀约的双人定席，包含主菜与收尾甜点。', category: 'consumable', rank: Rank.Lv3, styles: ['约场餐饮', '双人', '会席'] },
+];
+
+type RestaurantProfile = {
+  venueLabel: string;
+  specialtyLabel: string;
+  ownerLabel: string;
+  dateFriendly: boolean;
+  menuLabel: string;
+  commissionHint: string;
+};
+
 const FRONT_CATALOG: Record<ShopArchetype, CatalogItem[]> = {
   fashion: [
     { name: '镜纹常服', icon: '🧥', description: '剪裁规整的日常常服，适合公开活动。', category: 'equipment', rank: Rank.Lv1, styles: ['常服', '体面', '日常'] },
@@ -200,6 +224,59 @@ const parseItemEpoch = (itemId: string): number | null => {
   return matched ? Number(matched[1]) : null;
 };
 
+const resolveRestaurantProfile = (shop: RuntimeShopRecord, locationLabel: string): RestaurantProfile => {
+  const text = `${locationLabel} ${shop.name}`;
+  const venueLabel =
+    /(酒吧|夜场)/.test(text)
+      ? '夜饮餐吧'
+      : /(咖啡|茶屋)/.test(text)
+        ? '会面咖啡馆'
+        : /(会馆|包厢)/.test(text)
+          ? '包厢会席馆'
+          : /(食堂)/.test(text)
+            ? '配给食堂'
+            : '地方餐厅';
+  const specialtyLabel =
+    shop.signatureStyle.includes('海味')
+      ? '海味主菜'
+      : shop.signatureStyle.includes('夜饮')
+        ? '调酒与夜场热菜'
+        : shop.signatureStyle.includes('礼序')
+          ? '礼序会席'
+          : shop.signatureStyle.includes('配给')
+            ? '配给汤食'
+            : '常餐与热菜';
+  const ownerLabel =
+    shop.loyalty >= 9 ? '老板已经把你当熟面孔。' : shop.loyalty >= 4 ? '老板记得你的口味。' : '老板只记得你大概来过。';
+  return {
+    venueLabel,
+    specialtyLabel,
+    ownerLabel,
+    dateFriendly: /(酒吧|咖啡|会馆|包厢|景观)/.test(text) || shop.tier === 'premium' || shop.tier === 'elite',
+    menuLabel: shop.tier === 'elite' || shop.tier === 'premium' ? '当期主菜单与包席' : '当期菜单',
+    commissionHint:
+      shop.tier === 'elite' || shop.tier === 'premium'
+        ? '例如：周末留双人桌 / 预留包厢 / 提前备一套会席'
+        : '例如：今晚留两位 / 留一道招牌菜 / 明天中午留桌',
+  };
+};
+
+const buildRestaurantMenuPrice = (shop: RuntimeShopRecord, item: CatalogItem, epoch: number, slot: number): number => {
+  const scenePrices = buildEconomyScenePrices(shop.districtId);
+  const tierFactor = shop.tier === 'elite' ? 1.42 : shop.tier === 'premium' ? 1.2 : shop.tier === 'street' ? 0.84 : 1;
+  const discountFactor = shop.discountTier >= 3 ? 0.82 : shop.discountTier === 2 ? 0.9 : shop.discountTier === 1 ? 0.95 : 1;
+  const rng = createRng(`${shop.refreshSeed}|restaurant|${epoch}|${slot}|${item.name}`);
+  const volatility = 0.96 + rng() * 0.14;
+  const styles = new Set(item.styles);
+  const base =
+    styles.has('基础餐饮')
+      ? scenePrices.basicMeal
+      : styles.has('约场餐饮') || styles.has('会席') || styles.has('双人')
+        ? scenePrices.dateMeal
+        : scenePrices.casualMeal;
+  return Math.max(6, Math.round(base * tierFactor * discountFactor * volatility));
+};
+
 const buildShopItem = (params: {
   shop: RuntimeShopRecord;
   epoch: number;
@@ -208,7 +285,6 @@ const buildShopItem = (params: {
   availability: 'front' | 'backroom';
   shopName: string;
 }): RuntimeShopItem => {
-  const basePrice = rankBasePrice(params.item.rank);
   const priceCategory = resolveShopPriceCategory({
     shopType: params.shop.type,
     itemCategory: params.item.category,
@@ -216,15 +292,18 @@ const buildShopItem = (params: {
     availability: params.availability,
     restricted: params.item.tag === 'restricted',
   });
-  const price = buildRegionalRetailPrice({
-    basePrice,
-    category: priceCategory,
-    districtId: params.shop.districtId,
-    tier: params.shop.tier,
-    discountTier: params.shop.discountTier,
-    seedText: `${params.shop.refreshSeed}|${params.epoch}|${params.slot}|${params.item.name}`,
-    extraFactor: params.availability === 'backroom' ? 1.18 : 1,
-  });
+  const price =
+    params.shop.type === 'restaurant'
+      ? buildRestaurantMenuPrice(params.shop, params.item, params.epoch, params.slot)
+      : buildRegionalRetailPrice({
+          basePrice: rankBasePrice(params.item.rank),
+          category: priceCategory,
+          districtId: params.shop.districtId,
+          tier: params.shop.tier,
+          discountTier: params.shop.discountTier,
+          seedText: `${params.shop.refreshSeed}|${params.epoch}|${params.slot}|${params.item.name}`,
+          extraFactor: params.availability === 'backroom' ? 1.18 : 1,
+        });
   return {
     id: buildItemId(params.shop.id, params.epoch, params.slot, params.item.name),
     name: params.item.name,
@@ -247,10 +326,12 @@ export const buildRuntimeShopView = (shop: RuntimeShopRecord, locationLabel: str
   const currentEpoch = Math.max(shop.refreshEpoch, resolveShopRefreshEpoch(elapsedMinutes));
   const previousEpoch = Math.max(1, currentEpoch - 1);
   const styles = shop.signatureStyle.length ? shop.signatureStyle : ['常规', '补给'];
-  const currentFrontPool = filterCatalogByStyles(FRONT_CATALOG[archetype], styles);
-  const previousFrontPool = filterCatalogByStyles(FRONT_CATALOG[archetype], styles);
+  const frontCatalog = shop.type === 'restaurant' ? RESTAURANT_MENU_CATALOG : FRONT_CATALOG[archetype];
+  const currentFrontPool = filterCatalogByStyles(frontCatalog, styles);
+  const previousFrontPool = filterCatalogByStyles(frontCatalog, styles);
   const currentRng = createRng(`${shop.refreshSeed}|front|${currentEpoch}`);
   const previousRng = createRng(`${shop.refreshSeed}|front|${previousEpoch}`);
+  const restaurantProfile = shop.type === 'restaurant' ? resolveRestaurantProfile(shop, locationLabel) : null;
 
   const frontItems = [
     ...shuffle(currentFrontPool, currentRng).slice(0, 4).map((item, index) =>
@@ -262,7 +343,7 @@ export const buildRuntimeShopView = (shop: RuntimeShopRecord, locationLabel: str
   ];
 
   const backroomItems =
-    shop.hasBackroom
+    shop.hasBackroom && shop.type !== 'restaurant'
       ? shuffle(BACKROOM_CATALOG[archetype], createRng(`${shop.refreshSeed}|backroom|${currentEpoch}`))
           .slice(0, 1)
           .map((item, index) =>
@@ -277,16 +358,22 @@ export const buildRuntimeShopView = (shop: RuntimeShopRecord, locationLabel: str
     shopId: shop.id,
     title: shop.name,
     archetype,
+    type: shop.type,
     locationLabel,
-    summary: SHOP_SUMMARY[archetype],
+    summary: shop.type === 'restaurant' ? '固定餐厅菜单，会按周期加新菜、保留一部分旧菜，并在熟客折扣下形成稳定的生活消费入口。' : SHOP_SUMMARY[archetype],
     items,
+    shopMode: shop.type === 'restaurant' ? 'restaurant' : 'retail',
     tier: shop.tier,
     loyalty: shop.loyalty,
     discountTier: shop.discountTier,
-    hasBackroom: shop.hasBackroom,
+    hasBackroom: shop.type === 'restaurant' ? false : shop.hasBackroom,
     refreshEpoch: currentEpoch,
-    refreshLabel: `第 ${currentEpoch} 期货架`,
-    commissionHint: SHOP_COMMISSION_HINT[archetype],
+    refreshLabel: shop.type === 'restaurant' ? `第 ${currentEpoch} 期菜单` : `第 ${currentEpoch} 期货架`,
+    commissionHint: restaurantProfile?.commissionHint || SHOP_COMMISSION_HINT[archetype],
+    venueLabel: restaurantProfile?.venueLabel,
+    specialtyLabel: restaurantProfile?.specialtyLabel,
+    ownerLabel: restaurantProfile?.ownerLabel,
+    dateFriendly: restaurantProfile?.dateFriendly,
   };
 };
 
@@ -325,6 +412,22 @@ export const applyRuntimeShopPurchase = (
       loyalty,
       discountTier,
       soldItemKeys: [...shop.soldItemKeys, itemId].slice(-24),
+    },
+    changed: true,
+  };
+};
+
+export const applyRuntimeRestaurantVisit = (shop: RuntimeShopRecord): { shop: RuntimeShopRecord; changed: boolean } => {
+  const loyalty = Math.min(24, shop.loyalty + 1);
+  const discountTier = loyalty >= 9 ? 3 : loyalty >= 6 ? 2 : loyalty >= 3 ? 1 : 0;
+  if (loyalty === shop.loyalty && discountTier === shop.discountTier) {
+    return { shop, changed: false };
+  }
+  return {
+    shop: {
+      ...shop,
+      loyalty,
+      discountTier,
     },
     changed: true,
   };

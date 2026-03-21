@@ -1,4 +1,4 @@
-import { Item, Rank } from '../types';
+import { Item, Rank, RuntimeShopType } from '../types';
 
 export type SceneActionRoute = 'shop' | 'black_race_bet' | 'metro_route';
 
@@ -25,9 +25,11 @@ export interface ProceduralShop {
   shopId?: string;
   title: string;
   archetype: 'fashion' | 'cybertech' | 'pharmacy' | 'luxury' | 'general';
+  type?: RuntimeShopType;
   locationLabel: string;
   summary: string;
   items: ProceduralShopItem[];
+  shopMode?: 'retail' | 'restaurant';
   tier?: 'street' | 'standard' | 'premium' | 'elite';
   loyalty?: number;
   discountTier?: number;
@@ -35,6 +37,10 @@ export interface ProceduralShop {
   refreshEpoch?: number;
   refreshLabel?: string;
   commissionHint?: string;
+  venueLabel?: string;
+  specialtyLabel?: string;
+  ownerLabel?: string;
+  dateFriendly?: boolean;
 }
 
 export interface MetroStop {
@@ -132,6 +138,7 @@ const normalizeSceneActionRoute = (value: string): SceneActionRoute | null => {
   const text = `${value || ''}`.trim().toLowerCase();
   if (!text) return null;
   if (['shop', 'store', 'shopping', '购物', '购买', '选购'].includes(text)) return 'shop';
+  if (['restaurant', 'dining', 'food', 'meal', '餐厅', '餐馆', '饭店', '吃饭', '用餐', '点餐', '点单', '订座'].includes(text)) return 'shop';
   if (['black_race_bet', 'blackrace', 'gambling', 'bet', '下注', '赌局', '黑赛', '黑赛下注'].includes(text)) return 'black_race_bet';
   if (['metro_route', 'metro', 'subway', 'transit', '地铁', '线路', '乘车'].includes(text)) return 'metro_route';
   return null;
@@ -366,6 +373,7 @@ export const inferSceneActionState = ({
   const combinedText = `${currentLocation} ${latestPlayerInput} ${rawMaintext}`.replace(/\s+/g, ' ');
   const aiRoutes = parseUiActionRoutes(readTag(rawLayerContent, 'ui_actions'));
   const shopArchetype = detectShopArchetype(combinedText);
+  const isRestaurantScene = /(餐厅|饭店|餐馆|咖啡|酒吧|茶屋|食堂|面包房|会馆|小馆|馆子|用餐|点单|订座|约饭|聚餐)/.test(combinedText);
   const hasBlackRaceSignal =
     /(黑赛|盘口|赔率|下注|赌局|裂帛赛道|灵械斗技穹笼|黑赛下注点|买输赢|赛手)/.test(combinedText) ||
     aiRoutes.includes('black_race_bet');
@@ -392,7 +400,7 @@ export const inferSceneActionState = ({
 
   aiRoutes.forEach(route => {
     const labels: Record<SceneActionRoute, { label: string; detail: string }> = {
-      shop: { label: '选择购物', detail: '接入当前场景的交易货架。' },
+      shop: { label: isRestaurantScene ? '选择用餐' : '选择购物', detail: isRestaurantScene ? '接入当前场景的餐厅菜单与订座入口。' : '接入当前场景的交易货架。' },
       black_race_bet: { label: '选择下注', detail: '切入当前黑赛盘口与结算页。' },
       metro_route: { label: '查看线路', detail: '打开地铁线路并选择下车站。' },
     };
@@ -400,7 +408,15 @@ export const inferSceneActionState = ({
     put(route, 'ai', 90, labels[route].label, labels[route].detail);
   });
 
-  if (shouldShowShop) put('shop', 'narrative', 70, '选择购物', '根据当前场景词生成临时货架。');
+  if (shouldShowShop) {
+    put(
+      'shop',
+      'narrative',
+      70,
+      isRestaurantScene ? '选择用餐' : '选择购物',
+      isRestaurantScene ? '根据当前场景词接入餐厅菜单、座位和留菜入口。' : '根据当前场景词生成临时货架。',
+    );
+  }
   if (hasBlackRaceSignal) put('black_race_bet', 'narrative', 70, '选择下注', '切入当前盘口并执行下注。');
   if (hasMetroSignal) put('metro_route', 'narrative', 70, '查看线路', '查看可达站点并决定下车位置。');
 

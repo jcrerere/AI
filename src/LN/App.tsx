@@ -73,7 +73,7 @@ import { buildEconomyDigest } from './utils/economyRuntime';
 import { buildRuntimeMetroNetwork } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
-import { applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
+import { applyRuntimeRestaurantVisit, applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
 import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
 
@@ -6038,6 +6038,7 @@ const App: React.FC = () => {
   const handleBuySceneShopItem = (itemId: string): { ok: boolean; message: string } => {
     const shop = sceneModal?.mode === 'shop' ? sceneModal.shop : null;
     const target = shop?.items.find(item => item.id === itemId);
+    const isRestaurant = shop?.shopMode === 'restaurant' || shop?.type === 'restaurant';
     if (!shop || !target) {
       return { ok: false, message: '当前货架已失效，请重新打开购物接口。' };
     }
@@ -6049,26 +6050,32 @@ const App: React.FC = () => {
       ...prev,
       credits: Math.max(0, prev.credits - target.price),
     }));
-    addInventoryItem({
-      id: target.id,
-      name: target.name,
-      quantity: 1,
-      icon: target.icon,
-      description: target.description,
-      category: target.category,
-      rank: target.rank,
-    });
+    if (!isRestaurant) {
+      addInventoryItem({
+        id: target.id,
+        name: target.name,
+        quantity: 1,
+        icon: target.icon,
+        description: target.description,
+        category: target.category,
+        rank: target.rank,
+      });
+    }
     pushFinanceLedgerEntry({
       kind: 'system',
       title: '场景购物',
       detail: `在 ${shop.title} 购入 ${target.name}`,
+      ...{
+        title: isRestaurant ? '餐厅消费' : '场景购物',
+        detail: isRestaurant ? `在 ${shop.title} 点单 ${target.name}` : `在 ${shop.title} 购入 ${target.name}`,
+      },
       amount: -target.price,
       counterparty: shop.title,
     });
     const runtimeShopId = shop.shopId || shop.id;
     const runtimeShop = cityRuntime.shops.find(entry => entry.id === runtimeShopId);
     if (runtimeShop) {
-      const purchase = applyRuntimeShopPurchase(runtimeShop, target.id);
+      const purchase = isRestaurant ? applyRuntimeRestaurantVisit(runtimeShop) : applyRuntimeShopPurchase(runtimeShop, target.id);
       if (purchase.changed) {
         const nextRuntime = {
           ...cityRuntime,
@@ -6086,6 +6093,12 @@ const App: React.FC = () => {
       }
     }
     spawnFloatingText(`-${target.price} 灵能币`, 'text-amber-300');
+    if (isRestaurant) {
+      return {
+        ok: true,
+        message: `已在 ${shop.title} 点单 ${target.name}，这笔消费会记入生活账本。`,
+      };
+    }
     return {
       ok: true,
       message: `已购入 ${target.name}，货物已写入背包。${target.availability === 'backroom' ? ' 这件货来自暗柜渠道。' : ''}`,
@@ -6094,7 +6107,11 @@ const App: React.FC = () => {
 
   const handleSubmitShopCommission = (request: string): { ok: boolean; message: string } => {
     const shop = sceneModal?.mode === 'shop' ? sceneModal.shop : null;
+    const isRestaurant = shop?.shopMode === 'restaurant' || shop?.type === 'restaurant';
     const trimmed = request.trim();
+    const dueAtMinutes =
+      (mapRuntime.elapsedMinutes || 0) +
+      (isRestaurant && shop ? 12 * 60 : shop?.hasBackroom ? 2 * 24 * 60 : 24 * 60);
     if (!shop || !trimmed) {
       return { ok: false, message: '当前店铺委托接口未就绪。' };
     }
@@ -6105,10 +6122,20 @@ const App: React.FC = () => {
       sourceType: 'shop' as const,
       sourceId: shop.shopId || shop.id,
       locationLabel: shop.locationLabel,
-      dueAtMinutes: (mapRuntime.elapsedMinutes || 0) + (shop.hasBackroom ? 2 * 24 * 60 : 24 * 60),
+      dueAtMinutes,
       createdAtMinutes: mapRuntime.elapsedMinutes || 0,
       summary: `已向 ${shop.title} 提交代办/进货请求，货架会在后续周期尝试回填。`,
       detail: `店铺：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n渠道：${shop.hasBackroom ? '含暗柜渠道' : '普通货架渠道'}`,
+      ...(
+        isRestaurant
+          ? {
+              title: `订座：${trimmed}`,
+              category: 'meeting' as const,
+              summary: `已向 ${shop.title} 登记订座/留菜请求，约定会在更短时间内进入待赴约状态。`,
+              detail: `餐厅：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n形式：订座 / 留菜 / 留包厢`,
+            }
+          : {}
+      ),
       routeHint: 'shop',
     };
     const todoResult = upsertRuntimeTodo(cityRuntime, draft);
@@ -6123,6 +6150,12 @@ const App: React.FC = () => {
         type: 'narrative',
       },
     ]);
+    if (isRestaurant) {
+      return {
+        ok: true,
+        message: `${todoResult.created ? '已登记' : '已刷新'}订座待办：${todoResult.todo.title}`,
+      };
+    }
     return {
       ok: true,
       message: `${todoResult.created ? '已登记' : '已刷新'}委托待办：${todoResult.todo.title}`,

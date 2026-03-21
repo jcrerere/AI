@@ -15,10 +15,14 @@ interface Props {
 const SceneActionModal: React.FC<Props> = props => {
   const [notice, setNotice] = useState<string>('');
   const [commissionDraft, setCommissionDraft] = useState('');
+  const isRestaurant = props.mode === 'shop' && props.shop?.shopMode === 'restaurant';
   const title = props.mode === 'shop' ? props.shop?.title || '固定店铺' : '地铁线路';
-  const kicker = props.mode === 'shop' ? '固定店铺' : '轨道通勤';
+  const kicker = props.mode === 'shop' ? (isRestaurant ? '固定餐厅' : '固定店铺') : '轨道通勤';
   const icon = props.mode === 'shop' ? <ShoppingBag className="w-4 h-4" /> : <TrainFront className="w-4 h-4" />;
-  const colorClass = props.mode === 'shop' ? 'border-cyan-500/20 bg-cyan-500/[0.05]' : 'border-amber-500/20 bg-amber-500/[0.05]';
+  const colorClass = props.mode === 'shop' ? (isRestaurant ? 'border-rose-500/20 bg-rose-500/[0.05]' : 'border-cyan-500/20 bg-cyan-500/[0.05]') : 'border-amber-500/20 bg-amber-500/[0.05]';
+  const itemActionLabel = isRestaurant ? '点单' : '购买';
+  const commissionSectionLabel = isRestaurant ? '订座 / 留菜' : '进货委托';
+  const frontShelfLabel = isRestaurant ? props.shop?.venueLabel || '当期菜单' : '前台货架';
 
   const currentLineNames = useMemo(() => {
     if (props.mode !== 'metro' || !props.metro) return '';
@@ -85,8 +89,28 @@ const SceneActionModal: React.FC<Props> = props => {
                 </div>
               </div>
 
+              {isRestaurant && (
+                <div className="grid gap-2 text-xs text-slate-400 md:grid-cols-3">
+                  <div className="rounded-2xl border border-rose-500/15 bg-rose-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-rose-200/70">餐厅类型</div>
+                    <div className="mt-1 text-rose-50">{props.shop?.venueLabel || '地方餐厅'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400">{props.shop?.specialtyLabel || '常餐与热菜'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-rose-500/15 bg-rose-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-rose-200/70">熟客关系</div>
+                    <div className="mt-1 text-rose-50">{props.shop?.ownerLabel || '老板还在认脸。'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400">折扣会跟着熟客度一起抬升。</div>
+                  </div>
+                  <div className="rounded-2xl border border-rose-500/15 bg-rose-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-rose-200/70">约会适配</div>
+                    <div className="mt-1 text-rose-50">{props.shop?.dateFriendly ? '适合正式邀约和会面。' : '更适合日常吃饭，不强调约会。'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400">这里只负责生活场景，不给属性奖励。</div>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">前台货架</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{frontShelfLabel}</div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   {frontItems.map(item => (
                     <div key={item.id} className={`rounded-2xl border px-4 py-4 ${colorClass}`}>
@@ -109,7 +133,7 @@ const SceneActionModal: React.FC<Props> = props => {
                             onClick={() => setNotice(props.onBuy?.(item.id).message || '购物接口未接入。')}
                             className="mt-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20"
                           >
-                            购买
+                            {itemActionLabel}
                           </button>
                         </div>
                       </div>
@@ -117,7 +141,7 @@ const SceneActionModal: React.FC<Props> = props => {
                   ))}
                   {frontItems.length === 0 && (
                     <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-4 py-4 text-xs text-slate-500 md:col-span-2">
-                      当前前台货架已被扫空，等下一期补货或直接登记委托更稳。
+                      {isRestaurant ? '当前菜单这一轮已经被点空，等下一期加菜或直接登记订座更稳。' : '当前前台货架已被扫空，等下一期补货或直接登记委托更稳。'}
                     </div>
                   )}
                 </div>
@@ -165,7 +189,7 @@ const SceneActionModal: React.FC<Props> = props => {
               )}
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">进货委托</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{commissionSectionLabel}</div>
                 <div className="mt-1 text-xs text-slate-400">{props.shop?.commissionHint || '可登记代办、留货或下期进货请求。'}</div>
                 <div className="mt-3 flex flex-col gap-2 md:flex-row">
                   <input
@@ -184,7 +208,7 @@ const SceneActionModal: React.FC<Props> = props => {
                     }}
                     className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-2 text-xs font-semibold text-amber-100 hover:bg-amber-500/20"
                   >
-                    登记委托
+                    {isRestaurant ? '登记订座' : '登记委托'}
                   </button>
                 </div>
               </div>
