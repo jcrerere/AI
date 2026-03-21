@@ -412,10 +412,66 @@ export interface WardrobeSummary {
   note: string;
 }
 
+export type ResidenceShapeKey =
+  | 'registry_capsule'
+  | 'civic_studio'
+  | 'market_suite'
+  | 'harbor_hostel'
+  | 'parish_cell'
+  | 'container_safehouse'
+  | 'tower_flat'
+  | 'workshop_dorm'
+  | 'transit_pod';
+
+export interface ResidenceStashRecord {
+  residenceId: string;
+  residenceLabel: string;
+  storageSlots: number;
+  items: Item[];
+}
+
+export interface ResidenceBurglaryTarget {
+  id: string;
+  districtId: string;
+  districtLabel: string;
+  label: string;
+  areaLabel: string;
+  shapeKey: ResidenceShapeKey;
+  shapeLabel: string;
+  wealthTier: 'low' | 'medium' | 'high' | 'elite';
+  security: 'Low' | 'Medium' | 'High';
+  occupancyLabel: 'Low' | 'Medium' | 'High';
+  occupancyRisk: number;
+  entryDifficulty: number;
+  valueScore: number;
+  note: string;
+  status: 'active' | 'cooldown' | 'burned';
+  heat: number;
+  hitCount: number;
+  nextAvailableAtMinutes?: number;
+  lastOutcome?: 'success' | 'empty' | 'failed' | 'spotted';
+}
+
+export interface ResidenceBurglaryRecord {
+  id: string;
+  targetId: string;
+  targetLabel: string;
+  districtLabel: string;
+  outcome: 'success' | 'empty' | 'failed' | 'spotted';
+  lootSummary: string;
+  creditNet: number;
+  resolvedAt: string;
+}
+
 export interface PlayerResidenceState {
   currentResidenceId: string;
   currentResidenceLabel: string;
   unlockedResidenceIds: string[];
+  stashRecords: ResidenceStashRecord[];
+  burglaryTargets: ResidenceBurglaryTarget[];
+  burglaryHistory: ResidenceBurglaryRecord[];
+  burglaryLevel: number;
+  burglaryExperience: number;
 }
 
 export interface ResidenceProfile {
@@ -428,6 +484,10 @@ export interface ResidenceProfile {
   safety: 'High' | 'Medium' | 'Low';
   privacy: 'High' | 'Medium' | 'Low';
   curfew: string;
+  shapeKey: ResidenceShapeKey;
+  shapeLabel: string;
+  storageSlots: number;
+  assetTier: 'Basic' | 'Comfortable' | 'Premium' | 'Official';
   monthlyCost: number;
   switchCost: number;
   restMinutes: number;

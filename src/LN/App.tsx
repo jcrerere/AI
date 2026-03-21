@@ -64,6 +64,8 @@ import {
   SlotSpinRecord,
   PlayerResidenceState,
   ResidenceProfile,
+  ResidenceStashRecord,
+  ResidenceBurglaryTarget,
   CityRuntimeData,
   PlayerWardrobeState,
   WardrobeRecord,
@@ -108,6 +110,14 @@ import {
   progressDistrictTaskLayer,
   resolveDistrictProfileFromLocation,
 } from './utils/cityRuntime';
+import {
+  buildResidencePreset,
+  ensureResidenceStashRecord,
+  getResidenceStorageUsage,
+  resolveBurglaryAttempt,
+  syncDistrictBurglaryTargets,
+  withResidencePreset,
+} from './utils/residenceRuntime';
 import { applyRuntimeRestaurantVisit, applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
 import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
 import {
@@ -1041,6 +1051,11 @@ const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
   currentResidenceId: '',
   currentResidenceLabel: '',
   unlockedResidenceIds: [],
+  stashRecords: [],
+  burglaryTargets: [],
+  burglaryHistory: [],
+  burglaryLevel: 1,
+  burglaryExperience: 0,
 };
 
 const EMPTY_WARDROBE_STATE: PlayerWardrobeState = {
@@ -1065,10 +1080,60 @@ const normalizeResidenceState = (
         .filter(Boolean),
     ),
   );
+  const stashRecords = Array.from(
+    new Map(
+      [...(Array.isArray(fallback?.stashRecords) ? fallback!.stashRecords : []), ...(Array.isArray(rawState?.stashRecords) ? rawState!.stashRecords : [])]
+        .filter(record => record && typeof record.residenceId === 'string')
+        .map(record => [
+          record.residenceId,
+          {
+            residenceId: `${record.residenceId || ''}`.trim(),
+            residenceLabel: `${record.residenceLabel || ''}`.trim(),
+            storageSlots: Math.max(0, Number(record.storageSlots) || 0),
+            items: Array.isArray(record.items)
+              ? (record.items as Item[])
+                  .filter(item => item && typeof item.id === 'string' && (Number(item.quantity) || 0) > 0)
+                  .map(item => ({ ...item, quantity: Math.max(1, Number(item.quantity) || 1) }))
+              : [],
+          } satisfies ResidenceStashRecord,
+        ]),
+    ).values(),
+  );
+  const burglaryTargets = Array.from(
+    new Map(
+      [...(Array.isArray(fallback?.burglaryTargets) ? fallback!.burglaryTargets : []), ...(Array.isArray(rawState?.burglaryTargets) ? rawState!.burglaryTargets : [])]
+        .filter(target => target && typeof target.id === 'string')
+        .map(target => [
+          target.id,
+          {
+            ...target,
+            districtId: `${target.districtId || ''}`.trim(),
+            districtLabel: `${target.districtLabel || ''}`.trim(),
+            label: `${target.label || ''}`.trim(),
+            areaLabel: `${target.areaLabel || ''}`.trim(),
+            entryDifficulty: Math.max(1, Number(target.entryDifficulty) || 1),
+            valueScore: Math.max(0, Number(target.valueScore) || 0),
+            occupancyRisk: Math.min(0.99, Math.max(0.01, Number(target.occupancyRisk) || 0.5)),
+            heat: Math.max(0, Number(target.heat) || 0),
+            hitCount: Math.max(0, Number(target.hitCount) || 0),
+          } satisfies ResidenceBurglaryTarget,
+        ]),
+    ).values(),
+  );
+  const burglaryHistory = Array.isArray(rawState?.burglaryHistory)
+    ? rawState!.burglaryHistory.filter(record => record && typeof record.id === 'string')
+    : Array.isArray(fallback?.burglaryHistory)
+      ? fallback!.burglaryHistory.filter(record => record && typeof record.id === 'string')
+      : [];
   return {
     currentResidenceId,
     currentResidenceLabel,
     unlockedResidenceIds,
+    stashRecords,
+    burglaryTargets,
+    burglaryHistory,
+    burglaryLevel: Math.max(1, Number(rawState?.burglaryLevel ?? fallback?.burglaryLevel ?? 1) || 1),
+    burglaryExperience: Math.max(0, Number(rawState?.burglaryExperience ?? fallback?.burglaryExperience ?? 0) || 0),
   };
 };
 
@@ -1094,7 +1159,7 @@ const normalizeWardrobeState = (rawState: Partial<PlayerWardrobeState> | null | 
 
 const buildFallbackResidenceProfile = (residence: PlayerResidenceState, districtLabel: string): ResidenceProfile | null => {
   if (!residence.currentResidenceId && !residence.currentResidenceLabel) return null;
-  return {
+  return withResidencePreset({
     id: residence.currentResidenceId || `legacy_residence_${hashText(residence.currentResidenceLabel || 'fallback')}`,
     label: residence.currentResidenceLabel || residence.currentResidenceId,
     kind: 'temporary',
@@ -1111,14 +1176,14 @@ const buildFallbackResidenceProfile = (residence: PlayerResidenceState, district
     mpRestore: 24,
     sanityRestore: 10,
     note: '建议后续迁入结构化住处，避免月结和住册信息脱节。',
-  };
+  }, buildResidencePreset('transit_pod', 6, 'Basic'));
 };
 
 const buildJurisdictionResidenceProfile = (location: string, districtLabel: string): ResidenceProfile => {
   const jurisdiction = resolveLocationJurisdiction(location);
   switch (jurisdiction.key) {
     case 'aerila':
-      return {
+      return withResidencePreset({
         id: 'airela_civic_capsule',
         label: `${districtLabel || '艾瑞拉区'}·民政夜栖舱`,
         kind: 'rental',
@@ -1135,9 +1200,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 32,
         sanityRestore: 8,
         note: '适合保信用和保通行，但不适合做隐蔽会面。',
-      };
+      }, buildResidencePreset('registry_capsule', 10, 'Comfortable'));
     case 'cuiling':
-      return {
+      return withResidencePreset({
         id: 'cuiling_shift_dorm',
         label: '淬灵区·轮班宿舍',
         kind: 'rental',
@@ -1154,9 +1219,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 28,
         sanityRestore: 10,
         note: '适合做长期周转住处，不适合高强度藏匿。',
-      };
+      }, buildResidencePreset('workshop_dorm', 8, 'Basic'));
     case 'xiyu':
-      return {
+      return withResidencePreset({
         id: 'xiyu_port_hostel',
         label: '汐屿区·港务旅舍',
         kind: 'rental',
@@ -1173,9 +1238,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 26,
         sanityRestore: 12,
         note: '边检友好，但消费记录会留痕。',
-      };
+      }, buildResidencePreset('harbor_hostel', 9, 'Comfortable'));
     case 'north':
-      return {
+      return withResidencePreset({
         id: 'north_silk_suite',
         label: '诺丝区·灰幕套间',
         kind: 'safehouse',
@@ -1192,9 +1257,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 30,
         sanityRestore: 16,
         note: '适合会面和藏匿，但会抬高月维持费。',
-      };
+      }, buildResidencePreset('market_suite', 14, 'Premium'));
     case 'holy':
-      return {
+      return withResidencePreset({
         id: 'holy_parish_bed',
         label: '圣教区·教律宿床',
         kind: 'temporary',
@@ -1211,9 +1276,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 24,
         sanityRestore: 6,
         note: '只适合守规矩的停留，不适合带灰色状态久住。',
-      };
+      }, buildResidencePreset('parish_cell', 5, 'Basic'));
     case 'borderland':
-      return {
+      return withResidencePreset({
         id: 'borderland_safe_camp',
         label: '交界地·加固营位',
         kind: 'safehouse',
@@ -1230,9 +1295,9 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 18,
         sanityRestore: 8,
         note: '适合躲风险，不适合长期恢复。',
-      };
+      }, buildResidencePreset('container_safehouse', 12, 'Comfortable'));
     default:
-      return {
+      return withResidencePreset({
         id: 'civic_transit_pod',
         label: '区域·中转舱位',
         kind: 'temporary',
@@ -1249,7 +1314,7 @@ const buildJurisdictionResidenceProfile = (location: string, districtLabel: stri
         mpRestore: 18,
         sanityRestore: 8,
         note: '更适合作为过渡住处。',
-      };
+      }, buildResidencePreset('transit_pod', 6, 'Basic'));
   }
 };
 
@@ -1272,7 +1337,7 @@ const buildResidenceProfiles = (params: {
       : null;
   const profiles: ResidenceProfile[] = [];
   if (inAirelaZone && params.hasOfficialControl && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
-    profiles.push({
+    profiles.push(withResidencePreset({
       id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
       label: params.status.assignedHXDormLabel,
       kind: 'official',
@@ -1289,12 +1354,45 @@ const buildResidenceProfiles = (params: {
       mpRestore: 36,
       sanityRestore: 12,
       note: '官方宿位始终保留，不会因切换民间住处而丢失住册。',
-    });
+    }, buildResidencePreset('registry_capsule', 12, 'Official')));
   }
   profiles.push(buildJurisdictionResidenceProfile(params.location, districtLabel));
   const fallback = buildFallbackResidenceProfile(params.residence, districtLabel);
   if (fallback) profiles.push(fallback);
   return Array.from(new Map(profiles.map(profile => [profile.id, profile])).values());
+};
+
+const mergeStackedItems = (items: Item[], incoming: Item[]): Item[] => {
+  const next = items.map(item => ({ ...item }));
+  incoming.forEach(entry => {
+    const index = next.findIndex(item => item.id === entry.id);
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        quantity: Math.max(1, (next[index].quantity || 0) + (entry.quantity || 0)),
+      };
+      return;
+    }
+    next.push({ ...entry, quantity: Math.max(1, entry.quantity || 1) });
+  });
+  return next;
+};
+
+const takeSingleInventoryItem = (items: Item[], itemId: string): { nextItems: Item[]; unitItem: Item | null } => {
+  const index = items.findIndex(item => item.id === itemId && item.quantity > 0);
+  if (index < 0) return { nextItems: items, unitItem: null };
+  const source = items[index];
+  const nextItems =
+    source.quantity > 1
+      ? items.map((item, itemIndex) => (itemIndex === index ? { ...item, quantity: item.quantity - 1 } : item))
+      : items.filter((_, itemIndex) => itemIndex !== index);
+  return {
+    nextItems,
+    unitItem: {
+      ...source,
+      quantity: 1,
+    },
+  };
 };
 
 const ensurePseudoLayerOnLoad = (
@@ -4430,11 +4528,16 @@ const App: React.FC = () => {
         unlockedResidenceIds: Array.isArray(residenceNode?.unlocked_residence_ids)
           ? residenceNode.unlocked_residence_ids
           : [],
+        stashRecords: Array.isArray(residenceNode?.stash_records) ? residenceNode.stash_records : [],
+        burglaryTargets: Array.isArray(residenceNode?.burglary_targets) ? residenceNode.burglary_targets : [],
+        burglaryHistory: Array.isArray(residenceNode?.burglary_history) ? residenceNode.burglary_history : [],
+        burglaryLevel: toFiniteNumber(residenceNode?.burglary_level) ?? 1,
+        burglaryExperience: toFiniteNumber(residenceNode?.burglary_experience) ?? 0,
       },
       hasAirelaBinding && isAirelaResidenceZone(regionValue)
         ? {
-            currentResidenceId: derivedBinding?.residenceId || '',
-            currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
+          currentResidenceId: derivedBinding?.residenceId || '',
+          currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
             unlockedResidenceIds: derivedBinding?.residenceId ? [derivedBinding.residenceId] : [],
           }
         : null,
@@ -5054,6 +5157,26 @@ const App: React.FC = () => {
       buildFallbackResidenceProfile(playerResidence, betaStatus.assignedDistrict || resolveLocationJurisdiction(currentNarrativeLocation || '').regionLabel),
     [residenceProfiles, playerResidence, betaStatus.assignedDistrict, currentNarrativeLocation],
   );
+  const currentDistrictProfile = useMemo(
+    () => resolveDistrictProfileFromLocation(currentNarrativeLocation || playerFaction.headquarters || '未知区域'),
+    [currentNarrativeLocation, playerFaction.headquarters],
+  );
+  const currentResidenceStash = useMemo(() => {
+    if (!currentResidenceProfile) return null;
+    return ensureResidenceStashRecord(
+      playerResidence.stashRecords,
+      currentResidenceProfile.id,
+      currentResidenceProfile.label,
+      currentResidenceProfile.storageSlots,
+    );
+  }, [currentResidenceProfile, playerResidence.stashRecords]);
+  const currentDistrictBurglaryTargets = useMemo(
+    () =>
+      playerResidence.burglaryTargets
+        .filter(target => target.districtId === currentDistrictProfile.id)
+        .sort((left, right) => right.valueScore - left.valueScore),
+    [playerResidence.burglaryTargets, currentDistrictProfile.id],
+  );
   const monthlySettlementPreview = useMemo(() => {
     const checkpointMonth = settlementCheckpointMonth || currentMonthKey;
     const pendingMonths = getMonthDiff(checkpointMonth, currentMonthKey);
@@ -5126,6 +5249,7 @@ const App: React.FC = () => {
     if (playerResidence.currentResidenceId !== officialResidenceId) return;
     setPlayerResidence(prev =>
       normalizeResidenceState({
+        ...prev,
         currentResidenceId: '',
         currentResidenceLabel: '',
         unlockedResidenceIds: [...prev.unlockedResidenceIds, officialResidenceId],
@@ -5137,6 +5261,63 @@ const App: React.FC = () => {
     playerFaction.headquarters,
     officialResidenceBinding,
     playerResidence.currentResidenceId,
+  ]);
+
+  useEffect(() => {
+    if (gameStage !== 'game' || !currentResidenceProfile) return;
+    const location = currentNarrativeLocation || playerFaction.headquarters || currentResidenceProfile.label;
+    setPlayerResidence(prev => {
+      const ensuredStash = ensureResidenceStashRecord(
+        prev.stashRecords,
+        currentResidenceProfile.id,
+        currentResidenceProfile.label,
+        currentResidenceProfile.storageSlots,
+      );
+      const nextStashRecords = prev.stashRecords.some(record => record.residenceId === currentResidenceProfile.id)
+        ? prev.stashRecords.map(record =>
+            record.residenceId === currentResidenceProfile.id
+              ? {
+                  ...ensuredStash,
+                  items: record.items,
+                }
+              : record,
+          )
+        : [...prev.stashRecords, ensuredStash];
+      const nextBurglaryTargets = syncDistrictBurglaryTargets(prev.burglaryTargets, location, mapRuntime.elapsedMinutes || 0);
+      const stashChanged =
+        nextStashRecords.length !== prev.stashRecords.length ||
+        !prev.stashRecords.some(
+          record =>
+            record.residenceId === currentResidenceProfile.id &&
+            record.storageSlots === currentResidenceProfile.storageSlots &&
+            record.residenceLabel === currentResidenceProfile.label,
+        );
+      const currentTargetMap = new Map(prev.burglaryTargets.map(target => [target.id, target]));
+      const targetChanged =
+        nextBurglaryTargets.length !== prev.burglaryTargets.length ||
+        nextBurglaryTargets.some(target => {
+          const previous = currentTargetMap.get(target.id);
+          return (
+            !previous ||
+            previous.status !== target.status ||
+            previous.heat !== target.heat ||
+            previous.hitCount !== target.hitCount ||
+            previous.nextAvailableAtMinutes !== target.nextAvailableAtMinutes
+          );
+        });
+      if (!stashChanged && !targetChanged) return prev;
+      return normalizeResidenceState({
+        ...prev,
+        stashRecords: nextStashRecords,
+        burglaryTargets: nextBurglaryTargets,
+      });
+    });
+  }, [
+    gameStage,
+    currentResidenceProfile,
+    currentNarrativeLocation,
+    playerFaction.headquarters,
+    mapRuntime.elapsedMinutes,
   ]);
 
   const syncNearbyNpcsFromContext = useCallback(
@@ -5321,6 +5502,11 @@ const App: React.FC = () => {
       currentResidenceId: playerResidence.currentResidenceId || null,
       currentResidenceLabel: playerResidence.currentResidenceLabel || null,
       unlockedResidenceIds: playerResidence.unlockedResidenceIds,
+      residenceStashRecords: playerResidence.stashRecords,
+      residenceBurglaryTargets: playerResidence.burglaryTargets,
+      residenceBurglaryHistory: playerResidence.burglaryHistory,
+      burglaryLevel: playerResidence.burglaryLevel,
+      burglaryExperience: playerResidence.burglaryExperience,
       lcoin: nextCoinBuckets,
       coreAffixes: nextCoreAffixes,
       lingshu: nextLingshuParts.map(part => [part.key, part.level, part.rank].join('|')),
@@ -5392,9 +5578,7 @@ const App: React.FC = () => {
         const allowOfficialResidenceFallback = hasOfficialBetaControl && isAirelaResidenceZone(nextNarrativeLocation);
         const mergedResidence = normalizeResidenceState(
           {
-            currentResidenceId: playerResidence.currentResidenceId,
-            currentResidenceLabel: playerResidence.currentResidenceLabel,
-            unlockedResidenceIds: playerResidence.unlockedResidenceIds,
+            ...playerResidence,
           },
           {
             currentResidenceId:
@@ -5407,6 +5591,11 @@ const App: React.FC = () => {
               ...(Array.isArray(residenceState.unlocked_residence_ids) ? residenceState.unlocked_residence_ids : []),
               ...(hasOfficialBetaControl && airelaBinding?.residenceId ? [airelaBinding.residenceId] : []),
             ],
+            stashRecords: Array.isArray(residenceState.stash_records) ? residenceState.stash_records : [],
+            burglaryTargets: Array.isArray(residenceState.burglary_targets) ? residenceState.burglary_targets : [],
+            burglaryHistory: Array.isArray(residenceState.burglary_history) ? residenceState.burglary_history : [],
+            burglaryLevel: toFiniteNumber(residenceState.burglary_level) ?? playerResidence.burglaryLevel,
+            burglaryExperience: toFiniteNumber(residenceState.burglary_experience) ?? playerResidence.burglaryExperience,
           },
         );
         const nextPlayer: Record<string, any> = {
@@ -5433,6 +5622,11 @@ const App: React.FC = () => {
             current_residence_id: mergedResidence.currentResidenceId,
             current_residence_label: mergedResidence.currentResidenceLabel,
             unlocked_residence_ids: mergedResidence.unlockedResidenceIds,
+            stash_records: mergedResidence.stashRecords,
+            burglary_targets: mergedResidence.burglaryTargets,
+            burglary_history: mergedResidence.burglaryHistory,
+            burglary_level: mergedResidence.burglaryLevel,
+            burglary_experience: mergedResidence.burglaryExperience,
           },
           core_status: {
             ...coreStatus,
@@ -5606,6 +5800,11 @@ const App: React.FC = () => {
     playerResidence.currentResidenceId,
     playerResidence.currentResidenceLabel,
     playerResidence.unlockedResidenceIds,
+    playerResidence.stashRecords,
+    playerResidence.burglaryTargets,
+    playerResidence.burglaryHistory,
+    playerResidence.burglaryLevel,
+    playerResidence.burglaryExperience,
     betaStatus.taxOfficerBoundId,
     betaStatus.taxOfficerName,
     betaStatus.taxOfficeAddress,
@@ -9836,6 +10035,7 @@ const App: React.FC = () => {
 
     setPlayerResidence(prev =>
       normalizeResidenceState({
+        ...prev,
         currentResidenceId: target.id,
         currentResidenceLabel: target.label,
         unlockedResidenceIds: [...prev.unlockedResidenceIds, target.id],
@@ -9905,6 +10105,197 @@ const App: React.FC = () => {
     ]);
     spawnFloatingText(`HP+${recoveredHp} MP+${recoveredMp}`, 'text-emerald-300');
     return { ok: true, message: `已在「${target.label}」完成休整。` };
+  };
+
+  const handleStoreResidenceItem = (itemId: string): { ok: boolean; message?: string } => {
+    if (!currentResidenceProfile) {
+      return { ok: false, message: '当前还没有可用住处。' };
+    }
+    const sourceItem = playerInventory.find(item => item.id === itemId && item.quantity > 0) || null;
+    if (!sourceItem) {
+      return { ok: false, message: '物品不存在或数量不足。' };
+    }
+    if (sourceItem.category === 'quest') {
+      return { ok: false, message: '任务物品不能放进私人储物。' };
+    }
+    const stashRecord = ensureResidenceStashRecord(
+      playerResidence.stashRecords,
+      currentResidenceProfile.id,
+      currentResidenceProfile.label,
+      currentResidenceProfile.storageSlots,
+    );
+    if (getResidenceStorageUsage(stashRecord) >= currentResidenceProfile.storageSlots) {
+      return { ok: false, message: '当前住处储物格已满。' };
+    }
+    const extracted = takeSingleInventoryItem(playerInventory, itemId);
+    if (!extracted.unitItem) {
+      return { ok: false, message: '无法取出该物品。' };
+    }
+    setPlayerInventory(extracted.nextItems);
+    setPlayerResidence(prev => {
+      const currentRecord = ensureResidenceStashRecord(
+        prev.stashRecords,
+        currentResidenceProfile.id,
+        currentResidenceProfile.label,
+        currentResidenceProfile.storageSlots,
+      );
+      const nextRecord: ResidenceStashRecord = {
+        ...currentRecord,
+        items: mergeStackedItems(currentRecord.items, [extracted.unitItem as Item]),
+      };
+      return normalizeResidenceState({
+        ...prev,
+        stashRecords: prev.stashRecords.some(record => record.residenceId === currentResidenceProfile.id)
+          ? prev.stashRecords.map(record => (record.residenceId === currentResidenceProfile.id ? nextRecord : record))
+          : [...prev.stashRecords, nextRecord],
+      });
+    });
+    return { ok: true, message: `已将「${sourceItem.name}」存入 ${currentResidenceProfile.label}。` };
+  };
+
+  const handleWithdrawResidenceItem = (itemId: string): { ok: boolean; message?: string } => {
+    if (!currentResidenceProfile) {
+      return { ok: false, message: '当前还没有可用住处。' };
+    }
+    const stashRecord = ensureResidenceStashRecord(
+      playerResidence.stashRecords,
+      currentResidenceProfile.id,
+      currentResidenceProfile.label,
+      currentResidenceProfile.storageSlots,
+    );
+    const extracted = takeSingleInventoryItem(stashRecord.items, itemId);
+    if (!extracted.unitItem) {
+      return { ok: false, message: '储物中没有这件物品。' };
+    }
+    setPlayerInventory(prev => mergeStackedItems(prev, [extracted.unitItem as Item]));
+    setPlayerResidence(prev => {
+      const nextRecord: ResidenceStashRecord = {
+        ...stashRecord,
+        items: extracted.nextItems,
+      };
+      return normalizeResidenceState({
+        ...prev,
+        stashRecords: prev.stashRecords.map(record => (record.residenceId === currentResidenceProfile.id ? nextRecord : record)),
+      });
+    });
+    return { ok: true, message: `已从 ${currentResidenceProfile.label} 取出「${extracted.unitItem.name}」。` };
+  };
+
+  const handleAttemptResidenceBurglary = (targetId: string): { ok: boolean; message?: string } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || currentResidenceProfile?.label || '未知区域';
+    const target = currentDistrictBurglaryTargets.find(entry => entry.id === targetId);
+    if (!target) {
+      return { ok: false, message: '当前片区没有找到这个目标。' };
+    }
+    if (target.status !== 'active' && (target.nextAvailableAtMinutes || 0) > (mapRuntime.elapsedMinutes || 0)) {
+      return { ok: false, message: '这个目标刚被惊动过，短时间内不适合再动。' };
+    }
+    if (playerStats.stamina.current < 18) {
+      return { ok: false, message: '体力太低，先补给或休整再考虑入室。' };
+    }
+    if (playerStats.satiety.current < 14) {
+      return { ok: false, message: '饱腹过低，行动容易失手。' };
+    }
+
+    const result = resolveBurglaryAttempt({
+      target,
+      stats: playerStats,
+      burglaryLevel: playerResidence.burglaryLevel,
+      burglaryExperience: playerResidence.burglaryExperience,
+      elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      locationLabel: location,
+    });
+    const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + result.minutesSpent;
+    const nextGameTimeText = formatGameTime(nextElapsedMinutes);
+    const updatedCredits = Math.max(0, playerStats.credits + result.creditsDelta);
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: updatedCredits,
+      stamina: {
+        ...prev.stamina,
+        current: Math.max(0, prev.stamina.current - result.staminaPenalty),
+      },
+      satiety: {
+        ...prev.satiety,
+        current: Math.max(0, prev.satiety.current - result.satietyPenalty),
+      },
+      sanity: {
+        ...prev.sanity,
+        current: Math.max(0, prev.sanity.current - result.sanityPenalty),
+      },
+    }));
+    if (result.lootItems.length > 0) {
+      setPlayerInventory(prev => mergeStackedItems(prev, result.lootItems));
+    }
+    setPlayerResidence(prev =>
+      normalizeResidenceState({
+        ...prev,
+        burglaryTargets: prev.burglaryTargets.map(entry => (entry.id === target.id ? result.target : entry)),
+        burglaryHistory: [
+          {
+            id: `res_burg_${Date.now()}`,
+            targetId: target.id,
+            targetLabel: target.label,
+            districtLabel: target.districtLabel,
+            outcome: result.outcome,
+            lootSummary:
+              result.outcome === 'success'
+                ? `${result.creditsDelta.toLocaleString()} 灵能币 / ${result.lootItems.map(item => item.name).join('、')}`
+                : result.outcome === 'empty'
+                  ? `${result.creditsDelta.toLocaleString()} 灵能币 / 空屋`
+                  : '撤离',
+            creditNet: result.creditsDelta,
+            resolvedAt: nextGameTimeText,
+          },
+          ...prev.burglaryHistory,
+        ].slice(0, 18),
+        burglaryLevel: result.nextLevel,
+        burglaryExperience: result.nextExperience,
+      }),
+    );
+    setMapRuntime(prev => ({
+      ...prev,
+      elapsedMinutes: nextElapsedMinutes,
+      logs: [...(prev.logs || []), `入室行动 ${target.label} -> ${result.outcome} -> ${nextGameTimeText}`].slice(-30),
+    }));
+    if (result.outcome === 'spotted' && (currentDistrictProfile.regionKey === 'airela' || currentDistrictProfile.regionKey === 'holy')) {
+      setBetaStatus(prev => ({
+        ...prev,
+        creditScore: Math.max(0, prev.creditScore - 2),
+        warnings: [`入室失手 / ${target.label}`, ...(prev.warnings || []).filter(warning => warning !== `入室失手 / ${target.label}`)].slice(0, 8),
+      }));
+    }
+    pushFinanceLedgerEntry({
+      kind: 'black_market',
+      title: '入室盗窃',
+      detail:
+        result.outcome === 'success'
+          ? `在「${target.label}」得手，带走 ${result.creditsDelta.toLocaleString()} 灵能币与 ${result.lootItems.map(item => item.name).join('、')}。`
+          : result.outcome === 'empty'
+            ? `摸进「${target.label}」只拿到 ${result.creditsDelta.toLocaleString()} 灵能币零散现款。`
+            : result.outcome === 'spotted'
+              ? `在「${target.label}」失手并暴露，只能空手撤离。`
+              : `在「${target.label}」试锁失败，及时撤退。`,
+      amount: result.creditsDelta,
+    });
+    if (result.creditsDelta > 0) {
+      spawnFloatingText(`+${result.creditsDelta.toLocaleString()} 灵能币`, 'text-emerald-300');
+    }
+    if (result.lootItems.length > 0) {
+      spawnFloatingText(result.lootItems.map(item => item.name).join(' / '), 'text-amber-200');
+    }
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `residence_burglary_${Date.now()}`,
+        sender: 'System',
+        content: `${result.summary} 时间推进至 ${nextGameTimeText}。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    return { ok: true, message: result.summary };
   };
 
   const handleRunMonthlySettlement = () => {
@@ -10886,11 +11277,16 @@ const App: React.FC = () => {
                     hasOfficialRegistry={hasOfficialBetaControl}
                     residence={playerResidence}
                     residenceOptions={residenceProfiles}
+                    burglaryTargets={currentDistrictBurglaryTargets}
+                    playerInventory={playerInventory}
                     status={betaStatus}
                     currentLocation={currentNarrativeLocation || '未知区域'}
                     playerCredits={playerStats.credits}
                     onSwitchResidence={handleSwitchResidence}
                     onRestAtResidence={handleRestAtResidence}
+                    onStoreItem={handleStoreResidenceItem}
+                    onWithdrawItem={handleWithdrawResidenceItem}
+                    onAttemptBurglary={handleAttemptResidenceBurglary}
                   />
                   <TaxDossierPanel
                     status={betaStatus}
