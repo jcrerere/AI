@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { CityRuntimeData, RuntimeTodoStatus } from '../../types';
 import { getCurrentDistrictLabel, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
-import { buildEconomyBenchmarkSnapshot } from '../../utils/economyRuntime';
+import { buildEconomyBenchmarkSnapshot, buildEconomyScenePrices } from '../../utils/economyRuntime';
 
 interface Props {
   runtime: CityRuntimeData;
@@ -52,6 +52,10 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
   );
   const economy = useMemo(
     () => buildEconomyBenchmarkSnapshot(runtime.currentDistrictId, currentLocation),
+    [runtime.currentDistrictId, currentLocation],
+  );
+  const economyScenePrices = useMemo(
+    () => buildEconomyScenePrices(runtime.currentDistrictId, currentLocation),
     [runtime.currentDistrictId, currentLocation],
   );
 
@@ -114,6 +118,26 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
           <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
             <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">恩格尔</div>
             <div className="mt-1 text-amber-100">{economy.engelMedian}%</div>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-300 md:grid-cols-4">
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">基础餐饮</div>
+            <div className="mt-1 text-amber-100">{economyScenePrices.basicMeal} 灵能币</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">日常吃饭</div>
+            <div className="mt-1 text-amber-100">{economyScenePrices.casualMeal} 灵能币</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">约场消费</div>
+            <div className="mt-1 text-amber-100">{economyScenePrices.dateMeal} 灵能币</div>
+          </div>
+          <div className="rounded-xl border border-white/8 bg-black/25 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">轨道票价</div>
+            <div className="mt-1 text-amber-100">
+              {economyScenePrices.quickRideFare}/{economyScenePrices.commuteFare} 灵能币
+            </div>
           </div>
         </div>
       </div>

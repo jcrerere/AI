@@ -75,6 +75,7 @@ type InferSceneActionInput = {
   currentLocation: string;
   latestPlayerInput: string;
   layerId: string;
+  allowMetroRoute?: boolean;
 };
 
 const readTag = (content: string, tag: string): string => {
@@ -354,7 +355,13 @@ const buildMetroNetwork = (currentLocation: string): MetroNetwork => {
   };
 };
 
-export const inferSceneActionState = ({ rawLayerContent, currentLocation, latestPlayerInput, layerId }: InferSceneActionInput): SceneActionState => {
+export const inferSceneActionState = ({
+  rawLayerContent,
+  currentLocation,
+  latestPlayerInput,
+  layerId,
+  allowMetroRoute = false,
+}: InferSceneActionInput): SceneActionState => {
   const rawMaintext = readTag(rawLayerContent, 'maintext') || rawLayerContent;
   const combinedText = `${currentLocation} ${latestPlayerInput} ${rawMaintext}`.replace(/\s+/g, ' ');
   const aiRoutes = parseUiActionRoutes(readTag(rawLayerContent, 'ui_actions'));
@@ -363,8 +370,9 @@ export const inferSceneActionState = ({ rawLayerContent, currentLocation, latest
     /(黑赛|盘口|赔率|下注|赌局|裂帛赛道|灵械斗技穹笼|黑赛下注点|买输赢|赛手)/.test(combinedText) ||
     aiRoutes.includes('black_race_bet');
   const hasMetroSignal =
+    allowMetroRoute && (
     /(地铁|轨道|站台|月台|列车|换乘|几号线|线路图|进站|出站|闸机|轻轨)/.test(combinedText) ||
-    aiRoutes.includes('metro_route');
+    aiRoutes.includes('metro_route'));
   const shouldShowShop = !!shopArchetype || aiRoutes.includes('shop');
 
   const actionMap = new Map<SceneActionRoute, SceneActionDescriptor>();
@@ -388,6 +396,7 @@ export const inferSceneActionState = ({ rawLayerContent, currentLocation, latest
       black_race_bet: { label: '选择下注', detail: '切入当前黑赛盘口与结算页。' },
       metro_route: { label: '查看线路', detail: '打开地铁线路并选择下车站。' },
     };
+    if (route === 'metro_route' && !allowMetroRoute) return;
     put(route, 'ai', 90, labels[route].label, labels[route].detail);
   });
 
@@ -396,7 +405,7 @@ export const inferSceneActionState = ({ rawLayerContent, currentLocation, latest
   if (hasMetroSignal) put('metro_route', 'narrative', 70, '查看线路', '查看可达站点并决定下车位置。');
 
   const shop = shouldShowShop ? buildProceduralShop(currentLocation, latestPlayerInput, layerId, shopArchetype || 'general') : null;
-  const metro = hasMetroSignal ? buildMetroNetwork(currentLocation) : null;
+  const metro = allowMetroRoute && hasMetroSignal ? buildMetroNetwork(currentLocation) : null;
 
   return {
     actions: [...actionMap.values()].sort((a, b) => b.priority - a.priority),

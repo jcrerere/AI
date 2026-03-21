@@ -104,7 +104,7 @@ const resolveArchetypeFromShopType = (type: RuntimeShopType): ShopArchetype => {
 const SHOP_SUMMARY: Record<ShopArchetype, string> = {
   fashion: '固定店面货架，主打穿搭、礼装、制服和夜场变体，库存按周期滚动更新。',
   cybertech: '固定店面货架，主打芯片、样机、接口和公开器材，老货会在柜台停留一段时间。',
-  pharmacy: '固定店面货架，主打药剂、恢复、烟草和黑市常备补给，周期更新但不整店清空。',
+  pharmacy: '固定店面货架，主打药剂、恢复、诊疗与黑市常备补给，周期更新但不整店清空。',
   luxury: '固定店面货架，主打高定、服务票据和高消费场景用品，暗柜货更重渠道。',
   general: '固定店面货架，承接一般购物、临时补给和非专门场景的基础采购。',
 };
@@ -112,7 +112,7 @@ const SHOP_SUMMARY: Record<ShopArchetype, string> = {
 const SHOP_COMMISSION_HINT: Record<ShopArchetype, string> = {
   fashion: '例如：定制礼服 / 代办夜莺制服 / 进货空姐制服',
   cybertech: '例如：帮我留一枚样机 / 找一套旧式接口件',
-  pharmacy: '例如：帮我留一套稳态针剂 / 准备一批夜场烟草',
+  pharmacy: '例如：帮我留一套稳态针剂 / 准备一批恢复贴片',
   luxury: '例如：准备一套宴会装 / 留一间私席包厢',
   general: '例如：帮我留货 / 下期进一批我指定的东西',
 };
@@ -141,7 +141,7 @@ const FRONT_CATALOG: Record<ShopArchetype, CatalogItem[]> = {
     { name: '神经缓释贴', icon: '🩹', description: '减轻负荷带来的恶心和震颤。', category: 'consumable', rank: Rank.Lv1, styles: ['药剂', '恢复', '常备'] },
     { name: '应急灵液', icon: '🧪', description: '少量补充灵压并稳定呼吸节奏。', category: 'consumable', rank: Rank.Lv2, styles: ['药剂', '恢复', '夜场'] },
     { name: '抑躁喷雾', icon: '🫙', description: '压制过热后的烦躁与冲动。', category: 'consumable', rank: Rank.Lv2, styles: ['药剂', '抑制', '常备'] },
-    { name: '静燃烟草', icon: '🚬', description: '夜场常见的平价烟草，带轻微松弛效果。', category: 'consumable', rank: Rank.Lv1, styles: ['烟草', '夜场', '消耗'] },
+    { name: '静息贴片', icon: '🩹', description: '用于稳定呼吸和脉搏的小型恢复贴片。', category: 'consumable', rank: Rank.Lv1, styles: ['药剂', '恢复', '常备'] },
     { name: '稳态针剂', icon: '⚗️', description: '灰市里更高阶的稳态药剂。', category: 'consumable', rank: Rank.Lv3, styles: ['药剂', '高阶', '诊台'] },
   ],
   luxury: [
@@ -172,7 +172,7 @@ const BACKROOM_CATALOG: Record<ShopArchetype, CatalogItem[]> = {
   ],
   pharmacy: [
     { name: '深梦雾剂', icon: '🌫️', description: '只在黑市圈流通的高风险雾剂。', category: 'consumable', rank: Rank.Lv4, styles: ['药剂', '灰市', '夜场'], tag: 'restricted' },
-    { name: '烬息烟卷', icon: '🔥', description: '带明显刺激性的高价烟草卷。', category: 'consumable', rank: Rank.Lv3, styles: ['烟草', '灰市', '高价'], tag: 'restricted' },
+    { name: '灼息抑制剂', icon: '🔥', description: '灰市流通的高强度抑制剂，能迅速压下失控边缘。', category: 'consumable', rank: Rank.Lv3, styles: ['药剂', '灰市', '高价'], tag: 'restricted' },
   ],
   luxury: [
     { name: '私宴徽章', icon: '🥀', description: '只在特定包厢圈内流通的会面信物。', category: 'equipment', rank: Rank.Lv4, styles: ['预约', '圈层', '违禁'], tag: 'restricted' },

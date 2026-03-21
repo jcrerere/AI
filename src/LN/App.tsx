@@ -70,6 +70,7 @@ import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
+import { buildRuntimeMetroNetwork } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import { createEmptyCityRuntime, ensureAnchorForLocation, ensureRuntimeShop, normalizeCityRuntime } from './utils/cityRuntime';
 import { applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
@@ -4268,6 +4269,10 @@ const App: React.FC = () => {
     const timeline = layerIndex >= 0 ? messages.slice(0, layerIndex) : messages;
     return [...timeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
   }, [activeLayerMessage, messages]);
+  const runtimeMetroNetwork = useMemo(
+    () => buildRuntimeMetroNetwork(cityRuntime, currentNarrativeLocation || playerFaction.headquarters || ''),
+    [cityRuntime, currentNarrativeLocation, playerFaction.headquarters],
+  );
   const sceneActionState = useMemo(
     () =>
       inferSceneActionState({
@@ -4275,8 +4280,9 @@ const App: React.FC = () => {
         currentLocation: currentNarrativeLocation || playerFaction.headquarters || '未知区域',
         latestPlayerInput: latestPlayerInputForSceneAction,
         layerId: activeLayerMessage?.id || 'scene_idle',
+        allowMetroRoute: !!runtimeMetroNetwork?.options.length,
       }),
-    [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters],
+    [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters, runtimeMetroNetwork],
   );
   useEffect(() => {
     const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
@@ -6010,8 +6016,22 @@ const App: React.FC = () => {
       return;
     }
 
-    if (action.route === 'metro_route' && sceneActionState.metro) {
-      setSceneModal({ mode: 'metro', metro: sceneActionState.metro });
+    if (action.route === 'metro_route') {
+      const metroNetwork = runtimeMetroNetwork;
+      if (!metroNetwork || !metroNetwork.options.length) {
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `metro_unavailable_${Date.now()}`,
+            sender: 'System',
+            content: '当前分区没有可直接使用的轨道通勤线路，交通层只保留了道路、桥梁或待建项目。',
+            timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+            type: 'narrative',
+          },
+        ]);
+        return;
+      }
+      setSceneModal({ mode: 'metro', metro: metroNetwork });
     }
   };
 

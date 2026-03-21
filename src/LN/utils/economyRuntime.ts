@@ -53,6 +53,15 @@ export interface EconomyBenchmarkSnapshot {
   engelAverage: number;
 }
 
+export interface EconomyScenePriceSnapshot {
+  districtLabel: string;
+  basicMeal: number;
+  casualMeal: number;
+  dateMeal: number;
+  quickRideFare: number;
+  commuteFare: number;
+}
+
 const round = (value: number): number => Math.max(0, Math.round(value));
 
 const BASE_EQUIVALENT_BASKET = {
@@ -432,4 +441,33 @@ export const buildRegionalRetailPrice = (params: {
   const discountFactor = resolveDiscountFactor(params.discountTier || 0);
   const extraFactor = params.extraFactor ?? 1;
   return Math.max(30, round(params.basePrice * retailFactor * tierFactor * volatility * discountFactor * extraFactor));
+};
+
+export const buildRegionalTransitFare = (params: {
+  districtId?: string;
+  locationLabel?: string;
+  stopCount: number;
+  transferCount?: number;
+}): number => {
+  const rideSpan = Math.max(1, params.stopCount);
+  const transferCount = Math.max(0, params.transferCount || 0);
+  const retailFactor = resolveRetailMultiplier('transit_basic', params.districtId, params.locationLabel);
+  const baseline = 2 + Math.max(0, rideSpan - 1) * 1.2 + transferCount * 0.8;
+  return Math.max(2, round(baseline * retailFactor));
+};
+
+export const buildEconomyScenePrices = (districtId?: string, locationLabel?: string): EconomyScenePriceSnapshot => {
+  const foodFactor = resolveRetailMultiplier('food_basic', districtId, locationLabel);
+  const serviceFactor = resolveRetailMultiplier('general_service', districtId, locationLabel);
+  const nightlifeFactor = resolveRetailMultiplier('nightlife_service', districtId, locationLabel);
+  const weightedMealFactor = foodFactor * 0.72 + serviceFactor * 0.28;
+  const weightedDateFactor = foodFactor * 0.45 + nightlifeFactor * 0.55;
+  return {
+    districtLabel: buildEconomyBenchmarkSnapshot(districtId, locationLabel).label,
+    basicMeal: Math.max(6, round(8 * foodFactor)),
+    casualMeal: Math.max(12, round(18 * weightedMealFactor)),
+    dateMeal: Math.max(20, round(42 * weightedDateFactor)),
+    quickRideFare: buildRegionalTransitFare({ districtId, locationLabel, stopCount: 1 }),
+    commuteFare: buildRegionalTransitFare({ districtId, locationLabel, stopCount: 4 }),
+  };
 };
