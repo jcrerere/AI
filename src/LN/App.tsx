@@ -16,6 +16,7 @@ import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import LocationControlHint from './components/ui/LocationControlHint';
 import SceneActionModal from './components/ui/SceneActionModal';
+import TravelPlannerModal from './components/ui/TravelPlannerModal';
 import TravelSettlementModal from './components/ui/TravelSettlementModal';
 import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
@@ -75,7 +76,13 @@ import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
 import { applyLifeAdvance, buildLifeChangeSummary, buildLifeStateDigest, buildLifeStatusTags, ensurePlayerLifeStats } from './utils/lifeRuntime';
-import { buildMetroTravelSettlementPlan, buildRuntimeMetroNetwork, buildTravelRuleDigest, TravelSettlementPlan } from './utils/transportRuntime';
+import {
+  buildMetroTravelSettlementPlan,
+  buildRuntimeMetroNetwork,
+  buildTravelRuleDigest,
+  buildTravelRuleSnapshot,
+  TravelSettlementPlan,
+} from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import {
   buildLocalMapDigest,
@@ -3473,6 +3480,7 @@ const App: React.FC = () => {
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
+  const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
@@ -4383,6 +4391,10 @@ const App: React.FC = () => {
   );
   const taskLayerDigest = useMemo(
     () => buildTaskLayerDigest(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
+  );
+  const travelRuleSnapshot = useMemo(
+    () => buildTravelRuleSnapshot(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
   );
   const travelRuleDigest = useMemo(
@@ -6275,7 +6287,8 @@ const App: React.FC = () => {
         ]);
         return;
       }
-      setSceneModal({ mode: 'metro', metro: metroNetwork });
+      setSceneModal(null);
+      setTravelPlannerOpen(true);
     }
   };
 
@@ -6438,8 +6451,11 @@ const App: React.FC = () => {
     };
   };
 
-  const handleOpenTravelSettlement = (stopId: string): { ok: boolean; message: string } => {
-    const metro = sceneModal?.mode === 'metro' ? sceneModal.metro : null;
+  const handleOpenTravelSettlement = (
+    stopId: string,
+    metroOverride?: MetroNetwork | null,
+  ): { ok: boolean; message: string } => {
+    const metro = metroOverride || (sceneModal?.mode === 'metro' ? sceneModal.metro : null) || runtimeMetroNetwork;
     const option = metro?.options.find(entry => entry.stop.id === stopId);
     if (!metro || !option) {
       return { ok: false, message: '当前线路数据已失效，请重新打开地铁线路。' };
@@ -6452,6 +6468,7 @@ const App: React.FC = () => {
       currentElapsedMinutes: mapRuntime.elapsedMinutes || 0,
     });
     setTravelSettlement(settlementPlan);
+    setTravelPlannerOpen(false);
     setSceneModal(null);
     return { ok: true, message: `已打开前往 ${option.stop.label} 的出行结算。` };
   };
@@ -9382,6 +9399,16 @@ const App: React.FC = () => {
                   )}
                 </span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSceneModal(null);
+                  setTravelPlannerOpen(true);
+                }}
+                className="rounded-full border border-cyan-500/25 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/18"
+              >
+                出行
+              </button>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <div className="rounded-full border border-cyan-500/15 bg-cyan-500/[0.06] px-3 py-1.5 text-[11px] font-semibold text-cyan-100">
@@ -9746,6 +9773,16 @@ const App: React.FC = () => {
             onBuy={handleBuySceneShopItem}
             onCommission={handleSubmitShopCommission}
             onTravel={handleOpenTravelSettlement}
+          />
+        )}
+
+        {travelPlannerOpen && (
+          <TravelPlannerModal
+            currentLocationLabel={currentNarrativeLocation || playerFaction.headquarters || '鏈煡鍖哄煙'}
+            travelRules={travelRuleSnapshot}
+            metroNetwork={runtimeMetroNetwork}
+            onClose={() => setTravelPlannerOpen(false)}
+            onPlanMetro={stopId => handleOpenTravelSettlement(stopId, runtimeMetroNetwork)}
           />
         )}
 
