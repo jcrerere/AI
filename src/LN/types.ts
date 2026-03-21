@@ -187,6 +187,61 @@ export interface BlackRaceBetRecord {
   detail: string;
 }
 
+export type GamblingHubTab = 'black_race' | 'horse_race' | 'slot_machine';
+
+export interface HorseRaceRunner {
+  id: string;
+  label: string;
+  odds: number;
+  speed: number;
+  stability: number;
+  endurance: number;
+  sprint: number;
+  style: string;
+  note: string;
+}
+
+export interface HorseRaceMeet {
+  id: string;
+  title: string;
+  venue: string;
+  locationLabel: string;
+  heatLabel: string;
+  generatedAt: string;
+  runners: HorseRaceRunner[];
+}
+
+export interface HorseRaceBetRecord {
+  id: string;
+  meetId: string;
+  meetTitle: string;
+  venue: string;
+  runnerId: string;
+  runnerLabel: string;
+  stake: number;
+  odds: number;
+  outcome: 'win' | 'lose';
+  payout: number;
+  net: number;
+  resolvedAt: string;
+  detail: string;
+}
+
+export type SlotSpinOutcome = 'jackpot' | 'match_three' | 'match_two' | 'miss';
+
+export interface SlotSpinRecord {
+  id: string;
+  venue: string;
+  locationLabel: string;
+  stake: number;
+  reels: string[];
+  outcome: SlotSpinOutcome;
+  payout: number;
+  net: number;
+  resolvedAt: string;
+  detail: string;
+}
+
 export interface WardrobeRecord {
   id: string;
   itemId: string;

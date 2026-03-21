@@ -16,6 +16,7 @@ import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import LocationControlHint from './components/ui/LocationControlHint';
 import SceneActionModal from './components/ui/SceneActionModal';
+import GamblingHubModal from './components/ui/GamblingHubModal';
 import TravelPlannerModal from './components/ui/TravelPlannerModal';
 import TravelSettlementModal from './components/ui/TravelSettlementModal';
 import StartScreen from './components/flow/StartScreen';
@@ -48,6 +49,10 @@ import {
   FinanceLedgerEntry,
   BlackRaceBetRecord,
   BlackRaceMarket,
+  GamblingHubTab,
+  HorseRaceBetRecord,
+  HorseRaceMeet,
+  SlotSpinRecord,
   PlayerResidenceState,
   ResidenceProfile,
   CityRuntimeData,
@@ -257,6 +262,9 @@ interface LnSaveData {
   financeLedger?: FinanceLedgerEntry[];
   blackRaceMarket?: BlackRaceMarket | null;
   blackRaceHistory?: BlackRaceBetRecord[];
+  horseRaceMeet?: HorseRaceMeet | null;
+  horseRaceHistory?: HorseRaceBetRecord[];
+  slotHistory?: SlotSpinRecord[];
   playerResidence?: PlayerResidenceState;
   playerWardrobe?: PlayerWardrobeState;
   stateLock?: StateLockConfig;
@@ -610,6 +618,111 @@ const resolveBlackRaceWinner = (market: BlackRaceMarket) => {
     if (cursor <= 0) return entry.option;
   }
   return weighted[weighted.length - 1]?.option || market.options[0];
+};
+
+const HORSE_RACE_MEET_TITLES = [
+  '霓湾夜赛',
+  '碎金杯',
+  '潮幕快轮',
+  '裂虹追风场',
+];
+
+const HORSE_RACE_VENUES = [
+  '诺丝区·霓栈赛马馆',
+  '诺丝区·浮灯看台',
+  '诺丝区·潮槽试跑场',
+];
+
+const HORSE_RACE_RUNNER_POOL: Array<{
+  label: string;
+  style: string;
+  note: string;
+  speed: number;
+  stability: number;
+  endurance: number;
+  sprint: number;
+}> = [
+  { label: '盐鬃六号', style: '重步耐磨', note: '前段偏慢，后程更稳。', speed: 66, stability: 82, endurance: 86, sprint: 61 },
+  { label: '霓骨', style: '快切爆发', note: '冲刺强，状态波动也大。', speed: 88, stability: 58, endurance: 64, sprint: 92 },
+  { label: '炽潮鬃影', style: '中程拉扯', note: '节奏均衡，适合中赔率。', speed: 78, stability: 73, endurance: 76, sprint: 74 },
+  { label: '黑糖断蹄', style: '赌命前压', note: '起步抢位极凶，后段容易掉速。', speed: 90, stability: 52, endurance: 55, sprint: 89 },
+  { label: '薄雾礼号', style: '慢热追近', note: '越拖越稳，吃长赛道。', speed: 64, stability: 84, endurance: 88, sprint: 66 },
+  { label: '空港红缨', style: '平稳标准', note: '没有明显短板，也没有爆点。', speed: 74, stability: 79, endurance: 72, sprint: 71 },
+];
+
+const sampleHorseRaceRunners = () => {
+  const pool = [...HORSE_RACE_RUNNER_POOL];
+  const picked = [];
+  while (pool.length > 0 && picked.length < 4) {
+    const index = Math.floor(Math.random() * pool.length);
+    const [runner] = pool.splice(index, 1);
+    picked.push(runner);
+  }
+  return picked.map((runner, index) => {
+    const baseScore =
+      runner.speed * 0.36
+      + runner.stability * 0.24
+      + runner.endurance * 0.2
+      + runner.sprint * 0.2;
+    const impliedOdds = Math.max(1.35, 4.8 - baseScore / 24 + Math.random() * 0.35);
+    return {
+      id: `horse_runner_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 5)}`,
+      label: runner.label,
+      odds: Math.round(impliedOdds * 100) / 100,
+      speed: runner.speed,
+      stability: runner.stability,
+      endurance: runner.endurance,
+      sprint: runner.sprint,
+      style: runner.style,
+      note: runner.note,
+    };
+  });
+};
+
+const buildHorseRaceMeet = (locationLabel = '诺丝区·赛马下注台'): HorseRaceMeet => ({
+  id: `horse_race_meet_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  title: HORSE_RACE_MEET_TITLES[Math.floor(Math.random() * HORSE_RACE_MEET_TITLES.length)],
+  venue: HORSE_RACE_VENUES[Math.floor(Math.random() * HORSE_RACE_VENUES.length)],
+  locationLabel,
+  heatLabel: ['庄家保守', '热盘偏斜', '冷门活跃'][Math.floor(Math.random() * 3)],
+  generatedAt: new Date().toISOString(),
+  runners: sampleHorseRaceRunners(),
+});
+
+const resolveHorseRaceWinner = (meet: HorseRaceMeet) => {
+  const scored = meet.runners.map(runner => {
+    const volatility = Math.max(4, 18 - runner.stability / 6);
+    const performance =
+      runner.speed * 0.35
+      + runner.stability * 0.2
+      + runner.endurance * 0.2
+      + runner.sprint * 0.25
+      + (Math.random() - 0.5) * volatility;
+    return { runner, performance };
+  });
+  scored.sort((a, b) => b.performance - a.performance);
+  return scored[0]?.runner || meet.runners[0];
+};
+
+const SLOT_SYMBOL_POOL: Array<{ label: string; weight: number; matchThree: number; matchTwo: number }> = [
+  { label: '◆', weight: 24, matchThree: 4, matchTwo: 1 },
+  { label: '✦', weight: 18, matchThree: 6, matchTwo: 2 },
+  { label: '◈', weight: 12, matchThree: 9, matchTwo: 3 },
+  { label: '☽', weight: 8, matchThree: 14, matchTwo: 4 },
+  { label: '♛', weight: 5, matchThree: 22, matchTwo: 0 },
+];
+
+const spinSlotReels = () => {
+  const totalWeight = SLOT_SYMBOL_POOL.reduce((sum, entry) => sum + entry.weight, 0);
+  const pickOne = () => {
+    let cursor = Math.random() * totalWeight;
+    for (const symbol of SLOT_SYMBOL_POOL) {
+      cursor -= symbol.weight;
+      if (cursor <= 0) return symbol;
+    }
+    return SLOT_SYMBOL_POOL[SLOT_SYMBOL_POOL.length - 1];
+  };
+  return [pickOne(), pickOne(), pickOne()];
 };
 
 const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
@@ -3477,8 +3590,12 @@ const App: React.FC = () => {
   const [financeLedger, setFinanceLedger] = useState<FinanceLedgerEntry[]>([]);
   const [blackRaceMarket, setBlackRaceMarket] = useState<BlackRaceMarket>(() => buildBlackRaceMarket());
   const [blackRaceHistory, setBlackRaceHistory] = useState<BlackRaceBetRecord[]>([]);
+  const [horseRaceMeet, setHorseRaceMeet] = useState<HorseRaceMeet>(() => buildHorseRaceMeet());
+  const [horseRaceHistory, setHorseRaceHistory] = useState<HorseRaceBetRecord[]>([]);
+  const [slotHistory, setSlotHistory] = useState<SlotSpinRecord[]>([]);
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
+  const [gamblingHubState, setGamblingHubState] = useState<{ initialTab: GamblingHubTab } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
   const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
@@ -4426,6 +4543,27 @@ const App: React.FC = () => {
       }),
     [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters, runtimeMetroNetwork],
   );
+  const currentLocationJurisdiction = useMemo(
+    () => resolveLocationJurisdiction(currentNarrativeLocation || playerFaction.headquarters || ''),
+    [currentNarrativeLocation, playerFaction.headquarters],
+  );
+  const resolveGamblingInitialTab = useCallback((): GamblingHubTab => {
+    const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
+    if (/赛马|马场/.test(source)) return 'horse_race';
+    if (/转盘|老虎机|三转盘|slot/i.test(source)) return 'slot_machine';
+    return 'black_race';
+  }, [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction]);
+  const canOpenGamblingHub = useMemo(() => {
+    if (currentLocationJurisdiction.key === 'north') return true;
+    const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
+    return /黑赛|下注|赌|赛马|马场|转盘|老虎机|博彩/.test(source);
+  }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
+  const visibleLifeActions = useMemo(() => {
+    const filtered = canOpenGamblingHub
+      ? sceneActionState.lifeActions.filter(action => action.route !== 'black_race_bet')
+      : sceneActionState.lifeActions;
+    return filtered.slice(0, canOpenGamblingHub ? 1 : 2);
+  }, [canOpenGamblingHub, sceneActionState.lifeActions]);
   useEffect(() => {
     const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
     if (!locationLabel) return;
@@ -5182,6 +5320,9 @@ const App: React.FC = () => {
     financeLedger,
     blackRaceMarket,
     blackRaceHistory,
+    horseRaceMeet,
+    horseRaceHistory,
+    slotHistory,
     playerResidence,
     playerWardrobe,
     stateLock,
@@ -5265,6 +5406,9 @@ const App: React.FC = () => {
     setFinanceLedger(payload.financeLedger || []);
     setBlackRaceMarket(payload.blackRaceMarket || buildBlackRaceMarket());
     setBlackRaceHistory(payload.blackRaceHistory || []);
+    setHorseRaceMeet(payload.horseRaceMeet || buildHorseRaceMeet());
+    setHorseRaceHistory(payload.horseRaceHistory || []);
+    setSlotHistory(payload.slotHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setPlayerWardrobe(normalizeWardrobeState(payload.playerWardrobe));
     setStateLock(
@@ -5923,6 +6067,213 @@ const App: React.FC = () => {
     };
   };
 
+  const handlePlaceHorseRaceBet = ({
+    runnerId,
+    amount,
+  }: {
+    runnerId: string;
+    amount: number;
+  }): { ok: boolean; message?: string; outcome?: 'win' | 'lose'; payout?: number; net?: number } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (resolveLocationJurisdiction(location).key !== 'north') {
+      return { ok: false, message: '赛马盘口当前只在诺丝区开放。' };
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, message: '下注金额必须大于 0。' };
+    }
+    if (playerStats.credits < amount) {
+      return { ok: false, message: '灵能币不足，无法完成下注。' };
+    }
+    const meet = horseRaceMeet || buildHorseRaceMeet(location || '诺丝区·赛马下注台');
+    const targetRunner = meet.runners.find(runner => runner.id === runnerId);
+    if (!targetRunner) {
+      return { ok: false, message: '当前马局已刷新，请重新选择下注对象。' };
+    }
+
+    const winner = resolveHorseRaceWinner(meet);
+    const isWin = winner.id === targetRunner.id;
+    const payout = isWin ? Math.max(amount, Math.round(amount * targetRunner.odds)) : 0;
+    const net = payout - amount;
+    const resolvedAtIso = new Date().toISOString();
+    const resolvedAtDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const detail = isWin
+      ? `你在「${meet.title}」押中 ${targetRunner.label}，投入 ${amount} 灵能币，兑付 ${payout} 灵能币。`
+      : `你在「${meet.title}」押注 ${targetRunner.label} 失手，${amount} 灵能币被盘口吞没。`;
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - amount + payout),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'gambling',
+      title: '赛马下注',
+      detail: `在 ${meet.venue} 买入 ${targetRunner.label}，下注 ${amount} 灵能币。`,
+      amount: -amount,
+      counterparty: meet.venue,
+    });
+    if (isWin) {
+      pushFinanceLedgerEntry({
+        kind: 'gambling',
+        title: '赛马兑付',
+        detail: `${targetRunner.label} 跑穿盘口，已兑付 ${payout} 灵能币。`,
+        amount: payout,
+        counterparty: meet.venue,
+      });
+    }
+
+    const nextRecord: HorseRaceBetRecord = {
+      id: `horse_race_record_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      meetId: meet.id,
+      meetTitle: meet.title,
+      venue: meet.venue,
+      runnerId: targetRunner.id,
+      runnerLabel: targetRunner.label,
+      stake: amount,
+      odds: targetRunner.odds,
+      outcome: isWin ? 'win' : 'lose',
+      payout,
+      net,
+      resolvedAt: resolvedAtIso,
+      detail,
+    };
+    setHorseRaceHistory(prev => [nextRecord, ...prev].slice(0, 18));
+    setHorseRaceMeet(buildHorseRaceMeet(location || '诺丝区·赛马下注台'));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `horse_race_message_${Date.now()}`,
+        sender: 'System',
+        content: `赛马盘口已结算：${detail}`,
+        timestamp: resolvedAtDisplay,
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(
+      `${net >= 0 ? '+' : '-'}${Math.abs(net).toLocaleString()} 灵能币`,
+      net >= 0 ? 'text-emerald-300' : 'text-red-300',
+    );
+    return {
+      ok: true,
+      message: isWin ? `押中 ${targetRunner.label}，到账 ${payout} 灵能币。` : `${targetRunner.label} 没能冲线，本注落空。`,
+      outcome: isWin ? 'win' : 'lose',
+      payout,
+      net,
+    };
+  };
+
+  const handleSpinSlotMachine = ({
+    amount,
+  }: {
+    amount: number;
+  }): { ok: boolean; message?: string; outcome?: SlotSpinRecord['outcome']; payout?: number; net?: number } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (resolveLocationJurisdiction(location).key !== 'north') {
+      return { ok: false, message: '三转盘机当前只在诺丝区开放。' };
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return { ok: false, message: '投币金额必须大于 0。' };
+    }
+    if (playerStats.credits < amount) {
+      return { ok: false, message: '灵能币不足，无法启动转盘。' };
+    }
+
+    const venue = '诺丝区·碎虹转盘厅';
+    const reels = spinSlotReels();
+    const labels = reels.map(symbol => symbol.label);
+    const grouped = labels.reduce<Record<string, number>>((acc, label) => {
+      acc[label] = (acc[label] || 0) + 1;
+      return acc;
+    }, {});
+    const entries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+    const topMatch = entries[0];
+    const matchedSymbol = SLOT_SYMBOL_POOL.find(symbol => symbol.label === topMatch?.[0]) || reels[0];
+    const outcome: SlotSpinRecord['outcome'] =
+      topMatch?.[1] === 3
+        ? matchedSymbol.matchThree >= 12 ? 'jackpot' : 'match_three'
+        : topMatch?.[1] === 2
+          ? 'match_two'
+          : 'miss';
+    const payoutMultiplier =
+      outcome === 'jackpot'
+        ? matchedSymbol.matchThree
+        : outcome === 'match_three'
+          ? matchedSymbol.matchThree
+          : outcome === 'match_two'
+            ? matchedSymbol.matchTwo
+            : 0;
+    const payout = Math.max(0, Math.round(amount * payoutMultiplier));
+    const net = payout - amount;
+    const resolvedAtIso = new Date().toISOString();
+    const resolvedAtDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const detail =
+      outcome === 'miss'
+        ? `你在 ${venue} 投入 ${amount} 灵能币，转盘停在 ${labels.join(' / ')}，没有形成赔付线。`
+        : `你在 ${venue} 投入 ${amount} 灵能币，转盘停在 ${labels.join(' / ')}，兑付 ${payout} 灵能币。`;
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - amount + payout),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'gambling',
+      title: '三转盘投币',
+      detail: `在 ${venue} 投入 ${amount} 灵能币启动转盘。`,
+      amount: -amount,
+      counterparty: venue,
+    });
+    if (payout > 0) {
+      pushFinanceLedgerEntry({
+        kind: 'gambling',
+        title: outcome === 'jackpot' ? '转盘大奖' : '转盘兑付',
+        detail: `${labels.join(' / ')} 形成赔付线，已兑付 ${payout} 灵能币。`,
+        amount: payout,
+        counterparty: venue,
+      });
+    }
+
+    const nextRecord: SlotSpinRecord = {
+      id: `slot_spin_record_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      venue,
+      locationLabel: location || venue,
+      stake: amount,
+      reels: labels,
+      outcome,
+      payout,
+      net,
+      resolvedAt: resolvedAtIso,
+      detail,
+    };
+    setSlotHistory(prev => [nextRecord, ...prev].slice(0, 24));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `slot_message_${Date.now()}`,
+        sender: 'System',
+        content: `转盘已结算：${detail}`,
+        timestamp: resolvedAtDisplay,
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(
+      `${net >= 0 ? '+' : '-'}${Math.abs(net).toLocaleString()} 灵能币`,
+      net >= 0 ? 'text-emerald-300' : 'text-red-300',
+    );
+    return {
+      ok: true,
+      message:
+        outcome === 'jackpot'
+          ? `三图腾同列，爆出大奖 ${payout} 灵能币。`
+          : outcome === 'match_three'
+            ? `三连命中，到账 ${payout} 灵能币。`
+            : outcome === 'match_two'
+              ? `两格成线，返还 ${payout} 灵能币。`
+              : '转盘熄火，这一注没有回报。',
+      outcome,
+      payout,
+      net,
+    };
+  };
+
   const handleImportSocialPost = (draft: SocialImportDraft) => {
     const now = new Date().toISOString();
     const existingTarget = draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
@@ -6235,10 +6586,8 @@ const App: React.FC = () => {
 
   const handleTriggerSceneAction = (action: SceneActionDescriptor) => {
     if (action.route === 'black_race_bet') {
-      setActiveTab('phone');
-      setRightOpen(true);
-      if (isMobileViewport) setLeftOpen(false);
-      setPhoneLaunchIntent({ route: 'wallet_black_race', nonce: Date.now() });
+      setSceneModal(null);
+      setGamblingHubState({ initialTab: resolveGamblingInitialTab() });
       return;
     }
 
@@ -8045,6 +8394,9 @@ const App: React.FC = () => {
     setFinanceLedger([]);
     setBlackRaceMarket(buildBlackRaceMarket());
     setBlackRaceHistory([]);
+    setHorseRaceMeet(buildHorseRaceMeet());
+    setHorseRaceHistory([]);
+    setSlotHistory([]);
     setStateLock({
       lockTime: false,
       lockLocation: false,
@@ -8519,6 +8871,9 @@ const App: React.FC = () => {
     setSettlementCheckpointMonth(null);
     setBlackRaceMarket(buildBlackRaceMarket());
     setBlackRaceHistory([]);
+    setHorseRaceMeet(buildHorseRaceMeet());
+    setHorseRaceHistory([]);
+    setSlotHistory([]);
     setPlayerWardrobe(EMPTY_WARDROBE_STATE);
     setGameStage('setup');
   };
@@ -9414,8 +9769,20 @@ const App: React.FC = () => {
               <div className="rounded-full border border-cyan-500/15 bg-cyan-500/[0.06] px-3 py-1.5 text-[11px] font-semibold text-cyan-100">
                 生活层
               </div>
-              {sceneActionState.lifeActions.length > 0 ? (
-                sceneActionState.lifeActions.slice(0, 2).map(action => (
+              {canOpenGamblingHub && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSceneModal(null);
+                    setGamblingHubState({ initialTab: resolveGamblingInitialTab() });
+                  }}
+                  className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-3 py-1.5 text-[11px] font-semibold text-fuchsia-100 hover:bg-fuchsia-500/18"
+                >
+                  娱乐
+                </button>
+              )}
+              {visibleLifeActions.length > 0 ? (
+                visibleLifeActions.map(action => (
                   <button
                     key={action.id}
                     type="button"
@@ -9426,7 +9793,7 @@ const App: React.FC = () => {
                   </button>
                 ))
               ) : (
-                <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+                !canOpenGamblingHub && <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
                   NULL
                 </div>
               )}
@@ -9773,6 +10140,23 @@ const App: React.FC = () => {
             onBuy={handleBuySceneShopItem}
             onCommission={handleSubmitShopCommission}
             onTravel={handleOpenTravelSettlement}
+          />
+        )}
+
+        {gamblingHubState && (
+          <GamblingHubModal
+            currentLocationLabel={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
+            playerCredits={playerStats.credits}
+            initialTab={gamblingHubState.initialTab}
+            blackRaceMarket={blackRaceMarket}
+            blackRaceHistory={blackRaceHistory}
+            horseRaceMeet={horseRaceMeet}
+            horseRaceHistory={horseRaceHistory}
+            slotHistory={slotHistory}
+            onClose={() => setGamblingHubState(null)}
+            onPlaceBlackRaceBet={handlePlaceBlackRaceBet}
+            onPlaceHorseRaceBet={handlePlaceHorseRaceBet}
+            onSpinSlots={handleSpinSlotMachine}
           />
         )}
 
