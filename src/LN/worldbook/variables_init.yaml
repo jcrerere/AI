@@ -14,6 +14,7 @@ world:
   local_map_digest: ""
   task_layer_digest: ""
   travel_rule_digest: ""
+  life_state_digest: ""
   current_time: "2077-11-03 20:30"
   current_period: "夜晚"
   current_location: "开局地点"
@@ -65,12 +66,16 @@ player:
   core_status:
     hp: { current: 100, max: 100 }
     mp: { current: 200, max: 200 }
+    stamina: { current: 82, max: 100 }
+    satiety: { current: 76, max: 100 }
     sanity: { current: 60, max: 120 }
     reputation: { current: 60, max: 120 }
 
   status:
     hp: { current: 100, max: 100 }
     mp: { current: 200, max: 200 }
+    stamina: { current: 82, max: 100 }
+    satiety: { current: 76, max: 100 }
     sanity: { current: 60, max: 120 }
     reputation: { current: 60, max: 120 }
 

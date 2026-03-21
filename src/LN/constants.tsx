@@ -60,6 +60,8 @@ export const MOCK_PLAYER_STATUS: PlayerCivilianStatus = {
 export const MOCK_PLAYER_STATS: PlayerStats = {
     hp: { current: 340, max: 500 },
     mp: { current: 120, max: 200 }, // Will be overridden by GameSetup logic based on Rank
+    stamina: { current: 82, max: 100 },
+    satiety: { current: 76, max: 100 },
     formStability: 68,
     formStatus: FormStatus.Warning,
     psionic: { 
@@ -214,6 +216,8 @@ export const MOCK_NPCS: NPC[] = [
         sanity: { current: 60, max: 100 },
         charisma: { current: 72, max: 100 },
         credits: 5400,
+        stamina: { current: 78, max: 100 },
+        satiety: { current: 74, max: 100 },
         gasMask: { current: 100, max: 100 }
     },
     bodyParts: generateBodyParts(Rank.Lv3),
@@ -274,6 +278,8 @@ export const MOCK_NPCS: NPC[] = [
         sanity: { current: 20, max: 100 },
         charisma: { current: 88, max: 100 },
         credits: 999999,
+        stamina: { current: 80, max: 100 },
+        satiety: { current: 72, max: 100 },
         gasMask: { current: 100, max: 100 }
     },
     bodyParts: ariaBodyParts, // Modified body parts with captured souls
@@ -317,6 +323,8 @@ export const MOCK_NPCS: NPC[] = [
         sanity: { current: 55, max: 100 },
         charisma: { current: 50, max: 100 },
         credits: 120,
+        stamina: { current: 76, max: 100 },
+        satiety: { current: 68, max: 100 },
         gasMask: { current: 100, max: 100 }
     },
     spiritSkills: [

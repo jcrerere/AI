@@ -265,9 +265,16 @@ export interface SixDimStats {
   cap?: number;
 }
 
+export interface SurvivalGauge {
+  current: number;
+  max: number;
+}
+
 export interface PlayerStats {
   hp: { current: number; max: number };
   mp: { current: number; max: number };
+  stamina: SurvivalGauge;
+  satiety: SurvivalGauge;
   formStability: number;
   formStatus: FormStatus;
   psionic: PsionicStats;

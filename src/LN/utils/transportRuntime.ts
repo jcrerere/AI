@@ -2,6 +2,7 @@ import { CityRuntimeData, TransportLineRecord, TransportStopRecord } from '../ty
 import { MetroLine, MetroNetwork, MetroStop, MetroTravelOption } from './sceneActions';
 import { buildRegionalTransitFare } from './economyRuntime';
 import { getDistrictTransportSnapshot, resolveDistrictProfileById } from './cityRuntime';
+import { previewLifeAdvance } from './lifeRuntime';
 
 export type TravelSettlementMode = 'metro';
 export type TravelRuleMode = 'walk' | 'metro' | 'taxi' | 'coach' | 'ferry';
@@ -40,6 +41,8 @@ export interface TravelSettlementPlan {
   summary: string;
   lineIds: string[];
   targetStopId: string;
+  staminaCost: number;
+  satietyCost: number;
 }
 
 const buildTravelRuleEnforcementNote = (regionKey: string): string => {
@@ -263,6 +266,10 @@ export const buildMetroTravelSettlementPlan = (params: {
   const routeLabel = primaryLine?.name || params.option.lineIds[0]?.toUpperCase() || '轨道线路';
   const transferCount = Math.max(0, params.option.lineIds.length - 1);
   const nextElapsedMinutes = Math.max(0, params.currentElapsedMinutes || 0) + params.option.minutes;
+  const lifePreview = previewLifeAdvance({
+    mode: 'travel',
+    minutes: params.option.minutes,
+  });
   return {
     id: `travel_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     mode: 'metro',
@@ -283,5 +290,7 @@ export const buildMetroTravelSettlementPlan = (params: {
         : '本次轨道通勤会在确认后正式写入时间和位置，不直接让 AI 先行跳转场景。',
     lineIds: params.option.lineIds,
     targetStopId: params.option.stop.id,
+    staminaCost: Math.max(0, -lifePreview.staminaDelta),
+    satietyCost: Math.max(0, -lifePreview.satietyDelta),
   };
 };

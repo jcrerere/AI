@@ -63,6 +63,13 @@ rules:
       - 不提前替玩家完成移动，不直接写入目标地点
       - 应明确长距离移动不能靠步行或直接文本跳转
 
+  world.life_state_digest:
+    type: string
+    check:
+      - 浠呭啓褰撳墠浣撳姏銆侀ケ鑵圭姸鎬佷笌琛ュ嚑寤鸿鐨勫帇缂╂憳瑕?
+      - 涓嶆妸闀挎湡鐢熺悊鍘嗗彶鍏ㄩ噺鍥炲～鍒?digest
+      - 璇ュ瓧娈靛彧鐢ㄤ簬 AI 鍒ゆ柇褰撳墠鐘舵€侊紝涓嶇洿鎺ュ啓鍏ユ柊浜嬩欢
+
   world.current_district:
     type: string
     check:
@@ -105,6 +112,7 @@ rules:
   player.core_status.*:
     type: object
     check:
+      - stamina / satiety 蹇呴』鍚屾牱閽冲埗鍦?[0,max]锛屼笉鑳藉啓鎴愯礋鏁版垨绌哄€?
       - hp/mp/sanity/reputation 的 current 必须钳制在 [0,max]
       - player.status.* 与 player.core_status.* 保持同步
 

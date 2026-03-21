@@ -16,7 +16,10 @@ const TravelSettlementModal: React.FC<Props> = ({ plan, credits, onClose, onConf
   const lineLabel = plan.lineIds.map(id => id.toUpperCase()).join(' / ');
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
         className="w-full max-w-2xl rounded-3xl border border-amber-500/20 bg-[#05070b] shadow-2xl"
         onClick={event => event.stopPropagation()}
@@ -30,7 +33,11 @@ const TravelSettlementModal: React.FC<Props> = ({ plan, credits, onClose, onConf
             <div className="mt-1 text-xl font-bold text-white">{plan.routeLabel}</div>
             <div className="mt-1 text-xs text-slate-400">{plan.summary}</div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full border border-white/10 p-2 text-slate-400 hover:text-white">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 p-2 text-slate-400 hover:text-white"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -43,7 +50,7 @@ const TravelSettlementModal: React.FC<Props> = ({ plan, credits, onClose, onConf
                 路径
               </div>
               <div className="mt-2 text-sm font-semibold text-white">{plan.fromLabel}</div>
-              <div className="mt-1 text-xs text-slate-500">↓ {plan.modeLabel}</div>
+              <div className="mt-1 text-xs text-slate-500">经由 {plan.modeLabel}</div>
               <div className="mt-1 text-sm font-semibold text-cyan-100">{plan.toLabel}</div>
               <div className="mt-2 text-xs text-slate-400">{plan.districtLabel}</div>
             </div>
@@ -86,6 +93,17 @@ const TravelSettlementModal: React.FC<Props> = ({ plan, credits, onClose, onConf
             </div>
           </div>
 
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-orange-500/15 bg-orange-500/[0.04] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-orange-200/70">体力消耗</div>
+              <div className="mt-2 text-sm font-semibold text-orange-100">-{plan.staminaCost}</div>
+            </div>
+            <div className="rounded-2xl border border-lime-500/15 bg-lime-500/[0.04] px-4 py-3">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-lime-200/70">饱腹消耗</div>
+              <div className="mt-2 text-sm font-semibold text-lime-100">-{plan.satietyCost}</div>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
             <div className="flex flex-wrap items-center gap-4">
               <span>当前余额 {credits} 灵能币</span>
@@ -120,7 +138,11 @@ const TravelSettlementModal: React.FC<Props> = ({ plan, credits, onClose, onConf
             </button>
           </div>
 
-          {!!notice && <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-slate-300">{notice}</div>}
+          {!!notice && (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-slate-300">
+              {notice}
+            </div>
+          )}
         </div>
       </div>
     </div>

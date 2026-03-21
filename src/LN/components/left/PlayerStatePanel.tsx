@@ -122,6 +122,33 @@ const PlayerStatePanel: React.FC<Props> = ({
         </div>
       </div>
 
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-orange-900/30 bg-[#1a1208]/50 p-2">
+          <div className="flex items-center justify-between text-[10px] text-slate-400">
+            <span className="font-bold">体力</span>
+            <span className="font-mono text-orange-200">{stats.stamina.current} / {stats.stamina.max}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-black/60 overflow-hidden">
+            <div
+              className={`${stats.stamina.current / stats.stamina.max > 0.45 ? 'bg-orange-500' : 'bg-red-500'} h-full transition-all duration-300`}
+              style={{ width: `${(stats.stamina.current / stats.stamina.max) * 100}%` }}
+            />
+          </div>
+        </div>
+        <div className="rounded-xl border border-lime-900/30 bg-[#0d1709]/50 p-2">
+          <div className="flex items-center justify-between text-[10px] text-slate-400">
+            <span className="font-bold">饱腹</span>
+            <span className="font-mono text-lime-200">{stats.satiety.current} / {stats.satiety.max}</span>
+          </div>
+          <div className="mt-2 h-1.5 rounded-full bg-black/60 overflow-hidden">
+            <div
+              className={`${stats.satiety.current / stats.satiety.max > 0.45 ? 'bg-lime-500' : 'bg-yellow-500'} h-full transition-all duration-300`}
+              style={{ width: `${(stats.satiety.current / stats.satiety.max) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
       <div className="w-full mb-4">
         <div className="flex justify-between items-center mb-1.5 px-1">
           <div className="flex items-center gap-1">

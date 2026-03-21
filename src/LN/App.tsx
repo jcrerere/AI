@@ -71,6 +71,7 @@ import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
+import { applyLifeAdvance, buildLifeChangeSummary, buildLifeStateDigest, buildLifeStatusTags, ensurePlayerLifeStats } from './utils/lifeRuntime';
 import { buildMetroTravelSettlementPlan, buildRuntimeMetroNetwork, buildTravelRuleDigest, TravelSettlementPlan } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import {
@@ -1132,6 +1133,13 @@ const estimateActionMinutes = (text: string): number => {
   return 8;
 };
 
+const inferActionLifeMode = (text: string): 'dialogue' | 'travel' => {
+  if (/(鎴樻枟|鍑绘潃|鏂╂潃|澶勫喅|杩藉嚮|閫冭窇|绉诲姩|鍓嶅線|璧跺線|瀵艰埅|宸￠€粅鎺㈢储|璧剁彮杞?鐧讳笂鍒楄溅|蹇€熻浆绉?)/i.test(text)) {
+    return 'travel';
+  }
+  return 'dialogue';
+};
+
 const DEFAULT_SIX_DIM = {
   力量: 8,
   敏捷: 8,
@@ -1145,7 +1153,7 @@ const DEFAULT_SIX_DIM = {
 const DEFAULT_LINGSHU_EQUIP_SLOTS = 8;
 
 const ensurePlayerStatsSixDim = (stats: PlayerStats): PlayerStats => ({
-  ...stats,
+  ...ensurePlayerLifeStats(stats),
   sixDim: {
     ...DEFAULT_SIX_DIM,
     ...(stats as any).sixDim,
@@ -1842,6 +1850,8 @@ const buildAutoNearbyNpcStats = (seedKey: string, gender: NPC['gender']): Player
     sanity: { current: 70, max: 100 },
     charisma: { current: isFemale ? 58 : 40, max: 100 },
     credits: 0,
+    stamina: { current: 78, max: 100 },
+    satiety: { current: 72, max: 100 },
     gasMask: { current: 100, max: 100 },
   });
 };
@@ -2157,6 +2167,8 @@ const buildStructuredNpcStats = (record: NearbyNpcRecord, seedKey: string): Play
     sanity: { current: 75, max: 100 },
     charisma: { current: isFemale ? 60 : 45, max: 100 },
     credits: 0,
+    stamina: { current: 80, max: 100 },
+    satiety: { current: 74, max: 100 },
     gasMask: { current: 100, max: 100 },
   });
 };
@@ -3952,6 +3964,10 @@ const App: React.FC = () => {
         toFiniteNumber(psionic?.energy_value?.max) ??
         toFiniteNumber(psionic?.energy_value_max) ??
         null,
+      staminaCurrent: toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.current) ?? null,
+      staminaMax: toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.max) ?? null,
+      satietyCurrent: toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.current) ?? null,
+      satietyMax: toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.max) ?? null,
       sanityCurrent: toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current) ?? null,
       sanityMax: toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max) ?? null,
       credits: creditsFromStat ?? null,
@@ -4019,6 +4035,8 @@ const App: React.FC = () => {
         ...prev,
         hp: { ...prev.hp },
         mp: { ...prev.mp },
+        stamina: { ...prev.stamina },
+        satiety: { ...prev.satiety },
         sanity: { ...prev.sanity },
         psionic: { ...prev.psionic },
         sixDim: { ...prev.sixDim },
@@ -4037,6 +4055,10 @@ const App: React.FC = () => {
         toFiniteNumber(status?.mp?.max) ??
         toFiniteNumber(psionic?.energy_value?.max) ??
         toFiniteNumber(psionic?.energy_value_max);
+      const staminaCurrent = toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.current);
+      const staminaMax = toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.max);
+      const satietyCurrent = toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.current);
+      const satietyMax = toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.max);
       const sanityCurrent = toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current);
       const sanityMax = toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max);
       const conversionRate = statRateToRuntimePercent(psionic?.conversion_rate?.current ?? psionic?.conversion_rate);
@@ -4056,6 +4078,22 @@ const App: React.FC = () => {
       }
       if (mpMax !== undefined && mpMax !== prev.mp.max) {
         next.mp.max = Math.max(1, mpMax);
+        changed = true;
+      }
+      if (staminaCurrent !== undefined && staminaCurrent !== prev.stamina.current) {
+        next.stamina.current = Math.max(0, staminaCurrent);
+        changed = true;
+      }
+      if (staminaMax !== undefined && staminaMax !== prev.stamina.max) {
+        next.stamina.max = Math.max(1, staminaMax);
+        changed = true;
+      }
+      if (satietyCurrent !== undefined && satietyCurrent !== prev.satiety.current) {
+        next.satiety.current = Math.max(0, satietyCurrent);
+        changed = true;
+      }
+      if (satietyMax !== undefined && satietyMax !== prev.satiety.max) {
+        next.satiety.max = Math.max(1, satietyMax);
         changed = true;
       }
       if (sanityCurrent !== undefined && sanityCurrent !== prev.sanity.current) {
@@ -4305,6 +4343,10 @@ const App: React.FC = () => {
     () => buildTravelRuleDigest(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
   );
+  const lifeStateDigest = useMemo(
+    () => buildLifeStateDigest(playerStats),
+    [playerStats],
+  );
   const latestPlayerInputForSceneAction = useMemo(() => {
     if (!activeLayerMessage) return '';
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
@@ -4368,13 +4410,14 @@ const App: React.FC = () => {
         new Set(
           [
             ...mergedRuntimeAffixes.map(affix => affix.name),
+            ...buildLifeStatusTags(playerStats),
             ...(betaStatus.warnings || []).map(warning => `警告:${warning}`),
           ]
             .map(tag => `${tag || ''}`.trim())
             .filter(Boolean),
         ),
       ),
-    [mergedRuntimeAffixes, betaStatus.warnings],
+    [mergedRuntimeAffixes, playerStats, betaStatus.warnings],
   );
   const chipCount = useMemo(() => playerChips.filter(chip => chip.type !== 'board' && chip.type !== 'beta').length, [playerChips]);
   const spiritStringCount = useMemo(
@@ -4677,6 +4720,10 @@ const App: React.FC = () => {
       hpMax: playerStats.hp.max,
       mpCurrent: playerStats.mp.current,
       mpMax: playerStats.mp.max,
+      staminaCurrent: playerStats.stamina.current,
+      staminaMax: playerStats.stamina.max,
+      satietyCurrent: playerStats.satiety.current,
+      satietyMax: playerStats.satiety.max,
       sanityCurrent: playerStats.sanity.current,
       sanityMax: playerStats.sanity.max,
       credits: playerStats.credits,
@@ -4707,6 +4754,7 @@ const App: React.FC = () => {
       localMapDigest,
       taskLayerDigest,
       travelRuleDigest,
+      lifeStateDigest,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -4808,6 +4856,8 @@ const App: React.FC = () => {
             ...coreStatus,
             hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
             mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+            stamina: { ...(((coreStatus as Record<string, any>).stamina || {})), current: playerStats.stamina.current, max: playerStats.stamina.max },
+            satiety: { ...(((coreStatus as Record<string, any>).satiety || {})), current: playerStats.satiety.current, max: playerStats.satiety.max },
             sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
             reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
           },
@@ -4815,6 +4865,8 @@ const App: React.FC = () => {
             ...status,
             hp: { ...(status.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
             mp: { ...(status.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
+            stamina: { ...(((status as Record<string, any>).stamina || {})), current: playerStats.stamina.current, max: playerStats.stamina.max },
+            satiety: { ...(((status as Record<string, any>).satiety || {})), current: playerStats.satiety.current, max: playerStats.satiety.max },
             sanity: { ...(status.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
             reputation: { ...(status.reputation || {}), current: betaStatus.creditScore, max: 120 },
           },
@@ -4899,6 +4951,7 @@ const App: React.FC = () => {
             local_map_digest: localMapDigest,
             task_layer_digest: taskLayerDigest,
             travel_rule_digest: travelRuleDigest,
+            life_state_digest: lifeStateDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -4948,6 +5001,10 @@ const App: React.FC = () => {
     playerStats.hp.max,
     playerStats.mp.current,
     playerStats.mp.max,
+    playerStats.stamina.current,
+    playerStats.stamina.max,
+    playerStats.satiety.current,
+    playerStats.satiety.max,
     playerStats.sanity.current,
     playerStats.sanity.max,
     playerStats.credits,
@@ -4990,6 +5047,7 @@ const App: React.FC = () => {
     localMapDigest,
     taskLayerDigest,
     travelRuleDigest,
+    lifeStateDigest,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -5278,6 +5336,7 @@ const App: React.FC = () => {
       localMapDigest?: string;
       taskLayerDigest?: string;
       travelRuleDigest?: string;
+      lifeStateDigest?: string;
     },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
@@ -5299,6 +5358,7 @@ const App: React.FC = () => {
             context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
             context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
             context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
+            context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
             '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
             PSEUDO_LAYER_RESPONSE_RULES,
           ]
@@ -5365,6 +5425,7 @@ const App: React.FC = () => {
               context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
               context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
               context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
+              context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
               '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
               PSEUDO_LAYER_RESPONSE_RULES,
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
@@ -6124,6 +6185,15 @@ const App: React.FC = () => {
     const shop = sceneModal?.mode === 'shop' ? sceneModal.shop : null;
     const target = shop?.items.find(item => item.id === itemId);
     const isRestaurant = shop?.shopMode === 'restaurant' || shop?.type === 'restaurant';
+    const restaurantLifeResult =
+      isRestaurant && target
+        ? applyLifeAdvance(playerStats, {
+            mode: 'meal',
+            minutes: 0,
+            mealPrice: target.price,
+            styleTags: target.styleTags || [],
+          })
+        : null;
     if (!shop || !target) {
       return { ok: false, message: '当前货架已失效，请重新打开购物接口。' };
     }
@@ -6131,10 +6201,23 @@ const App: React.FC = () => {
       return { ok: false, message: `余额不足，当前购买需要 ${target.price} 灵能币。` };
     }
 
-    setPlayerStats(prev => ({
-      ...prev,
-      credits: Math.max(0, prev.credits - target.price),
-    }));
+    setPlayerStats(prev => {
+      const base = restaurantLifeResult?.stats || prev;
+      return {
+        ...base,
+        credits: Math.max(0, prev.credits - target.price),
+      };
+    });
+    if (isRestaurant && restaurantLifeResult) {
+      const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + restaurantLifeResult.minutes;
+      const nextGameTimeText = formatGameTime(nextElapsedMinutes);
+      const nextGameDayPhase = getDayPhase(nextElapsedMinutes);
+      setMapRuntime(prev => ({
+        ...prev,
+        elapsedMinutes: nextElapsedMinutes,
+        logs: [...(prev.logs || []), `餐饮消费 ${shop.title} -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
+      }));
+    }
     if (!isRestaurant) {
       addInventoryItem({
         id: target.id,
@@ -6342,6 +6425,10 @@ const App: React.FC = () => {
       return { ok: false, message: `余额不足，当前车费需要 ${plan.fare} 灵能币。` };
     }
 
+    const travelLifeResult = applyLifeAdvance(playerStats, {
+      mode: 'travel',
+      minutes: plan.minutes,
+    });
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + plan.minutes;
     const nextTimeLabel = formatGameTime(nextElapsedMinutes);
     const layerId = `metro_arrival_${Date.now()}`;
@@ -6354,7 +6441,7 @@ const App: React.FC = () => {
     });
 
     setPlayerStats(prev => ({
-      ...prev,
+      ...travelLifeResult.stats,
       credits: Math.max(0, prev.credits - plan.fare),
     }));
     pushFinanceLedgerEntry({
@@ -7133,6 +7220,14 @@ const App: React.FC = () => {
     const appendPlayerMessage = options?.appendPlayerMessage ?? visibleInput.length > 0;
     const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     const actionMinutes = appendPlayerMessage && visibleInput ? estimateActionMinutes(visibleInput) : 0;
+    const actionLifeMode = visibleInput ? inferActionLifeMode(visibleInput) : 'dialogue';
+    const actionLifeResult = actionMinutes > 0
+      ? applyLifeAdvance(playerStats, {
+          mode: actionLifeMode,
+          minutes: actionMinutes,
+        })
+      : null;
+    const requestLifeStateDigest = actionLifeResult?.digest || lifeStateDigest;
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + actionMinutes;
     const nextGameTimeText = formatGameTime(nextElapsedMinutes);
     const nextGameDayPhase = getDayPhase(nextElapsedMinutes);
@@ -7206,6 +7301,7 @@ const App: React.FC = () => {
           localMapDigest,
           taskLayerDigest,
           travelRuleDigest,
+          lifeStateDigest: requestLifeStateDigest,
         }, controller.signal);
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
@@ -7295,6 +7391,7 @@ const App: React.FC = () => {
       ...(appendPlayerMessage && visibleInput ? settleIntentCostDeterministic(visibleInput) : []),
       ...(settleSource ? settleKillFromText(settleSource) : []),
       ...(settleSource ? settleStatusFromText(settleSource) : []),
+      ...(actionLifeResult && buildLifeChangeSummary(actionLifeResult) ? [`生理消耗：${buildLifeChangeSummary(actionLifeResult)}`] : []),
       ...patchLines,
     ];
 
@@ -7325,6 +7422,9 @@ const App: React.FC = () => {
       setFocusedLayerId(systemLayerMsg.id);
     }
     if (actionMinutes > 0) {
+      if (actionLifeResult) {
+        setPlayerStats(actionLifeResult.stats);
+      }
       setMapRuntime(prev => ({
         ...prev,
         elapsedMinutes: nextElapsedMinutes,
@@ -7367,6 +7467,7 @@ const App: React.FC = () => {
           localMapDigest,
           taskLayerDigest,
           travelRuleDigest,
+          lifeStateDigest,
         });
         if (apiPayload?.maintext) {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);
@@ -8362,21 +8463,26 @@ const App: React.FC = () => {
       return { ok: false, message: '当前还没有稳定住处。' };
     }
 
+    const restLifeResult = applyLifeAdvance(playerStats, {
+      mode: 'rest',
+      minutes: target.restMinutes,
+    });
     let recoveredHp = 0;
     let recoveredMp = 0;
     let recoveredSanity = 0;
     setPlayerStats(prev => {
-      const nextHp = Math.min(prev.hp.max, prev.hp.current + target.hpRestore);
-      const nextMp = Math.min(prev.mp.max, prev.mp.current + target.mpRestore);
-      const nextSanity = Math.min(prev.sanity.max, prev.sanity.current + target.sanityRestore);
-      recoveredHp = Math.max(0, nextHp - prev.hp.current);
-      recoveredMp = Math.max(0, nextMp - prev.mp.current);
-      recoveredSanity = Math.max(0, nextSanity - prev.sanity.current);
+      const base = restLifeResult.stats;
+      const nextHp = Math.min(base.hp.max, base.hp.current + target.hpRestore);
+      const nextMp = Math.min(base.mp.max, base.mp.current + target.mpRestore);
+      const nextSanity = Math.min(base.sanity.max, base.sanity.current + target.sanityRestore);
+      recoveredHp = Math.max(0, nextHp - base.hp.current);
+      recoveredMp = Math.max(0, nextMp - base.mp.current);
+      recoveredSanity = Math.max(0, nextSanity - base.sanity.current);
       return {
-        ...prev,
-        hp: { ...prev.hp, current: nextHp },
-        mp: { ...prev.mp, current: nextMp },
-        sanity: { ...prev.sanity, current: nextSanity },
+        ...base,
+        hp: { ...base.hp, current: nextHp },
+        mp: { ...base.mp, current: nextMp },
+        sanity: { ...base.sanity, current: nextSanity },
       };
     });
 
