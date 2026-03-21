@@ -71,7 +71,7 @@ import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
-import { buildMetroTravelSettlementPlan, buildRuntimeMetroNetwork, TravelSettlementPlan } from './utils/transportRuntime';
+import { buildMetroTravelSettlementPlan, buildRuntimeMetroNetwork, buildTravelRuleDigest, TravelSettlementPlan } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import {
   buildLocalMapDigest,
@@ -4301,6 +4301,10 @@ const App: React.FC = () => {
     () => buildTaskLayerDigest(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
   );
+  const travelRuleDigest = useMemo(
+    () => buildTravelRuleDigest(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
+  );
   const latestPlayerInputForSceneAction = useMemo(() => {
     if (!activeLayerMessage) return '';
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
@@ -4702,6 +4706,7 @@ const App: React.FC = () => {
       economyDigest,
       localMapDigest,
       taskLayerDigest,
+      travelRuleDigest,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -4893,6 +4898,7 @@ const App: React.FC = () => {
             economy_digest: economyDigest,
             local_map_digest: localMapDigest,
             task_layer_digest: taskLayerDigest,
+            travel_rule_digest: travelRuleDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
@@ -4983,6 +4989,7 @@ const App: React.FC = () => {
     economyDigest,
     localMapDigest,
     taskLayerDigest,
+    travelRuleDigest,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -5270,6 +5277,7 @@ const App: React.FC = () => {
       dialogueContext?: string;
       localMapDigest?: string;
       taskLayerDigest?: string;
+      travelRuleDigest?: string;
     },
     signal?: AbortSignal,
   ): Promise<ParsedApiOutput | null> => {
@@ -5290,6 +5298,7 @@ const App: React.FC = () => {
             context.sceneHint ? `scene=${context.sceneHint}` : '',
             context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
             context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
+            context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
             '禁止在 maintext 开头重复输出时间/地点/时段；这些由前端顶部状态栏显示。',
             PSEUDO_LAYER_RESPONSE_RULES,
           ]
@@ -5355,6 +5364,7 @@ const App: React.FC = () => {
               context.sceneHint ? `scene=${context.sceneHint}` : '',
               context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
               context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
+              context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
               '不要在 maintext 首行重复时间/地点/时段，顶部状态栏已显示。',
               PSEUDO_LAYER_RESPONSE_RULES,
               context.dialogueContext ? `\n${context.dialogueContext}` : '',
@@ -7195,6 +7205,7 @@ const App: React.FC = () => {
           dialogueContext: requestSupportContext,
           localMapDigest,
           taskLayerDigest,
+          travelRuleDigest,
         }, controller.signal);
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
@@ -7355,6 +7366,7 @@ const App: React.FC = () => {
           dialogueContext: requestSupportContext,
           localMapDigest,
           taskLayerDigest,
+          travelRuleDigest,
         });
         if (apiPayload?.maintext) {
           nextLayer = replaceMaintext(nextLayer, apiPayload.maintext);

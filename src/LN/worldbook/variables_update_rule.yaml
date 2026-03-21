@@ -56,6 +56,13 @@ rules:
       - task_layer_digest 仅写当前分区的逗留轮数和隐藏任务窗口状态
       - 不回填完整地图注册表，不提前展开具体任务正文
 
+  world.travel_rule_digest:
+    type: string
+    check:
+      - 仅写当前分区允许的出行方式、限制范围与强制结算规则
+      - 不提前替玩家完成移动，不直接写入目标地点
+      - 应明确长距离移动不能靠步行或直接文本跳转
+
   world.current_district:
     type: string
     check:

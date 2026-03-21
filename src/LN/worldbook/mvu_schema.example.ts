@@ -28,6 +28,7 @@ export const MvuStatDataSchema = z.object({
     economy_digest: z.string(),
     local_map_digest: z.string(),
     task_layer_digest: z.string(),
+    travel_rule_digest: z.string(),
     current_district: z.string(),
     current_site_type: z.string(),
     current_site_id: z.string(),

@@ -1,8 +1,27 @@
 import { CityRuntimeData, TransportLineRecord, TransportStopRecord } from '../types';
 import { MetroLine, MetroNetwork, MetroStop, MetroTravelOption } from './sceneActions';
 import { buildRegionalTransitFare } from './economyRuntime';
+import { getDistrictTransportSnapshot, resolveDistrictProfileById } from './cityRuntime';
 
 export type TravelSettlementMode = 'metro';
+export type TravelRuleMode = 'walk' | 'metro' | 'taxi' | 'coach' | 'ferry';
+export type TravelRuleAvailability = 'available' | 'restricted' | 'blocked';
+
+export interface TravelRuleEntry {
+  id: TravelRuleMode;
+  label: string;
+  availability: TravelRuleAvailability;
+  scopeLabel: string;
+  summary: string;
+}
+
+export interface TravelRuleSnapshot {
+  districtId: string;
+  districtLabel: string;
+  regionLabel: string;
+  enforcementNote: string;
+  modes: TravelRuleEntry[];
+}
 
 export interface TravelSettlementPlan {
   id: string;
@@ -22,6 +41,101 @@ export interface TravelSettlementPlan {
   lineIds: string[];
   targetStopId: string;
 }
+
+const buildTravelRuleEnforcementNote = (regionKey: string): string => {
+  switch (regionKey) {
+    case 'aerila':
+      return '跨分区优先走轨道与干道，不接受长距离步行直跳。';
+    case 'north':
+      return '诺丝区允许同城高价出行，但不容许跨区靠步行或出租车硬跳。';
+    case 'xiyu':
+      return '汐屿区近岸轨道和摆渡优先，跨片区移动不按步行处理。';
+    case 'holy':
+      return '圣教区民用出行受限，长距移动更依赖官方通道与干道。';
+    case 'borderland':
+      return '交界地长距移动默认走干道或桥梁节点，风险会被放大。';
+    case 'cuiling':
+      return '淬灵区没有民用地铁，跨片区主要靠干道运输。';
+    case 'qiling':
+      return '栖灵区封闭稀缺，长距位移必须走正式交通接口。';
+    default:
+      return '长距离移动必须先过交通层结算，不能直接文本跳转。';
+  }
+};
+
+export const buildTravelRuleSnapshot = (runtime: CityRuntimeData, currentLocation: string): TravelRuleSnapshot => {
+  const profile = resolveDistrictProfileById(runtime.currentDistrictId, currentLocation);
+  const transport = getDistrictTransportSnapshot(runtime, profile.id);
+  const hasMetro = transport.activeLines.some(line => line.mode === 'metro');
+  const hasFerry = transport.activeLines.some(line => line.mode === 'ferry') || profile.transportModes.includes('ferry');
+  const hasCoach = profile.transportModes.includes('expressway') || transport.projects.some(project => project.mode === 'expressway');
+
+  const modes: TravelRuleEntry[] = [
+    {
+      id: 'walk',
+      label: '步行',
+      availability: 'available',
+      scopeLabel: '同分区短距',
+      summary: '默认只覆盖当前分区和邻近锚点；跨分区或长距离不按步行直接结算。',
+    },
+    {
+      id: 'metro',
+      label: '地铁',
+      availability: hasMetro ? 'available' : 'blocked',
+      scopeLabel: '既有站点',
+      summary: hasMetro
+        ? `只在当前分区已开放的轨道站点间移动，目前有 ${transport.activeLines.filter(line => line.mode === 'metro').length} 条轨道线可用。`
+        : '当前分区没有开放中的民用轨道线，不能靠地铁完成位移。',
+    },
+    {
+      id: 'taxi',
+      label: '出租车',
+      availability: profile.regionKey === 'holy' || profile.regionKey === 'qiling' ? 'restricted' : 'available',
+      scopeLabel: '同城 / 同法域',
+      summary:
+        profile.regionKey === 'holy' || profile.regionKey === 'qiling'
+          ? '当前区域民用出租受限，最多作为补充方式，不承担长距主通勤。'
+          : '适合同城中短距补位，但不会承担跨区域主通勤。',
+    },
+    {
+      id: 'coach',
+      label: '干道客运',
+      availability: hasCoach ? 'available' : 'restricted',
+      scopeLabel: '跨分区 / 中长距',
+      summary: hasCoach
+        ? '跨分区和中长距位移默认走干道、桥梁或高速客运接口。'
+        : '当前分区没有成熟干道客运层，长距移动会受到更强限制。',
+    },
+    {
+      id: 'ferry',
+      label: '摆渡',
+      availability: hasFerry ? 'available' : 'blocked',
+      scopeLabel: '沿水域 / 港区',
+      summary: hasFerry
+        ? '当前区域存在沿岸摆渡或水路接驳，可作为特定片区通行方式。'
+        : '当前区域没有可用摆渡层，水路不作为主通勤方式。',
+    },
+  ];
+
+  return {
+    districtId: profile.id,
+    districtLabel: profile.districtLabel,
+    regionLabel: profile.regionLabel,
+    enforcementNote: buildTravelRuleEnforcementNote(profile.regionKey),
+    modes,
+  };
+};
+
+export const buildTravelRuleDigest = (runtime: CityRuntimeData, currentLocation: string): string => {
+  const snapshot = buildTravelRuleSnapshot(runtime, currentLocation);
+  const modeSummary = snapshot.modes
+    .map(mode => {
+      const prefix = mode.availability === 'available' ? '可用' : mode.availability === 'restricted' ? '受限' : '封闭';
+      return `${mode.label}[${prefix}/${mode.scopeLabel}]`;
+    })
+    .join(' / ');
+  return `${snapshot.regionLabel}·${snapshot.districtLabel} 交通规则: ${modeSummary}; ${snapshot.enforcementNote}`;
+};
 
 const buildMetroStop = (stop: TransportStopRecord, runtime: CityRuntimeData): MetroStop => {
   const line = runtime.transportLines.find(entry => entry.stopIds.includes(stop.id));

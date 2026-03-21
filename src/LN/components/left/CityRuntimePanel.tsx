@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { CityRuntimeData, RuntimeTodoStatus } from '../../types';
 import { buildLocalMapSnapshot, buildTaskLayerDigest, getCurrentDistrictLabel, getDistrictTaskState, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
 import { buildEconomyBenchmarkSnapshot, buildEconomyScenePrices } from '../../utils/economyRuntime';
+import { buildTravelRuleDigest, buildTravelRuleSnapshot } from '../../utils/transportRuntime';
 
 interface Props {
   runtime: CityRuntimeData;
@@ -35,6 +36,8 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
   const localMap = useMemo(() => buildLocalMapSnapshot(runtime, currentLocation), [runtime, currentLocation]);
   const taskState = useMemo(() => getDistrictTaskState(runtime, localMap.profile.id), [runtime, localMap.profile.id]);
   const taskLayerDigest = useMemo(() => buildTaskLayerDigest(runtime, currentLocation), [runtime, currentLocation]);
+  const travelRules = useMemo(() => buildTravelRuleSnapshot(runtime, currentLocation), [runtime, currentLocation]);
+  const travelRuleDigest = useMemo(() => buildTravelRuleDigest(runtime, currentLocation), [runtime, currentLocation]);
   const districtShops = useMemo(
     () => runtime.shops.filter(shop => shop.districtId === runtime.currentDistrictId).slice(-5).reverse(),
     [runtime.shops, runtime.currentDistrictId],
@@ -271,6 +274,9 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
 
       <div className="rounded-2xl border border-white/8 bg-black/30 p-3">
         <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">交通层</div>
+        <div className="mt-2 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-[11px] leading-5 text-slate-300">
+          {travelRuleDigest}
+        </div>
         <div className="mt-2 flex flex-wrap gap-2">
           {(transport.activeModes.length ? transport.activeModes : ['none']).map(mode => (
             <span
@@ -286,6 +292,25 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
           ))}
         </div>
         <div className="mt-3 space-y-2">
+          {travelRules.modes.map(mode => (
+            <div key={mode.id} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold text-white">{mode.label}</div>
+                <div
+                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                    mode.availability === 'available'
+                      ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+                      : mode.availability === 'restricted'
+                        ? 'border-amber-400/20 bg-amber-500/10 text-amber-100'
+                        : 'border-white/10 bg-white/[0.04] text-slate-400'
+                  }`}
+                >
+                  {mode.scopeLabel}
+                </div>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">{mode.summary}</div>
+            </div>
+          ))}
           {transport.activeLines.slice(0, 4).map(line => (
             <div key={line.id} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
               <div className="text-xs font-semibold text-white">{line.label}</div>
