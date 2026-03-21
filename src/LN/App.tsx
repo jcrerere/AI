@@ -52,6 +52,8 @@ import {
   GamblingHubTab,
   HorseRaceBetRecord,
   HorseRaceMeet,
+  RedLightSessionRecord,
+  RedLightVenue,
   SlotSpinRecord,
   PlayerResidenceState,
   ResidenceProfile,
@@ -264,6 +266,8 @@ interface LnSaveData {
   blackRaceHistory?: BlackRaceBetRecord[];
   horseRaceMeet?: HorseRaceMeet | null;
   horseRaceHistory?: HorseRaceBetRecord[];
+  redLightVenue?: RedLightVenue | null;
+  redLightHistory?: RedLightSessionRecord[];
   slotHistory?: SlotSpinRecord[];
   playerResidence?: PlayerResidenceState;
   playerWardrobe?: PlayerWardrobeState;
@@ -723,6 +727,95 @@ const spinSlotReels = () => {
     return SLOT_SYMBOL_POOL[SLOT_SYMBOL_POOL.length - 1];
   };
   return [pickOne(), pickOne(), pickOne()];
+};
+
+const RED_LIGHT_VENUE_POOL = [
+  {
+    title: '红绡馆',
+    heatLabel: '灯影正旺',
+    styles: ['高价陪侍', '包厢暧昧', '命名招牌'],
+  },
+  {
+    title: '绮债包厢环',
+    heatLabel: '关系盘活跃',
+    styles: ['债务包厢', '人情签约', '闭门会面'],
+  },
+  {
+    title: '剥光秀台',
+    heatLabel: '点单流量飙升',
+    styles: ['公开秀场', '点单表演', '流量切片'],
+  },
+];
+
+const RED_LIGHT_PROVIDER_POOL = [
+  { label: '雾绫', role: '头牌陪侍', style: '冷艳慢热', summary: '擅长把距离感维持到最后一刻。', tags: ['高价', '包厢', '慢热'] },
+  { label: '折灯', role: '点单主持', style: '公开调情', summary: '控场能力强，善于把气氛推高。', tags: ['秀台', '公开', '流量'] },
+  { label: '白礁', role: '夜场陪伴', style: '温柔收口', summary: '适合长谈、陪酒和柔性安抚。', tags: ['陪酒', '长谈', '包厢'] },
+  { label: '鸦骨', role: '私约侍应', style: '锋利挑逗', summary: '更适合短促而昂贵的刺激消费。', tags: ['私约', '刺激', '短单'] },
+  { label: '软刃', role: '留夜招牌', style: '耐心拉扯', summary: '擅长维持整晚的情绪和依赖感。', tags: ['留夜', '情绪', '高价'] },
+];
+
+const RED_LIGHT_SERVICE_POOL = [
+  { label: '包厢陪侍', category: 'escort' as const, basePrice: 320, summary: '入包厢、陪酒、近距互动。', note: '适合刚接触诺丝红灯区时试水。 ' },
+  { label: '点单表演', category: 'performance' as const, basePrice: 260, summary: '在公开或半公开区域完成指定表演。', note: '更看重气氛和台面，不一定最私密。' },
+  { label: '私约房', category: 'private_room' as const, basePrice: 540, summary: '转入封闭小房间，按时段结算。', note: '价格高，细节容易被账本记住。' },
+  { label: '留夜单', category: 'overnight' as const, basePrice: 980, summary: '以整晚为单位的高价服务。', note: '往往伴随额外关系和后续纠缠。' },
+];
+
+const resolveRedLightBaseFactor = (locationLabel: string) => {
+  const text = `${locationLabel || ''}`;
+  if (/绮债/.test(text)) return 1.28;
+  if (/剥光/.test(text)) return 1.12;
+  if (/罪吻|红绡|诺丝/.test(text)) return 1.18;
+  return 1.0;
+};
+
+const buildRedLightVenue = (locationLabel = '诺丝区·红绡馆', authored: Array<{ id: string; name: string; location?: string }> = []): RedLightVenue => {
+  const venueSeed =
+    RED_LIGHT_VENUE_POOL.find(entry => locationLabel.includes(entry.title))
+    || RED_LIGHT_VENUE_POOL[Math.floor(Math.random() * RED_LIGHT_VENUE_POOL.length)];
+  const factor = resolveRedLightBaseFactor(locationLabel || venueSeed.title);
+  const runtimeProviders = [...RED_LIGHT_PROVIDER_POOL]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, 4)
+    .map((provider, index) => ({
+      id: `red_light_runtime_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 5)}`,
+      label: provider.label,
+      source: 'runtime' as const,
+      role: provider.role,
+      venueLabel: venueSeed.title,
+      style: provider.style,
+      summary: provider.summary,
+      tags: provider.tags,
+    }));
+  const authoredProviders = authored.slice(0, 2).map((npc, index) => ({
+    id: `red_light_authored_${npc.id}_${index}`,
+    label: npc.name,
+    source: 'authored' as const,
+    npcId: npc.id,
+    role: '命名人物挂席',
+    venueLabel: venueSeed.title,
+    style: '熟面孔 / 作者角色',
+    summary: `${npc.name} 作为命名人物出现在场内名单里，不等于常驻接单。`,
+    tags: ['命名人物', '作者角色'],
+  }));
+  const services = RED_LIGHT_SERVICE_POOL.map((service, index) => ({
+    id: `red_light_service_${index + 1}`,
+    label: service.label,
+    category: service.category,
+    price: Math.max(120, Math.round(service.basePrice * factor)),
+    summary: service.summary,
+    note: service.note,
+  }));
+  return {
+    id: `red_light_venue_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    title: venueSeed.title,
+    locationLabel,
+    heatLabel: venueSeed.heatLabel,
+    generatedAt: new Date().toISOString(),
+    providers: [...authoredProviders, ...runtimeProviders].slice(0, 6),
+    services,
+  };
 };
 
 const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
@@ -3592,6 +3685,8 @@ const App: React.FC = () => {
   const [blackRaceHistory, setBlackRaceHistory] = useState<BlackRaceBetRecord[]>([]);
   const [horseRaceMeet, setHorseRaceMeet] = useState<HorseRaceMeet>(() => buildHorseRaceMeet());
   const [horseRaceHistory, setHorseRaceHistory] = useState<HorseRaceBetRecord[]>([]);
+  const [redLightVenue, setRedLightVenue] = useState<RedLightVenue | null>(null);
+  const [redLightHistory, setRedLightHistory] = useState<RedLightSessionRecord[]>([]);
   const [slotHistory, setSlotHistory] = useState<SlotSpinRecord[]>([]);
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
@@ -4549,6 +4644,7 @@ const App: React.FC = () => {
   );
   const resolveGamblingInitialTab = useCallback((): GamblingHubTab => {
     const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
+    if (/红绡|罪吻|瘾巷|绮债|剥光|包厢|陪侍|点单表演|留夜|妓|会所/.test(source)) return 'red_light';
     if (/赛马|马场/.test(source)) return 'horse_race';
     if (/转盘|老虎机|三转盘|slot/i.test(source)) return 'slot_machine';
     return 'black_race';
@@ -4556,7 +4652,7 @@ const App: React.FC = () => {
   const canOpenGamblingHub = useMemo(() => {
     if (currentLocationJurisdiction.key === 'north') return true;
     const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
-    return /黑赛|下注|赌|赛马|马场|转盘|老虎机|博彩/.test(source);
+    return /黑赛|下注|赌|赛马|马场|转盘|老虎机|博彩|红绡|罪吻|瘾巷|绮债|剥光|包厢|陪侍|留夜|妓|会所/.test(source);
   }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
   const visibleLifeActions = useMemo(() => {
     const filtered = canOpenGamblingHub
@@ -4564,6 +4660,24 @@ const App: React.FC = () => {
       : sceneActionState.lifeActions;
     return filtered.slice(0, canOpenGamblingHub ? 1 : 2);
   }, [canOpenGamblingHub, sceneActionState.lifeActions]);
+  const redLightAuthoredCandidates = useMemo(
+    () =>
+      npcs
+        .filter(npc => {
+          const locationText = `${npc.location || ''}`;
+          return (
+            locationText.includes('诺丝')
+            || locationText.includes('罪吻')
+            || locationText.includes('红绡')
+            || locationText.includes('绮债')
+            || locationText.includes('剥光')
+          );
+        })
+        .sort((a, b) => ((b.affection || 0) + (b.trust || 0)) - ((a.affection || 0) + (a.trust || 0)))
+        .slice(0, 3)
+        .map(npc => ({ id: npc.id, name: npc.name, location: npc.location })),
+    [npcs],
+  );
   useEffect(() => {
     const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
     if (!locationLabel) return;
@@ -4575,6 +4689,15 @@ const App: React.FC = () => {
       return ensured.changed ? ensured.runtime : prev;
     });
   }, [currentNarrativeLocation, playerFaction.headquarters]);
+  useEffect(() => {
+    const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (!locationLabel) return;
+    if (resolveLocationJurisdiction(locationLabel).key !== 'north') return;
+    setRedLightVenue(prev => {
+      if (prev && prev.locationLabel === locationLabel && prev.providers.length > 0) return prev;
+      return buildRedLightVenue(locationLabel, redLightAuthoredCandidates);
+    });
+  }, [currentNarrativeLocation, playerFaction.headquarters, redLightAuthoredCandidates]);
   useEffect(() => {
     if (gameStage !== 'game') return;
     if (!latestProgressLayerMessage?.id) return;
@@ -5322,6 +5445,8 @@ const App: React.FC = () => {
     blackRaceHistory,
     horseRaceMeet,
     horseRaceHistory,
+    redLightVenue,
+    redLightHistory,
     slotHistory,
     playerResidence,
     playerWardrobe,
@@ -5408,6 +5533,8 @@ const App: React.FC = () => {
     setBlackRaceHistory(payload.blackRaceHistory || []);
     setHorseRaceMeet(payload.horseRaceMeet || buildHorseRaceMeet());
     setHorseRaceHistory(payload.horseRaceHistory || []);
+    setRedLightVenue(payload.redLightVenue || null);
+    setRedLightHistory(payload.redLightHistory || []);
     setSlotHistory(payload.slotHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setPlayerWardrobe(normalizeWardrobeState(payload.playerWardrobe));
@@ -6274,6 +6401,153 @@ const App: React.FC = () => {
     };
   };
 
+  const handleBookRedLightService = ({
+    providerId,
+    serviceId,
+  }: {
+    providerId: string;
+    serviceId: string;
+  }): { ok: boolean; message?: string; net?: number } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (resolveLocationJurisdiction(location).key !== 'north') {
+      return { ok: false, message: '红灯服务当前只在诺丝区开放。' };
+    }
+    const venue = redLightVenue || buildRedLightVenue(location || '诺丝区·红绡馆', redLightAuthoredCandidates);
+    const provider = venue.providers.find(item => item.id === providerId);
+    const service = venue.services.find(item => item.id === serviceId);
+    if (!provider || !service) {
+      return { ok: false, message: '当前名单或服务单已刷新，请重新选择。' };
+    }
+    if (playerStats.credits < service.price) {
+      return { ok: false, message: '灵能币不足，无法完成本次消费。' };
+    }
+    const lifeResult = applyLifeAdvance(playerStats, {
+      mode: 'dialogue',
+      minutes: service.category === 'overnight' ? 300 : service.category === 'private_room' ? 120 : 70,
+    });
+    const resolvedAtIso = new Date().toISOString();
+    const resolvedAtDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const detail = `你在 ${venue.title} 选中了 ${provider.label} 的「${service.label}」，支出 ${service.price} 灵能币。${service.summary}`;
+    setPlayerStats({
+      ...lifeResult.stats,
+      credits: Math.max(0, playerStats.credits - service.price),
+    });
+    pushFinanceLedgerEntry({
+      kind: 'lifestyle',
+      title: '红灯服务消费',
+      detail: `${venue.title} / ${provider.label} / ${service.label} / 支出 ${service.price} 灵能币。`,
+      amount: -service.price,
+      counterparty: venue.title,
+    });
+    const nextRecord: RedLightSessionRecord = {
+      id: `red_light_guest_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      venueId: venue.id,
+      venueTitle: venue.title,
+      providerId: provider.id,
+      providerLabel: provider.label,
+      serviceId: service.id,
+      serviceLabel: service.label,
+      playerRole: 'guest',
+      price: service.price,
+      payout: 0,
+      net: -service.price,
+      resolvedAt: resolvedAtIso,
+      detail,
+    };
+    setRedLightHistory(prev => [nextRecord, ...prev].slice(0, 18));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `red_light_guest_${Date.now()}`,
+        sender: 'System',
+        content: `红灯服务已结算：${detail}\n生理变化：${buildLifeChangeSummary(lifeResult) || '轻微消耗'}`,
+        timestamp: resolvedAtDisplay,
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-${service.price.toLocaleString()} 灵能币`, 'text-rose-300');
+    return { ok: true, message: `已在 ${venue.title} 记账并完成「${service.label}」。`, net: -service.price };
+  };
+
+  const handleWorkRedLightShift = ({
+    serviceId,
+  }: {
+    serviceId: string;
+  }): { ok: boolean; message?: string; net?: number } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (resolveLocationJurisdiction(location).key !== 'north') {
+      return { ok: false, message: '上工当前只在诺丝区开放。' };
+    }
+    if (playerGender !== 'female') {
+      return { ok: false, message: '当前只有女性角色能直接接入这条上工链。' };
+    }
+    const venue = redLightVenue || buildRedLightVenue(location || '诺丝区·红绡馆', redLightAuthoredCandidates);
+    const service = venue.services.find(item => item.id === serviceId);
+    if (!service) {
+      return { ok: false, message: '当前服务单已刷新，请重新选择。' };
+    }
+    const safeStats = ensurePlayerLifeStats(playerStats);
+    if (safeStats.stamina.current < 18 || safeStats.satiety.current < 12) {
+      return { ok: false, message: '体力或饱腹过低，当前不适合接单上工。' };
+    }
+    const basePayout = Math.round(service.price * 0.58);
+    const charismaBonus = Math.max(0, Math.round((playerStats.sixDim?.魅力 || 0) * 3.5));
+    const payout = basePayout + charismaBonus;
+    const lifeResult = applyLifeAdvance(playerStats, {
+      mode: 'dialogue',
+      minutes: service.category === 'overnight' ? 260 : service.category === 'private_room' ? 140 : 90,
+    });
+    const nextStats = {
+      ...lifeResult.stats,
+      credits: Math.max(0, playerStats.credits + payout),
+      stamina: {
+        ...lifeResult.stats.stamina,
+        current: Math.max(0, lifeResult.stats.stamina.current - (service.category === 'overnight' ? 8 : 4)),
+      },
+      satiety: {
+        ...lifeResult.stats.satiety,
+        current: Math.max(0, lifeResult.stats.satiety.current - (service.category === 'overnight' ? 6 : 3)),
+      },
+    };
+    const resolvedAtIso = new Date().toISOString();
+    const resolvedAtDisplay = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    const detail = `${playerName || '玩家'} 在 ${venue.title} 接下「${service.label}」，收入 ${payout} 灵能币。`;
+    setPlayerStats(nextStats);
+    pushFinanceLedgerEntry({
+      kind: 'lifestyle',
+      title: '红灯区上工',
+      detail: `${venue.title} / ${service.label} / 入账 ${payout} 灵能币。`,
+      amount: payout,
+      counterparty: venue.title,
+    });
+    const nextRecord: RedLightSessionRecord = {
+      id: `red_light_worker_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      venueId: venue.id,
+      venueTitle: venue.title,
+      serviceId: service.id,
+      serviceLabel: service.label,
+      playerRole: 'worker',
+      price: 0,
+      payout,
+      net: payout,
+      resolvedAt: resolvedAtIso,
+      detail,
+    };
+    setRedLightHistory(prev => [nextRecord, ...prev].slice(0, 18));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `red_light_worker_${Date.now()}`,
+        sender: 'System',
+        content: `上工已结算：${detail}\n生理变化：${buildLifeStateDigest(nextStats)}`,
+        timestamp: resolvedAtDisplay,
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`+${payout.toLocaleString()} 灵能币`, 'text-emerald-300');
+    return { ok: true, message: `已完成一轮上工，入账 ${payout} 灵能币。`, net: payout };
+  };
+
   const handleImportSocialPost = (draft: SocialImportDraft) => {
     const now = new Date().toISOString();
     const existingTarget = draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
@@ -6587,7 +6861,7 @@ const App: React.FC = () => {
   const handleTriggerSceneAction = (action: SceneActionDescriptor) => {
     if (action.route === 'black_race_bet') {
       setSceneModal(null);
-      setGamblingHubState({ initialTab: resolveGamblingInitialTab() });
+      setGamblingHubState({ initialTab: 'black_race' });
       return;
     }
 
@@ -8396,6 +8670,8 @@ const App: React.FC = () => {
     setBlackRaceHistory([]);
     setHorseRaceMeet(buildHorseRaceMeet());
     setHorseRaceHistory([]);
+    setRedLightVenue(null);
+    setRedLightHistory([]);
     setSlotHistory([]);
     setStateLock({
       lockTime: false,
@@ -8873,6 +9149,8 @@ const App: React.FC = () => {
     setBlackRaceHistory([]);
     setHorseRaceMeet(buildHorseRaceMeet());
     setHorseRaceHistory([]);
+    setRedLightVenue(null);
+    setRedLightHistory([]);
     setSlotHistory([]);
     setPlayerWardrobe(EMPTY_WARDROBE_STATE);
     setGameStage('setup');
@@ -10147,15 +10425,20 @@ const App: React.FC = () => {
           <GamblingHubModal
             currentLocationLabel={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
             playerCredits={playerStats.credits}
+            playerGender={playerGender}
             initialTab={gamblingHubState.initialTab}
             blackRaceMarket={blackRaceMarket}
             blackRaceHistory={blackRaceHistory}
             horseRaceMeet={horseRaceMeet}
             horseRaceHistory={horseRaceHistory}
+            redLightVenue={redLightVenue}
+            redLightHistory={redLightHistory}
             slotHistory={slotHistory}
             onClose={() => setGamblingHubState(null)}
             onPlaceBlackRaceBet={handlePlaceBlackRaceBet}
             onPlaceHorseRaceBet={handlePlaceHorseRaceBet}
+            onBookRedLightService={handleBookRedLightService}
+            onWorkRedLightShift={handleWorkRedLightShift}
             onSpinSlots={handleSpinSlotMachine}
           />
         )}

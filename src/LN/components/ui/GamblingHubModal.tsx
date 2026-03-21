@@ -1,22 +1,27 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Coins, Dice3, Flag, Sparkles, Ticket, Trophy, X } from 'lucide-react';
+import { Coins, Dice3, Flag, HeartHandshake, Sparkles, Ticket, Trophy, X } from 'lucide-react';
 import {
   BlackRaceBetRecord,
   BlackRaceMarket,
   GamblingHubTab,
   HorseRaceBetRecord,
   HorseRaceMeet,
+  RedLightSessionRecord,
+  RedLightVenue,
   SlotSpinRecord,
 } from '../../types';
 
 interface Props {
   currentLocationLabel: string;
   playerCredits: number;
+  playerGender: 'male' | 'female';
   initialTab: GamblingHubTab;
   blackRaceMarket: BlackRaceMarket | null;
   blackRaceHistory: BlackRaceBetRecord[];
   horseRaceMeet: HorseRaceMeet | null;
   horseRaceHistory: HorseRaceBetRecord[];
+  redLightVenue: RedLightVenue | null;
+  redLightHistory: RedLightSessionRecord[];
   slotHistory: SlotSpinRecord[];
   onClose: () => void;
   onPlaceBlackRaceBet: (payload: {
@@ -27,6 +32,13 @@ interface Props {
     runnerId: string;
     amount: number;
   }) => { ok: boolean; message?: string; outcome?: 'win' | 'lose'; payout?: number; net?: number };
+  onBookRedLightService: (payload: {
+    providerId: string;
+    serviceId: string;
+  }) => { ok: boolean; message?: string; net?: number };
+  onWorkRedLightShift: (payload: {
+    serviceId: string;
+  }) => { ok: boolean; message?: string; net?: number };
   onSpinSlots: (payload: {
     amount: number;
   }) => { ok: boolean; message?: string; outcome?: SlotSpinRecord['outcome']; payout?: number; net?: number };
@@ -36,6 +48,7 @@ const TABS: Array<{ id: GamblingHubTab; label: string; icon: React.ReactNode }> 
   { id: 'black_race', label: '黑赛', icon: <Flag className="h-3.5 w-3.5" /> },
   { id: 'horse_race', label: '赛马', icon: <Trophy className="h-3.5 w-3.5" /> },
   { id: 'slot_machine', label: '三转盘', icon: <Dice3 className="h-3.5 w-3.5" /> },
+  { id: 'red_light', label: '红灯服务', icon: <HeartHandshake className="h-3.5 w-3.5" /> },
 ];
 
 const formatClock = (timestamp: string) => {
@@ -49,21 +62,28 @@ const formatSigned = (value: number) => `${value >= 0 ? '+' : '-'}${Math.abs(val
 const GamblingHubModal: React.FC<Props> = ({
   currentLocationLabel,
   playerCredits,
+  playerGender,
   initialTab,
   blackRaceMarket,
   blackRaceHistory,
   horseRaceMeet,
   horseRaceHistory,
+  redLightVenue,
+  redLightHistory,
   slotHistory,
   onClose,
   onPlaceBlackRaceBet,
   onPlaceHorseRaceBet,
+  onBookRedLightService,
+  onWorkRedLightShift,
   onSpinSlots,
 }) => {
   const [activeTab, setActiveTab] = useState<GamblingHubTab>(initialTab);
   const [notice, setNotice] = useState('');
   const [blackRaceOptionId, setBlackRaceOptionId] = useState('');
   const [horseRunnerId, setHorseRunnerId] = useState('');
+  const [redLightProviderId, setRedLightProviderId] = useState('');
+  const [redLightServiceId, setRedLightServiceId] = useState('');
   const [betAmount, setBetAmount] = useState('120');
   const [slotAmount, setSlotAmount] = useState('80');
 
@@ -91,6 +111,26 @@ const GamblingHubModal: React.FC<Props> = ({
     );
   }, [horseRaceMeet]);
 
+  useEffect(() => {
+    if (!redLightVenue?.providers?.length) {
+      setRedLightProviderId('');
+      return;
+    }
+    setRedLightProviderId(current =>
+      redLightVenue.providers.some(provider => provider.id === current) ? current : redLightVenue.providers[0].id,
+    );
+  }, [redLightVenue]);
+
+  useEffect(() => {
+    if (!redLightVenue?.services?.length) {
+      setRedLightServiceId('');
+      return;
+    }
+    setRedLightServiceId(current =>
+      redLightVenue.services.some(service => service.id === current) ? current : redLightVenue.services[0].id,
+    );
+  }, [redLightVenue]);
+
   const selectedBlackRaceOption = useMemo(
     () => blackRaceMarket?.options.find(option => option.id === blackRaceOptionId) || null,
     [blackRaceMarket, blackRaceOptionId],
@@ -99,9 +139,18 @@ const GamblingHubModal: React.FC<Props> = ({
     () => horseRaceMeet?.runners.find(runner => runner.id === horseRunnerId) || null,
     [horseRaceMeet, horseRunnerId],
   );
+  const selectedRedLightProvider = useMemo(
+    () => redLightVenue?.providers.find(provider => provider.id === redLightProviderId) || null,
+    [redLightProviderId, redLightVenue],
+  );
+  const selectedRedLightService = useMemo(
+    () => redLightVenue?.services.find(service => service.id === redLightServiceId) || null,
+    [redLightServiceId, redLightVenue],
+  );
 
   const recentBlackRaceHistory = useMemo(() => blackRaceHistory.slice(0, 5), [blackRaceHistory]);
   const recentHorseRaceHistory = useMemo(() => horseRaceHistory.slice(0, 5), [horseRaceHistory]);
+  const recentRedLightHistory = useMemo(() => redLightHistory.slice(0, 5), [redLightHistory]);
   const recentSlotHistory = useMemo(() => slotHistory.slice(0, 5), [slotHistory]);
 
   const submitBlackRace = () => {
@@ -135,10 +184,33 @@ const GamblingHubModal: React.FC<Props> = ({
     setNotice(result.message || '转盘已完成结算。');
   };
 
+  const submitRedLightBooking = () => {
+    if (!selectedRedLightProvider || !selectedRedLightService) {
+      setNotice('请先锁定名单和服务单。');
+      return;
+    }
+    const result = onBookRedLightService({
+      providerId: selectedRedLightProvider.id,
+      serviceId: selectedRedLightService.id,
+    });
+    setNotice(result.message || '红灯服务已完成记账。');
+  };
+
+  const submitRedLightShift = () => {
+    if (!selectedRedLightService) {
+      setNotice('请先选择要接的服务单。');
+      return;
+    }
+    const result = onWorkRedLightShift({
+      serviceId: selectedRedLightService.id,
+    });
+    setNotice(result.message || '上工结算已完成。');
+  };
+
   return (
     <div className="fixed inset-0 z-[147] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-5xl rounded-3xl border border-fuchsia-500/18 bg-[#05070b] shadow-2xl"
+        className="w-full max-w-6xl rounded-3xl border border-fuchsia-500/18 bg-[#05070b] shadow-2xl"
         onClick={event => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
@@ -147,7 +219,7 @@ const GamblingHubModal: React.FC<Props> = ({
               <Sparkles className="h-4 w-4" />
               生活层 / 娱乐子层
             </div>
-            <div className="mt-1 text-xl font-bold text-white">诺丝区博彩接口</div>
+            <div className="mt-1 text-xl font-bold text-white">诺丝区娱乐中枢</div>
             <div className="mt-1 text-xs text-slate-400">
               当前锚点：{currentLocationLabel} / 灵能币余额 {playerCredits.toLocaleString()}
             </div>
@@ -192,7 +264,6 @@ const GamblingHubModal: React.FC<Props> = ({
                     <div className="mt-1 text-sm text-slate-300">{blackRaceMarket?.venue || '诺丝区·黑赛下注点'}</div>
                     <div className="mt-1 text-xs text-slate-400">{blackRaceMarket?.heatLabel || '盘口平稳'}</div>
                   </div>
-
                   <div className="grid gap-3">
                     {(blackRaceMarket?.options || []).map(option => (
                       <button
@@ -218,7 +289,6 @@ const GamblingHubModal: React.FC<Props> = ({
                       </button>
                     ))}
                   </div>
-
                   <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       {[120, 300, 600].map(value => (
@@ -260,7 +330,6 @@ const GamblingHubModal: React.FC<Props> = ({
                     <div className="mt-1 text-sm text-slate-300">{horseRaceMeet?.venue || '诺丝区·赛马下注台'}</div>
                     <div className="mt-1 text-xs text-slate-400">{horseRaceMeet?.heatLabel || '场次准备中'}</div>
                   </div>
-
                   <div className="grid gap-3">
                     {(horseRaceMeet?.runners || []).map(runner => (
                       <button
@@ -283,16 +352,9 @@ const GamblingHubModal: React.FC<Props> = ({
                             <div className="text-[11px] text-slate-500">稳 {runner.stability} / 冲 {runner.sprint}</div>
                           </div>
                         </div>
-                        <div className="mt-3 grid grid-cols-4 gap-2 text-[11px] text-slate-400">
-                          <div className="rounded-full border border-white/8 bg-black/20 px-2 py-1">速 {runner.speed}</div>
-                          <div className="rounded-full border border-white/8 bg-black/20 px-2 py-1">稳 {runner.stability}</div>
-                          <div className="rounded-full border border-white/8 bg-black/20 px-2 py-1">耐 {runner.endurance}</div>
-                          <div className="rounded-full border border-white/8 bg-black/20 px-2 py-1">冲 {runner.sprint}</div>
-                        </div>
                       </button>
                     ))}
                   </div>
-
                   <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       {[120, 300, 600].map(value => (
@@ -338,7 +400,6 @@ const GamblingHubModal: React.FC<Props> = ({
                       <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-2">双同：1.5x - 2.4x</div>
                     </div>
                   </div>
-
                   <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
                     <div className="flex flex-wrap items-center gap-2">
                       {[80, 160, 320].map(value => (
@@ -371,6 +432,101 @@ const GamblingHubModal: React.FC<Props> = ({
                   </div>
                 </>
               )}
+
+              {activeTab === 'red_light' && (
+                <>
+                  <div className="rounded-[24px] border border-pink-500/15 bg-pink-500/[0.05] px-4 py-4">
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-pink-200/60">Red Light</div>
+                    <div className="mt-2 text-lg font-semibold text-white">{redLightVenue?.title || '红灯场所未上线'}</div>
+                    <div className="mt-1 text-sm text-slate-300">{redLightVenue?.locationLabel || '诺丝区·罪吻广场'}</div>
+                    <div className="mt-1 text-xs text-slate-400">{redLightVenue?.heatLabel || '场内热度待刷新'}</div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[1fr,1fr]">
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-200/70">名单</div>
+                      {(redLightVenue?.providers || []).map(provider => (
+                        <button
+                          key={provider.id}
+                          type="button"
+                          onClick={() => setRedLightProviderId(provider.id)}
+                          className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
+                            selectedRedLightProvider?.id === provider.id
+                              ? 'border-pink-400/30 bg-pink-500/10'
+                              : 'border-white/10 bg-white/[0.03] hover:border-pink-300/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-white">{provider.label}</div>
+                              <div className="mt-1 text-xs text-slate-400">{provider.role} / {provider.style}</div>
+                            </div>
+                            <div className="text-[11px] text-slate-500">{provider.source === 'authored' ? '命名人物' : '运行时生成'}</div>
+                          </div>
+                          <div className="mt-2 text-xs text-slate-400">{provider.summary}</div>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-pink-200/70">服务单</div>
+                      {(redLightVenue?.services || []).map(service => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => setRedLightServiceId(service.id)}
+                          className={`w-full rounded-[22px] border px-4 py-4 text-left transition ${
+                            selectedRedLightService?.id === service.id
+                              ? 'border-pink-400/30 bg-pink-500/10'
+                              : 'border-white/10 bg-white/[0.03] hover:border-pink-300/20'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-white">{service.label}</div>
+                              <div className="mt-1 text-xs text-slate-400">{service.summary}</div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold text-amber-200">{service.price}</div>
+                              <div className="text-[11px] text-slate-500">{service.category}</div>
+                            </div>
+                          </div>
+                          <div className="mt-2 text-xs text-slate-500">{service.note}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[24px] border border-white/10 bg-white/[0.03] px-4 py-4">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={submitRedLightBooking}
+                        className="rounded-[18px] border border-pink-400/25 bg-pink-500/10 px-4 py-3 text-sm font-semibold text-pink-100 hover:bg-pink-500/18"
+                      >
+                        预约服务
+                      </button>
+                      <button
+                        type="button"
+                        onClick={submitRedLightShift}
+                        disabled={playerGender !== 'female'}
+                        className={`rounded-[18px] border px-4 py-3 text-sm font-semibold ${
+                          playerGender === 'female'
+                            ? 'border-fuchsia-300/25 bg-fuchsia-500/10 text-fuchsia-100 hover:bg-fuchsia-500/18'
+                            : 'border-white/10 bg-white/[0.03] text-slate-500'
+                        }`}
+                      >
+                        接单上工
+                      </button>
+                    </div>
+                    <div className="mt-3 text-xs text-slate-400">
+                      {playerGender === 'female'
+                        ? '女性角色可直接走上工结算链；作者命名人物会混入场内名单，但不等于常驻从业。'
+                        : '当前角色走消费链。后续如果要扩展其他从业方式，再单独拆职业支线。'}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="space-y-4">
@@ -380,7 +536,7 @@ const GamblingHubModal: React.FC<Props> = ({
                   当前回执
                 </div>
                 <div className="mt-3 rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-sm text-slate-300">
-                  {notice || '选择一个子层后即可在前端直接结算，下一轮 AI 再接收结果。'}
+                  {notice || '选择一个娱乐子层后即可在前端直接结算，下一轮 AI 再接收结果。'}
                 </div>
               </div>
 
@@ -391,9 +547,7 @@ const GamblingHubModal: React.FC<Props> = ({
                 </div>
                 <div className="mt-3 space-y-2">
                   {activeTab === 'black_race' && recentBlackRaceHistory.length === 0 && (
-                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">
-                      还没有黑赛记录。
-                    </div>
+                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">还没有黑赛记录。</div>
                   )}
                   {activeTab === 'black_race' && recentBlackRaceHistory.map(record => (
                     <div key={record.id} className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3">
@@ -406,9 +560,7 @@ const GamblingHubModal: React.FC<Props> = ({
                   ))}
 
                   {activeTab === 'horse_race' && recentHorseRaceHistory.length === 0 && (
-                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">
-                      还没有赛马记录。
-                    </div>
+                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">还没有赛马记录。</div>
                   )}
                   {activeTab === 'horse_race' && recentHorseRaceHistory.map(record => (
                     <div key={record.id} className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3">
@@ -421,9 +573,7 @@ const GamblingHubModal: React.FC<Props> = ({
                   ))}
 
                   {activeTab === 'slot_machine' && recentSlotHistory.length === 0 && (
-                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">
-                      还没有转盘记录。
-                    </div>
+                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">还没有转盘记录。</div>
                   )}
                   {activeTab === 'slot_machine' && recentSlotHistory.map(record => (
                     <div key={record.id} className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3">
@@ -432,6 +582,19 @@ const GamblingHubModal: React.FC<Props> = ({
                         <span className={record.net >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{formatSigned(record.net)}</span>
                       </div>
                       <div className="mt-1 text-[11px] text-slate-400">{record.outcome} / {formatClock(record.resolvedAt)}</div>
+                    </div>
+                  ))}
+
+                  {activeTab === 'red_light' && recentRedLightHistory.length === 0 && (
+                    <div className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3 text-xs text-slate-500">还没有红灯服务记录。</div>
+                  )}
+                  {activeTab === 'red_light' && recentRedLightHistory.map(record => (
+                    <div key={record.id} className="rounded-[18px] border border-white/8 bg-black/20 px-3 py-3">
+                      <div className="flex items-center justify-between gap-3 text-sm">
+                        <span className="font-semibold text-white">{record.playerRole === 'worker' ? `上工 / ${record.serviceLabel}` : `${record.providerLabel || '场内名单'} / ${record.serviceLabel}`}</span>
+                        <span className={record.net >= 0 ? 'text-emerald-300' : 'text-rose-300'}>{formatSigned(record.net)}</span>
+                      </div>
+                      <div className="mt-1 text-[11px] text-slate-400">{record.venueTitle} / {formatClock(record.resolvedAt)}</div>
                     </div>
                   ))}
                 </div>

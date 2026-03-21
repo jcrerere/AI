@@ -132,6 +132,7 @@ export type FinanceLedgerKind =
   | 'social'
   | 'darknet'
   | 'gambling'
+  | 'lifestyle'
   | 'tax'
   | 'settlement'
   | 'task'
@@ -187,7 +188,7 @@ export interface BlackRaceBetRecord {
   detail: string;
 }
 
-export type GamblingHubTab = 'black_race' | 'horse_race' | 'slot_machine';
+export type GamblingHubTab = 'black_race' | 'horse_race' | 'slot_machine' | 'red_light';
 
 export interface HorseRaceRunner {
   id: string;
@@ -236,6 +237,53 @@ export interface SlotSpinRecord {
   stake: number;
   reels: string[];
   outcome: SlotSpinOutcome;
+  payout: number;
+  net: number;
+  resolvedAt: string;
+  detail: string;
+}
+
+export interface RedLightServiceOption {
+  id: string;
+  label: string;
+  category: 'escort' | 'performance' | 'private_room' | 'overnight';
+  price: number;
+  summary: string;
+  note: string;
+}
+
+export interface RedLightProvider {
+  id: string;
+  label: string;
+  source: 'runtime' | 'authored';
+  npcId?: string;
+  role: string;
+  venueLabel: string;
+  style: string;
+  summary: string;
+  tags: string[];
+}
+
+export interface RedLightVenue {
+  id: string;
+  title: string;
+  locationLabel: string;
+  heatLabel: string;
+  generatedAt: string;
+  providers: RedLightProvider[];
+  services: RedLightServiceOption[];
+}
+
+export interface RedLightSessionRecord {
+  id: string;
+  venueId: string;
+  venueTitle: string;
+  providerId?: string;
+  providerLabel?: string;
+  serviceId: string;
+  serviceLabel: string;
+  playerRole: 'guest' | 'worker';
+  price: number;
   payout: number;
   net: number;
   resolvedAt: string;
