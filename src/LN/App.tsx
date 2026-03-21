@@ -9271,13 +9271,37 @@ const App: React.FC = () => {
                   )}
                 </span>
               </button>
-              {sceneActionState.actions.length > 0 ? (
-                sceneActionState.actions.slice(0, 2).map(action => (
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <div className="rounded-full border border-cyan-500/15 bg-cyan-500/[0.06] px-3 py-1.5 text-[11px] font-semibold text-cyan-100">
+                生活层
+              </div>
+              {sceneActionState.lifeActions.length > 0 ? (
+                sceneActionState.lifeActions.slice(0, 2).map(action => (
                   <button
                     key={action.id}
                     type="button"
                     onClick={() => handleTriggerSceneAction(action)}
                     className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/18"
+                  >
+                    {action.label}
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+                  NULL
+                </div>
+              )}
+              <div className="rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-3 py-1.5 text-[11px] font-semibold text-amber-100">
+                交通层
+              </div>
+              {sceneActionState.transportActions.length > 0 ? (
+                sceneActionState.transportActions.slice(0, 2).map(action => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    onClick={() => handleTriggerSceneAction(action)}
+                    className="rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-[11px] font-semibold text-amber-100 hover:bg-amber-500/18"
                   >
                     {action.label}
                   </button>

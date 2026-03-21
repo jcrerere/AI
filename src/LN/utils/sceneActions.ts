@@ -1,10 +1,12 @@
 import { Item, Rank, RuntimeShopType } from '../types';
 
 export type SceneActionRoute = 'shop' | 'black_race_bet' | 'metro_route';
+export type SceneActionLayer = 'life' | 'transport';
 
 export interface SceneActionDescriptor {
   id: string;
   route: SceneActionRoute;
+  layer: SceneActionLayer;
   label: string;
   detail: string;
   source: 'location' | 'narrative' | 'ai';
@@ -72,6 +74,8 @@ export interface MetroNetwork {
 
 export interface SceneActionState {
   actions: SceneActionDescriptor[];
+  lifeActions: SceneActionDescriptor[];
+  transportActions: SceneActionDescriptor[];
   shop: ProceduralShop | null;
   metro: MetroNetwork | null;
 }
@@ -142,6 +146,28 @@ const normalizeSceneActionRoute = (value: string): SceneActionRoute | null => {
   if (['black_race_bet', 'blackrace', 'gambling', 'bet', '下注', '赌局', '黑赛', '黑赛下注'].includes(text)) return 'black_race_bet';
   if (['metro_route', 'metro', 'subway', 'transit', '地铁', '线路', '乘车'].includes(text)) return 'metro_route';
   return null;
+};
+
+const resolveShopActionCopy = (
+  archetype: ProceduralShop['archetype'] | null,
+  isRestaurantScene: boolean,
+): { label: string; detail: string } => {
+  if (isRestaurantScene) {
+    return {
+      label: '选择用餐',
+      detail: '接入当前场景的餐厅菜单、订座和留菜入口。',
+    };
+  }
+  if (archetype === 'fashion') {
+    return {
+      label: '选购衣物',
+      detail: '接入当前场景的衣饰货架和后续委托入口。',
+    };
+  }
+  return {
+    label: '选择购物',
+    detail: '接入当前场景的交易货架。',
+  };
 };
 
 const SHOP_PATTERNS = {
@@ -384,12 +410,28 @@ export const inferSceneActionState = ({
   const shouldShowShop = !!shopArchetype || aiRoutes.includes('shop');
 
   const actionMap = new Map<SceneActionRoute, SceneActionDescriptor>();
-  const put = (route: SceneActionRoute, source: SceneActionDescriptor['source'], priority: number, label: string, detail: string) => {
+  const put = (
+    route: SceneActionRoute,
+    layerOrSource: SceneActionLayer | SceneActionDescriptor['source'],
+    sourceOrPriority: SceneActionDescriptor['source'] | number,
+    priorityOrLabel: number | string,
+    labelOrDetail?: string,
+    detailMaybe?: string,
+  ) => {
+    const isLegacyCall = typeof sourceOrPriority === 'number';
+    const layer = (isLegacyCall
+      ? (route === 'metro_route' ? 'transport' : 'life')
+      : layerOrSource) as SceneActionLayer;
+    const source = (isLegacyCall ? layerOrSource : sourceOrPriority) as SceneActionDescriptor['source'];
+    const priority = (isLegacyCall ? sourceOrPriority : priorityOrLabel) as number;
+    const label = (isLegacyCall ? priorityOrLabel : labelOrDetail) as string;
+    const detail = (isLegacyCall ? labelOrDetail : detailMaybe) as string;
     const current = actionMap.get(route);
     if (!current || priority > current.priority) {
       actionMap.set(route, {
         id: `scene_action_${route}`,
         route,
+        layer,
         label,
         detail,
         source,
@@ -405,12 +447,13 @@ export const inferSceneActionState = ({
       metro_route: { label: '查看线路', detail: '打开地铁线路并选择下车站。' },
     };
     if (route === 'metro_route' && !allowMetroRoute) return;
-    put(route, 'ai', 90, labels[route].label, labels[route].detail);
+    put(route, route === 'metro_route' ? 'transport' : 'life', 'ai', 90, labels[route].label, labels[route].detail);
   });
 
   if (shouldShowShop) {
     put(
       'shop',
+      'life',
       'narrative',
       70,
       isRestaurantScene ? '选择用餐' : '选择购物',
@@ -422,9 +465,12 @@ export const inferSceneActionState = ({
 
   const shop = shouldShowShop ? buildProceduralShop(currentLocation, latestPlayerInput, layerId, shopArchetype || 'general') : null;
   const metro = allowMetroRoute && hasMetroSignal ? buildMetroNetwork(currentLocation) : null;
+  const actions = [...actionMap.values()].sort((a, b) => b.priority - a.priority);
 
   return {
-    actions: [...actionMap.values()].sort((a, b) => b.priority - a.priority),
+    actions,
+    lifeActions: actions.filter(action => action.layer === 'life'),
+    transportActions: actions.filter(action => action.layer === 'transport'),
     shop,
     metro,
   };
