@@ -16,6 +16,7 @@ import PlayerSpiritCoreModal from './components/ui/PlayerSpiritCoreModal';
 import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import LocationControlHint from './components/ui/LocationControlHint';
 import SceneActionModal from './components/ui/SceneActionModal';
+import TravelSettlementModal from './components/ui/TravelSettlementModal';
 import StartScreen from './components/flow/StartScreen';
 import SplashScreen from './components/flow/SplashScreen';
 import GameSetup from './components/flow/GameSetup';
@@ -70,7 +71,7 @@ import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest } from './utils/economyRuntime';
-import { buildRuntimeMetroNetwork } from './utils/transportRuntime';
+import { buildMetroTravelSettlementPlan, buildRuntimeMetroNetwork, TravelSettlementPlan } from './utils/transportRuntime';
 import { inferSceneActionState, MetroNetwork, ProceduralShop, SceneActionDescriptor } from './utils/sceneActions';
 import {
   buildLocalMapDigest,
@@ -3430,6 +3431,7 @@ const App: React.FC = () => {
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
+  const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -6235,9 +6237,38 @@ const App: React.FC = () => {
     };
   };
 
+  const handleOpenTravelSettlement = (stopId: string): { ok: boolean; message: string } => {
+    const metro = sceneModal?.mode === 'metro' ? sceneModal.metro : null;
+    const option = metro?.options.find(entry => entry.stop.id === stopId);
+    if (!metro || !option) {
+      return { ok: false, message: '当前线路数据已失效，请重新打开地铁线路。' };
+    }
+
+    const settlementPlan = buildMetroTravelSettlementPlan({
+      metro,
+      option,
+      currentLocation: currentNarrativeLocation || playerFaction.headquarters || metro.currentStop.label,
+      currentElapsedMinutes: mapRuntime.elapsedMinutes || 0,
+    });
+    setTravelSettlement(settlementPlan);
+    setSceneModal(null);
+    return { ok: true, message: `已打开前往 ${option.stop.label} 的出行结算。` };
+  };
+
   const handleTravelByMetro = (stopId: string): { ok: boolean; message: string } => {
     const metro = sceneModal?.mode === 'metro' ? sceneModal.metro : null;
     const option = metro?.options.find(entry => entry.stop.id === stopId);
+    if (metro && option) {
+      const settlementPlan = buildMetroTravelSettlementPlan({
+        metro,
+        option,
+        currentLocation: currentNarrativeLocation || playerFaction.headquarters || metro.currentStop.label,
+        currentElapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+      setTravelSettlement(settlementPlan);
+      setSceneModal(null);
+      return { ok: true, message: `已打开前往 ${option.stop.label} 的出行结算。` };
+    }
     if (!metro || !option) {
       return { ok: false, message: '当前线路数据已失效，请重新打开地铁线路。' };
     }
@@ -6287,6 +6318,61 @@ const App: React.FC = () => {
     setSceneModal(null);
     spawnFloatingText(`-${option.fare} 灵能币`, 'text-amber-300');
     return { ok: true, message: `已乘车前往 ${option.stop.label}。` };
+  };
+
+  const handleConfirmTravelSettlement = (): { ok: boolean; message: string } => {
+    const plan = travelSettlement;
+    if (!plan) {
+      return { ok: false, message: '当前没有待确认的出行结算。' };
+    }
+    if (plan.mode !== 'metro') {
+      return { ok: false, message: '当前出行方式尚未接入正式结算。' };
+    }
+    if (playerStats.credits < plan.fare) {
+      return { ok: false, message: `余额不足，当前车费需要 ${plan.fare} 灵能币。` };
+    }
+
+    const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + plan.minutes;
+    const nextTimeLabel = formatGameTime(nextElapsedMinutes);
+    const layerId = `metro_arrival_${Date.now()}`;
+    const layerContent = buildPseudoLayerFromParts({
+      maintext: [
+        `你刷票进入${plan.routeLabel}，列车沿既定轨道驶向${plan.toLabel}。`,
+        '出行结算已经完成，时间和位置已正式写入当前运行时；下一轮 AI 会基于新的到达位置继续对戏。',
+      ].join('\n\n'),
+      sum: `地点:${plan.toLabel} | 时间:${nextTimeLabel} | 状态:地铁抵达`,
+    });
+
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - plan.fare),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'system',
+      title: '地铁车费',
+      detail: `${plan.fromLabel} -> ${plan.toLabel}`,
+      amount: -plan.fare,
+      counterparty: plan.routeLabel,
+    });
+    setMapRuntime(prev => ({
+      ...prev,
+      elapsedMinutes: nextElapsedMinutes,
+      logs: [...(prev.logs || []), `轨道通勤 ${plan.fromLabel} -> ${plan.toLabel}`].slice(-30),
+    }));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: layerId,
+        sender: 'System',
+        content: layerContent,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    setFocusedLayerId(layerId);
+    setTravelSettlement(null);
+    spawnFloatingText(`-${plan.fare} 灵能币`, 'text-amber-300');
+    return { ok: true, message: `已完成出行结算并抵达 ${plan.toLabel}。` };
   };
 
   const handleMarkCityTodoRead = useCallback((todoId: string) => {
@@ -9406,7 +9492,16 @@ const App: React.FC = () => {
             onClose={() => setSceneModal(null)}
             onBuy={handleBuySceneShopItem}
             onCommission={handleSubmitShopCommission}
-            onTravel={handleTravelByMetro}
+            onTravel={handleOpenTravelSettlement}
+          />
+        )}
+
+        {travelSettlement && (
+          <TravelSettlementModal
+            plan={travelSettlement}
+            credits={playerStats.credits}
+            onClose={() => setTravelSettlement(null)}
+            onConfirm={handleConfirmTravelSettlement}
           />
         )}
 

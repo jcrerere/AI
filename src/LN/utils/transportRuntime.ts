@@ -2,6 +2,27 @@ import { CityRuntimeData, TransportLineRecord, TransportStopRecord } from '../ty
 import { MetroLine, MetroNetwork, MetroStop, MetroTravelOption } from './sceneActions';
 import { buildRegionalTransitFare } from './economyRuntime';
 
+export type TravelSettlementMode = 'metro';
+
+export interface TravelSettlementPlan {
+  id: string;
+  mode: TravelSettlementMode;
+  modeLabel: string;
+  title: string;
+  fromLabel: string;
+  toLabel: string;
+  routeLabel: string;
+  districtLabel: string;
+  fare: number;
+  minutes: number;
+  transferCount: number;
+  currentTimeLabel: string;
+  arrivalTimeLabel: string;
+  summary: string;
+  lineIds: string[];
+  targetStopId: string;
+}
+
 const buildMetroStop = (stop: TransportStopRecord, runtime: CityRuntimeData): MetroStop => {
   const line = runtime.transportLines.find(entry => entry.stopIds.includes(stop.id));
   const districtLabel =
@@ -104,5 +125,49 @@ export const buildRuntimeMetroNetwork = (runtime: CityRuntimeData, currentLocati
     currentStop,
     lines,
     options: [...optionMap.values()].sort((a, b) => a.fare - b.fare || a.minutes - b.minutes),
+  };
+};
+
+const formatClockLabel = (elapsedMinutes: number): string => {
+  const base = new Date('2077-11-03T20:30:00');
+  const value = new Date(base.getTime() + Math.max(0, elapsedMinutes || 0) * 60_000);
+  const year = value.getFullYear();
+  const month = `${value.getMonth() + 1}`.padStart(2, '0');
+  const day = `${value.getDate()}`.padStart(2, '0');
+  const hours = `${value.getHours()}`.padStart(2, '0');
+  const minutes = `${value.getMinutes()}`.padStart(2, '0');
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+};
+
+export const buildMetroTravelSettlementPlan = (params: {
+  metro: MetroNetwork;
+  option: MetroTravelOption;
+  currentLocation: string;
+  currentElapsedMinutes: number;
+}): TravelSettlementPlan => {
+  const primaryLine = params.metro.lines.find(line => params.option.lineIds.includes(line.id));
+  const routeLabel = primaryLine?.name || params.option.lineIds[0]?.toUpperCase() || '轨道线路';
+  const transferCount = Math.max(0, params.option.lineIds.length - 1);
+  const nextElapsedMinutes = Math.max(0, params.currentElapsedMinutes || 0) + params.option.minutes;
+  return {
+    id: `travel_plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    mode: 'metro',
+    modeLabel: '地铁',
+    title: '出行结算',
+    fromLabel: params.metro.currentStop.label || params.currentLocation || '当前站点',
+    toLabel: params.option.stop.label,
+    routeLabel,
+    districtLabel: params.option.stop.district || params.option.stop.region,
+    fare: params.option.fare,
+    minutes: params.option.minutes,
+    transferCount,
+    currentTimeLabel: formatClockLabel(params.currentElapsedMinutes || 0),
+    arrivalTimeLabel: formatClockLabel(nextElapsedMinutes),
+    summary:
+      transferCount > 0
+        ? `本次轨道通勤需要换乘 ${transferCount} 次，确认后才会正式写入时间和位置。`
+        : '本次轨道通勤会在确认后正式写入时间和位置，不直接让 AI 先行跳转场景。',
+    lineIds: params.option.lineIds,
+    targetStopId: params.option.stop.id,
   };
 };
