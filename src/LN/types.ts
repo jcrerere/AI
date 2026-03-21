@@ -131,6 +131,7 @@ export interface DeductionRecord {
 export type FinanceLedgerKind =
   | 'social'
   | 'darknet'
+  | 'black_market'
   | 'gambling'
   | 'lifestyle'
   | 'tax'
@@ -189,6 +190,7 @@ export interface BlackRaceBetRecord {
 }
 
 export type GamblingHubTab = 'black_race' | 'horse_race' | 'slot_machine' | 'red_light';
+export type BlackMarketHubTab = 'backroom' | 'street_doctor' | 'commission';
 
 export interface HorseRaceRunner {
   id: string;
@@ -286,6 +288,53 @@ export interface RedLightSessionRecord {
   price: number;
   payout: number;
   net: number;
+  resolvedAt: string;
+  detail: string;
+}
+
+export interface BlackMarketListing {
+  id: string;
+  label: string;
+  channel: 'backroom' | 'dogtown';
+  price: number;
+  riskLabel: string;
+  summary: string;
+  note: string;
+  item: Item;
+}
+
+export interface StreetDoctorTreatment {
+  id: string;
+  label: string;
+  price: number;
+  intensity: 'light' | 'standard' | 'deep';
+  summary: string;
+  note: string;
+}
+
+export interface BlackMarketVenue {
+  id: string;
+  title: string;
+  locationLabel: string;
+  districtLabel: string;
+  heatLabel: string;
+  generatedAt: string;
+  refreshEpoch: number;
+  backroomLabel: string;
+  doctorLabel: string;
+  commissionLabel: string;
+  listings: BlackMarketListing[];
+  treatments: StreetDoctorTreatment[];
+  commissionHints: string[];
+}
+
+export interface BlackMarketRecord {
+  id: string;
+  venueId: string;
+  venueTitle: string;
+  kind: 'purchase' | 'treatment' | 'commission';
+  title: string;
+  amount: number;
   resolvedAt: string;
   detail: string;
 }

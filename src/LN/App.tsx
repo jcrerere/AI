@@ -17,6 +17,7 @@ import CareerLineEditorModal from './components/ui/CareerLineEditorModal';
 import LocationControlHint from './components/ui/LocationControlHint';
 import SceneActionModal from './components/ui/SceneActionModal';
 import GamblingHubModal from './components/ui/GamblingHubModal';
+import BlackMarketHubModal from './components/ui/BlackMarketHubModal';
 import TravelPlannerModal from './components/ui/TravelPlannerModal';
 import TravelSettlementModal from './components/ui/TravelSettlementModal';
 import StartScreen from './components/flow/StartScreen';
@@ -49,6 +50,9 @@ import {
   FinanceLedgerEntry,
   BlackRaceBetRecord,
   BlackRaceMarket,
+  BlackMarketHubTab,
+  BlackMarketRecord,
+  BlackMarketVenue,
   GamblingHubTab,
   HorseRaceBetRecord,
   HorseRaceMeet,
@@ -81,7 +85,7 @@ import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTu
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
-import { buildEconomyDigest } from './utils/economyRuntime';
+import { buildEconomyDigest, buildRegionalRetailPrice } from './utils/economyRuntime';
 import { applyLifeAdvance, buildLifeChangeSummary, buildLifeStateDigest, buildLifeStatusTags, ensurePlayerLifeStats } from './utils/lifeRuntime';
 import {
   buildMetroTravelSettlementPlan,
@@ -268,6 +272,8 @@ interface LnSaveData {
   horseRaceHistory?: HorseRaceBetRecord[];
   redLightVenue?: RedLightVenue | null;
   redLightHistory?: RedLightSessionRecord[];
+  blackMarketVenue?: BlackMarketVenue | null;
+  blackMarketHistory?: BlackMarketRecord[];
   slotHistory?: SlotSpinRecord[];
   playerResidence?: PlayerResidenceState;
   playerWardrobe?: PlayerWardrobeState;
@@ -815,6 +821,203 @@ const buildRedLightVenue = (locationLabel = '诺丝区·红绡馆', authored: Ar
     generatedAt: new Date().toISOString(),
     providers: [...authoredProviders, ...runtimeProviders].slice(0, 6),
     services,
+  };
+};
+
+const createSeededRng = (seedText: string) => {
+  let state = hashText(seedText) || 1;
+  return () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+};
+
+const shuffleWithRng = <T,>(items: T[], rng: () => number): T[] => {
+  const next = [...items];
+  for (let i = next.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [next[i], next[j]] = [next[j], next[i]];
+  }
+  return next;
+};
+
+const resolveBlackMarketBasePrice = (rank: Rank): number => {
+  switch (rank) {
+    case Rank.Lv1:
+      return 90;
+    case Rank.Lv2:
+      return 220;
+    case Rank.Lv3:
+      return 520;
+    case Rank.Lv4:
+      return 980;
+    case Rank.Lv5:
+      return 1800;
+    default:
+      return 120;
+  }
+};
+
+const NORTH_BLACK_MARKET_ITEM_POOL: Array<{
+  label: string;
+  riskLabel: string;
+  summary: string;
+  note: string;
+  item: Omit<Item, 'id' | 'quantity'>;
+}> = [
+  {
+    label: '夜莺制服高仿',
+    riskLabel: '身份敏感',
+    summary: '不能公开陈列的高仿制服，适合伪装与临时过门。',
+    note: '做工够骗过外行，但会被真正熟手盯住细节。',
+    item: { name: '夜莺制服高仿', icon: '🜂', description: '黑市流通的高仿机构制服。', category: 'equipment', rank: Rank.Lv4 },
+  },
+  {
+    label: '匿名签章卡',
+    riskLabel: '灰链流通',
+    summary: '帮你把一次身份链写得更干净，但来源不明。',
+    note: '适合短期过渡，不适合长时间挂在身上。',
+    item: { name: '匿名签章卡', icon: '🪪', description: '灰色渠道身份辅助件。', category: 'equipment', rank: Rank.Lv3 },
+  },
+  {
+    label: '深梦雾剂组',
+    riskLabel: '高波动',
+    summary: '夜场和黑赛圈流动最快的高风险雾剂。',
+    note: '账上不会承认这批货存在。',
+    item: { name: '深梦雾剂组', icon: '🌫️', description: '黑市高风险雾剂组合。', category: 'consumable', rank: Rank.Lv4 },
+  },
+  {
+    label: '零位拆机件',
+    riskLabel: '拆机来源',
+    summary: '从样机环库外流出来的拆机零件，性能好但路子脏。',
+    note: '更像半成品与素材包，不适合拿去公开保修。',
+    item: { name: '零位拆机件', icon: '🧩', description: '样机拆出的高规格零件。', category: 'material', rank: Rank.Lv3 },
+  },
+  {
+    label: '灰链礼服',
+    riskLabel: '场合挑人',
+    summary: '礼序圈里不该外流的高定礼服，来路敏感。',
+    note: '更贵的不是面料，是它代表的圈层关系。',
+    item: { name: '灰链礼服', icon: '👗', description: '灰色渠道流出的高定礼服。', category: 'equipment', rank: Rank.Lv4 },
+  },
+];
+
+const DOGTOWN_BLACK_MARKET_ITEM_POOL: Array<{
+  label: string;
+  riskLabel: string;
+  summary: string;
+  note: string;
+  item: Omit<Item, 'id' | 'quantity'>;
+}> = [
+  {
+    label: '狗镇通关挂签',
+    riskLabel: '边线专用',
+    summary: '只在狗镇小圈子里有点面子的挂签，不出镇就贬值。',
+    note: '能走几道门，全看今天谁在看岗。',
+    item: { name: '狗镇通关挂签', icon: '🏷️', description: '狗镇边线通关挂签。', category: 'equipment', rank: Rank.Lv3 },
+  },
+  {
+    label: '荒道急救包',
+    riskLabel: '粗暴耐用',
+    summary: '给荒地跑线人准备的急救组合，耐用但难看。',
+    note: '卖得好不是因为精细，是因为扛造。',
+    item: { name: '荒道急救包', icon: '🩹', description: '荒地跑线用急救补给。', category: 'consumable', rank: Rank.Lv2 },
+  },
+  {
+    label: '裂口样机碎片',
+    riskLabel: '来源混乱',
+    summary: '拼不出完整样机，但能当工坊素材和敲门砖。',
+    note: '谁也说不清它最初是从哪辆车上拆下来的。',
+    item: { name: '裂口样机碎片', icon: '🔩', description: '来源混乱的样机残件。', category: 'material', rank: Rank.Lv3 },
+  },
+  {
+    label: '野路身份带',
+    riskLabel: '一次性',
+    summary: '边地用的一次性身份缠带，够骗一次，不够骗一周。',
+    note: '适合过桥，不适合留档。',
+    item: { name: '野路身份带', icon: '🧵', description: '边地灰链身份缠带。', category: 'equipment', rank: Rank.Lv2 },
+  },
+];
+
+const buildBlackMarketVenue = (params: {
+  locationLabel: string;
+  districtId: string;
+  elapsedMinutes: number;
+}): BlackMarketVenue => {
+  const { locationLabel, districtId, elapsedMinutes } = params;
+  const isDogtown = districtId === 'borderland_dogtown' || /狗镇/.test(locationLabel);
+  const refreshEpoch = Math.max(1, Math.floor((elapsedMinutes || 0) / (24 * 60)) + 1);
+  const seed = `${districtId}|${locationLabel}|${refreshEpoch}|black_market`;
+  const rng = createSeededRng(seed);
+  const pool = isDogtown ? DOGTOWN_BLACK_MARKET_ITEM_POOL : NORTH_BLACK_MARKET_ITEM_POOL;
+  const selectedItems = shuffleWithRng(pool, rng).slice(0, isDogtown ? 4 : 5);
+  const tier = isDogtown ? 'street' : 'premium';
+  const listings = selectedItems.map((entry, index) => ({
+    id: `black_market_listing_${refreshEpoch}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+    label: entry.label,
+    channel: isDogtown ? ('dogtown' as const) : ('backroom' as const),
+    price: buildRegionalRetailPrice({
+      basePrice: resolveBlackMarketBasePrice(entry.item.rank),
+      category: 'black_market',
+      districtId,
+      locationLabel,
+      tier,
+      discountTier: 0,
+      seedText: `${seed}|listing|${entry.label}|${index}`,
+      extraFactor: isDogtown ? 0.96 + rng() * 0.18 : 1 + rng() * 0.16,
+    }),
+    riskLabel: entry.riskLabel,
+    summary: entry.summary,
+    note: entry.note,
+    item: {
+      id: `black_market_item_${refreshEpoch}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+      quantity: 1,
+      ...entry.item,
+    },
+  }));
+  const treatments = shuffleWithRng(
+    [
+      { label: '急缝止血', intensity: 'light' as const, basePrice: 180, summary: '处理外伤和短期失血，够你继续撑一段。', note: '快、粗、见效，但不走正规记录。' },
+      { label: '稳态压制', intensity: 'standard' as const, basePrice: 320, summary: '压下神经震荡和过载余波，让状态回到可控。', note: '更适合黑赛、夜场或熬夜后的回稳处理。' },
+      { label: '暗室换药', intensity: 'deep' as const, basePrice: 540, summary: '连换药、镇痛和短时观察一起做完，代价更高。', note: '需要更长时间，也会让你今天的行程被压缩。' },
+    ],
+    rng,
+  )
+    .slice(0, isDogtown ? 2 : 3)
+    .map((entry, index) => ({
+      id: `street_doctor_treatment_${refreshEpoch}_${index}_${Math.random().toString(36).slice(2, 6)}`,
+      label: entry.label,
+      intensity: entry.intensity,
+      price: buildRegionalRetailPrice({
+        basePrice: entry.basePrice,
+        category: 'black_market',
+        districtId,
+        locationLabel,
+        tier,
+        discountTier: 0,
+        seedText: `${seed}|treatment|${entry.label}|${index}`,
+        extraFactor: entry.intensity === 'deep' ? 1.1 : 1,
+      }),
+      summary: entry.summary,
+      note: entry.note,
+    }));
+
+  return {
+    id: `black_market_venue_${refreshEpoch}_${Math.random().toString(36).slice(2, 7)}`,
+    title: isDogtown ? '狗镇灰市节点' : '诺丝灰市中枢',
+    locationLabel,
+    districtLabel: isDogtown ? '狗镇片区 / 黑市渠道' : '诺丝区 / 灰市渠道',
+    heatLabel: isDogtown ? '狗镇小盘 / 风险抬价 / 护路抽成' : '暗柜流转 / 黑医活跃 / 代办走单',
+    generatedAt: new Date().toISOString(),
+    refreshEpoch,
+    backroomLabel: isDogtown ? '狗镇暗柜' : '烬梦针市',
+    doctorLabel: isDogtown ? '狗镇黑医窗' : '岚针诊台',
+    commissionLabel: isDogtown ? '狗镇盲签线' : '盲签屋',
+    listings,
+    treatments,
+    commissionHints: isDogtown
+      ? ['找过桥件', '挂临时身份', '补荒地急救包']
+      : ['代办走私货', '留一套高仿制服', '登记取货窗口'],
   };
 };
 
@@ -3687,10 +3890,13 @@ const App: React.FC = () => {
   const [horseRaceHistory, setHorseRaceHistory] = useState<HorseRaceBetRecord[]>([]);
   const [redLightVenue, setRedLightVenue] = useState<RedLightVenue | null>(null);
   const [redLightHistory, setRedLightHistory] = useState<RedLightSessionRecord[]>([]);
+  const [blackMarketVenue, setBlackMarketVenue] = useState<BlackMarketVenue | null>(null);
+  const [blackMarketHistory, setBlackMarketHistory] = useState<BlackMarketRecord[]>([]);
   const [slotHistory, setSlotHistory] = useState<SlotSpinRecord[]>([]);
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
   const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
   const [gamblingHubState, setGamblingHubState] = useState<{ initialTab: GamblingHubTab } | null>(null);
+  const [blackMarketState, setBlackMarketState] = useState<{ initialTab: BlackMarketHubTab } | null>(null);
   const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
   const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
@@ -4649,10 +4855,22 @@ const App: React.FC = () => {
     if (/转盘|老虎机|三转盘|slot/i.test(source)) return 'slot_machine';
     return 'black_race';
   }, [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction]);
+  const resolveBlackMarketInitialTab = useCallback((): BlackMarketHubTab => {
+    const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
+    if (/黑医|诊台|岚针|缝补|换药|稳态/.test(source)) return 'street_doctor';
+    if (/代办|走私|盲签|取货|挂签|高仿|帮我搞|留一套/.test(source)) return 'commission';
+    return 'backroom';
+  }, [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction]);
   const canOpenGamblingHub = useMemo(() => {
     if (currentLocationJurisdiction.key === 'north') return true;
     const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
     return /黑赛|下注|赌|赛马|马场|转盘|老虎机|博彩|红绡|罪吻|瘾巷|绮债|剥光|包厢|陪侍|留夜|妓|会所/.test(source);
+  }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
+  const canOpenBlackMarketHub = useMemo(() => {
+    if (currentLocationJurisdiction.key === 'borderland') return true;
+    if (currentLocationJurisdiction.key === 'north' && /诺丝区|罪吻|综合娱乐|大学|资本/.test(currentNarrativeLocation || '')) return true;
+    const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
+    return /黑市|灰市|暗柜|黑医|岚针|针市|盲签|走私|代办|狗镇/.test(source);
   }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
   const visibleLifeActions = useMemo(() => {
     const filtered = canOpenGamblingHub
@@ -4698,6 +4916,20 @@ const App: React.FC = () => {
       return buildRedLightVenue(locationLabel, redLightAuthoredCandidates);
     });
   }, [currentNarrativeLocation, playerFaction.headquarters, redLightAuthoredCandidates]);
+  useEffect(() => {
+    const locationLabel = currentNarrativeLocation || playerFaction.headquarters || '';
+    if (!locationLabel) return;
+    if (!canOpenBlackMarketHub) return;
+    const refreshEpoch = Math.max(1, Math.floor((mapRuntime.elapsedMinutes || 0) / (24 * 60)) + 1);
+    setBlackMarketVenue(prev => {
+      if (prev && prev.locationLabel === locationLabel && prev.refreshEpoch === refreshEpoch && prev.listings.length > 0) return prev;
+      return buildBlackMarketVenue({
+        locationLabel,
+        districtId: cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(locationLabel).id,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+    });
+  }, [canOpenBlackMarketHub, cityRuntime.currentDistrictId, currentNarrativeLocation, mapRuntime.elapsedMinutes, playerFaction.headquarters]);
   useEffect(() => {
     if (gameStage !== 'game') return;
     if (!latestProgressLayerMessage?.id) return;
@@ -5447,6 +5679,8 @@ const App: React.FC = () => {
     horseRaceHistory,
     redLightVenue,
     redLightHistory,
+    blackMarketVenue,
+    blackMarketHistory,
     slotHistory,
     playerResidence,
     playerWardrobe,
@@ -5535,6 +5769,8 @@ const App: React.FC = () => {
     setHorseRaceHistory(payload.horseRaceHistory || []);
     setRedLightVenue(payload.redLightVenue || null);
     setRedLightHistory(payload.redLightHistory || []);
+    setBlackMarketVenue(payload.blackMarketVenue || null);
+    setBlackMarketHistory(payload.blackMarketHistory || []);
     setSlotHistory(payload.slotHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
     setPlayerWardrobe(normalizeWardrobeState(payload.playerWardrobe));
@@ -6546,6 +6782,238 @@ const App: React.FC = () => {
     ]);
     spawnFloatingText(`+${payout.toLocaleString()} 灵能币`, 'text-emerald-300');
     return { ok: true, message: `已完成一轮上工，入账 ${payout} 灵能币。`, net: payout };
+  };
+
+  const handleBuyBlackMarketListing = ({
+    listingId,
+  }: {
+    listingId: string;
+  }): { ok: boolean; message?: string } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
+    const venue =
+      blackMarketVenue
+      || buildBlackMarketVenue({
+        locationLabel: location || '诺丝区·烬梦针市',
+        districtId,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+    const listing = venue.listings.find(item => item.id === listingId);
+    if (!listing) {
+      return { ok: false, message: '当前暗柜货架已刷新，请重新选择。' };
+    }
+    if (playerStats.credits < listing.price) {
+      return { ok: false, message: `灵能币不足，当前需要 ${listing.price} 灵能币。` };
+    }
+
+    const purchasedItem: Item = {
+      ...listing.item,
+      quantity: 1,
+      sourceShopId: venue.id,
+      sourceShopLabel: venue.backroomLabel,
+    };
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - listing.price),
+    }));
+    addInventoryItem(purchasedItem);
+    pushFinanceLedgerEntry({
+      kind: 'black_market',
+      title: '暗柜采购',
+      detail: `${venue.backroomLabel} / ${listing.label} / 支出 ${listing.price} 灵能币。`,
+      amount: -listing.price,
+      counterparty: venue.title,
+    });
+    const resolvedAt = new Date().toISOString();
+    const detail = `你在 ${venue.backroomLabel} 入手了 ${listing.label}，支出 ${listing.price} 灵能币。${listing.summary}`;
+    setBlackMarketHistory(prev => [
+      {
+        id: `black_market_purchase_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        venueId: venue.id,
+        venueTitle: venue.title,
+        kind: 'purchase',
+        title: listing.label,
+        amount: -listing.price,
+        resolvedAt,
+        detail,
+      },
+      ...prev,
+    ].slice(0, 24));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `black_market_purchase_${Date.now()}`,
+        sender: 'System',
+        content: `黑市采购已结算：${detail}`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-${listing.price.toLocaleString()} 灵能币`, 'text-rose-300');
+    return { ok: true, message: `已从 ${venue.backroomLabel} 取走 ${listing.label}。` };
+  };
+
+  const handleUseStreetDoctorTreatment = ({
+    treatmentId,
+  }: {
+    treatmentId: string;
+  }): { ok: boolean; message?: string } => {
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
+    const venue =
+      blackMarketVenue
+      || buildBlackMarketVenue({
+        locationLabel: location || '诺丝区·岚针诊台',
+        districtId,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+    const treatment = venue.treatments.find(item => item.id === treatmentId);
+    if (!treatment) {
+      return { ok: false, message: '当前黑医窗口已刷新，请重新选择。' };
+    }
+    if (playerStats.credits < treatment.price) {
+      return { ok: false, message: `灵能币不足，当前需要 ${treatment.price} 灵能币。` };
+    }
+
+    const baseResult = applyLifeAdvance(playerStats, {
+      mode: 'dialogue',
+      minutes: treatment.intensity === 'deep' ? 95 : treatment.intensity === 'standard' ? 55 : 30,
+    });
+    const safeStats = ensurePlayerLifeStats(baseResult.stats);
+    const staminaBoost = treatment.intensity === 'deep' ? 24 : treatment.intensity === 'standard' ? 16 : 9;
+    const satietyBoost = treatment.intensity === 'deep' ? 8 : treatment.intensity === 'standard' ? 4 : 0;
+    const nextStats = ensurePlayerLifeStats({
+      ...safeStats,
+      credits: Math.max(0, playerStats.credits - treatment.price),
+      stamina: {
+        ...safeStats.stamina,
+        current: Math.min(safeStats.stamina.max, safeStats.stamina.current + staminaBoost),
+      },
+      satiety: {
+        ...safeStats.satiety,
+        current: Math.min(safeStats.satiety.max, safeStats.satiety.current + satietyBoost),
+      },
+    });
+    setPlayerStats(nextStats);
+    pushFinanceLedgerEntry({
+      kind: 'black_market',
+      title: '黑医处理',
+      detail: `${venue.doctorLabel} / ${treatment.label} / 支出 ${treatment.price} 灵能币。`,
+      amount: -treatment.price,
+      counterparty: venue.title,
+    });
+    const resolvedAt = new Date().toISOString();
+    const detail = `你在 ${venue.doctorLabel} 接了「${treatment.label}」，支出 ${treatment.price} 灵能币。${treatment.summary}`;
+    setBlackMarketHistory(prev => [
+      {
+        id: `black_market_treatment_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        venueId: venue.id,
+        venueTitle: venue.title,
+        kind: 'treatment',
+        title: treatment.label,
+        amount: -treatment.price,
+        resolvedAt,
+        detail,
+      },
+      ...prev,
+    ].slice(0, 24));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `black_market_treatment_${Date.now()}`,
+        sender: 'System',
+        content: `黑医处理已结算：${detail}\n生理变化：${buildLifeStateDigest(nextStats)}`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-${treatment.price.toLocaleString()} 灵能币`, 'text-sky-300');
+    return { ok: true, message: `${treatment.label} 已处理完毕。` };
+  };
+
+  const handleSubmitBlackMarketCommission = ({
+    request,
+  }: {
+    request: string;
+  }): { ok: boolean; message?: string } => {
+    const trimmed = request.trim();
+    if (!trimmed) return { ok: false, message: '先把代办内容写清楚。' };
+    const location = currentNarrativeLocation || playerFaction.headquarters || '';
+    const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
+    const venue =
+      blackMarketVenue
+      || buildBlackMarketVenue({
+        locationLabel: location || '诺丝区·盲签屋',
+        districtId,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+    const isDogtown = districtId === 'borderland_dogtown' || /狗镇/.test(location);
+    const fee = buildRegionalRetailPrice({
+      basePrice: isDogtown ? 90 : 70,
+      category: 'black_market',
+      districtId,
+      locationLabel: location,
+      tier: isDogtown ? 'street' : 'standard',
+      discountTier: 0,
+      seedText: `${venue.id}|commission|${trimmed}`,
+      extraFactor: 1,
+    });
+    if (playerStats.credits < fee) {
+      return { ok: false, message: `灵能币不足，当前代办登记费需要 ${fee} 灵能币。` };
+    }
+    const dueAtMinutes = (mapRuntime.elapsedMinutes || 0) + (isDogtown ? 2 * 24 * 60 : 24 * 60);
+    const todoResult = upsertRuntimeTodo(cityRuntime, {
+      title: `灰市代办：${trimmed}`,
+      category: 'commission',
+      status: 'active',
+      sourceType: 'scene',
+      sourceId: venue.id,
+      locationLabel: venue.locationLabel,
+      dueAtMinutes,
+      createdAtMinutes: mapRuntime.elapsedMinutes || 0,
+      summary: `已在 ${venue.commissionLabel} 登记灰市代办，前置手续费已入账。`,
+      detail: `渠道：${venue.commissionLabel}\n地点：${venue.locationLabel}\n请求：${trimmed}\n备注：${isDogtown ? '狗镇小盘走单，周期更长，失手率更高。' : '诺丝灰市走单，优先排入下一轮盲签窗口。'}`,
+      routeHint: 'black_market',
+    });
+    setCityRuntime(todoResult.runtime);
+    setPlayerStats(prev => ({
+      ...prev,
+      credits: Math.max(0, prev.credits - fee),
+    }));
+    pushFinanceLedgerEntry({
+      kind: 'black_market',
+      title: '黑市代办登记',
+      detail: `${venue.commissionLabel} / ${trimmed} / 支出 ${fee} 灵能币。`,
+      amount: -fee,
+      counterparty: venue.title,
+    });
+    const resolvedAt = new Date().toISOString();
+    const detail = `你在 ${venue.commissionLabel} 登记了「${trimmed}」，先付 ${fee} 灵能币作为渠道费。`;
+    setBlackMarketHistory(prev => [
+      {
+        id: `black_market_commission_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        venueId: venue.id,
+        venueTitle: venue.title,
+        kind: 'commission',
+        title: trimmed,
+        amount: -fee,
+        resolvedAt,
+        detail,
+      },
+      ...prev,
+    ].slice(0, 24));
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `black_market_commission_${Date.now()}`,
+        sender: 'System',
+        content: `黑市代办已登记：${detail}\n新的待办已写入城域账本。`,
+        timestamp: new Date().toLocaleTimeString('zh-CN', { hour12: false }),
+        type: 'narrative',
+      },
+    ]);
+    spawnFloatingText(`-${fee.toLocaleString()} 灵能币`, 'text-amber-300');
+    return { ok: true, message: `${todoResult.created ? '已登记' : '已刷新'}代办待办：${todoResult.todo.title}` };
   };
 
   const handleImportSocialPost = (draft: SocialImportDraft) => {
@@ -10059,6 +10527,18 @@ const App: React.FC = () => {
                   娱乐
                 </button>
               )}
+              {canOpenBlackMarketHub && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSceneModal(null);
+                    setBlackMarketState({ initialTab: resolveBlackMarketInitialTab() });
+                  }}
+                  className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/18"
+                >
+                  黑市
+                </button>
+              )}
               {visibleLifeActions.length > 0 ? (
                 visibleLifeActions.map(action => (
                   <button
@@ -10071,7 +10551,7 @@ const App: React.FC = () => {
                   </button>
                 ))
               ) : (
-                !canOpenGamblingHub && <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+                !canOpenGamblingHub && !canOpenBlackMarketHub && <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
                   NULL
                 </div>
               )}
@@ -10440,6 +10920,20 @@ const App: React.FC = () => {
             onBookRedLightService={handleBookRedLightService}
             onWorkRedLightShift={handleWorkRedLightShift}
             onSpinSlots={handleSpinSlotMachine}
+          />
+        )}
+
+        {blackMarketState && (
+          <BlackMarketHubModal
+            currentLocationLabel={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
+            playerCredits={playerStats.credits}
+            initialTab={blackMarketState.initialTab}
+            venue={blackMarketVenue}
+            history={blackMarketHistory}
+            onClose={() => setBlackMarketState(null)}
+            onBuyListing={handleBuyBlackMarketListing}
+            onUseTreatment={handleUseStreetDoctorTreatment}
+            onSubmitCommission={handleSubmitBlackMarketCommission}
           />
         )}
 
