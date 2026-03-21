@@ -16,10 +16,14 @@ const SceneActionModal: React.FC<Props> = props => {
   const [notice, setNotice] = useState<string>('');
   const [commissionDraft, setCommissionDraft] = useState('');
   const isRestaurant = props.mode === 'shop' && props.shop?.shopMode === 'restaurant';
+  const isFashionShop = props.mode === 'shop' && props.shop?.type === 'clothing';
   const title = props.mode === 'shop' ? props.shop?.title || '固定店铺' : '地铁线路';
   const kicker = props.mode === 'shop' ? (isRestaurant ? '固定餐厅' : '固定店铺') : '轨道通勤';
   const icon = props.mode === 'shop' ? <ShoppingBag className="w-4 h-4" /> : <TrainFront className="w-4 h-4" />;
   const colorClass = props.mode === 'shop' ? (isRestaurant ? 'border-rose-500/20 bg-rose-500/[0.05]' : 'border-cyan-500/20 bg-cyan-500/[0.05]') : 'border-amber-500/20 bg-amber-500/[0.05]';
+  const displayItemActionLabel = isFashionShop ? '收入衣柜' : itemActionLabel;
+  const displayCommissionSectionLabel = isFashionShop ? '定制 / 代办' : commissionSectionLabel;
+  const displayFrontShelfLabel = isFashionShop ? '当期衣架' : frontShelfLabel;
   const itemActionLabel = isRestaurant ? '点单' : '购买';
   const commissionSectionLabel = isRestaurant ? '订座 / 留菜' : '进货委托';
   const frontShelfLabel = isRestaurant ? props.shop?.venueLabel || '当期菜单' : '前台货架';
@@ -109,8 +113,28 @@ const SceneActionModal: React.FC<Props> = props => {
                 </div>
               )}
 
+              {isFashionShop && (
+                <div className="grid gap-2 text-xs text-slate-400 md:grid-cols-3">
+                  <div className="rounded-2xl border border-fuchsia-500/15 bg-fuchsia-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-fuchsia-200/70">当前穿搭</div>
+                    <div className="mt-1 text-fuchsia-50">{props.shop?.wardrobeSummary?.currentLabel || '未设当前穿搭'}</div>
+                    <div className="mt-1 text-[11px] text-slate-400">{props.shop?.wardrobeSummary?.note || '购入后会自动写入衣柜。'}</div>
+                  </div>
+                  <div className="rounded-2xl border border-fuchsia-500/15 bg-fuchsia-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-fuchsia-200/70">衣柜规模</div>
+                    <div className="mt-1 text-fuchsia-50">{props.shop?.wardrobeSummary?.ownedCount || 0} 件</div>
+                    <div className="mt-1 text-[11px] text-slate-400">衣物按场景、印象和品质记录，不直接显示数值魅力。</div>
+                  </div>
+                  <div className="rounded-2xl border border-fuchsia-500/15 bg-fuchsia-500/[0.04] px-3 py-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-fuchsia-200/70">本店规则</div>
+                    <div className="mt-1 text-fuchsia-50">风格固定，库存滚动更新</div>
+                    <div className="mt-1 text-[11px] text-slate-400">老货会滞留，新货会补进，暗柜货只走敏感渠道。</div>
+                  </div>
+                </div>
+              )}
+
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{frontShelfLabel}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{displayFrontShelfLabel}</div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   {frontItems.map(item => (
                     <div key={item.id} className={`rounded-2xl border px-4 py-4 ${colorClass}`}>
@@ -124,6 +148,25 @@ const SceneActionModal: React.FC<Props> = props => {
                               {item.category} | {item.rank}
                               {item.styleTags?.length ? ` | ${item.styleTags.join(' / ')}` : ''}
                             </div>
+                            {isFashionShop && item.clothingProfile && (
+                              <div className="mt-3 space-y-2 text-[11px]">
+                                <div className="flex flex-wrap gap-1">
+                                  <span className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-fuchsia-100">
+                                    {item.clothingProfile.categoryLabel}
+                                  </span>
+                                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-slate-200">
+                                    {item.clothingProfile.quality}
+                                  </span>
+                                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-slate-200">
+                                    {item.clothingProfile.silhouette}
+                                  </span>
+                                </div>
+                                <div className="text-slate-400">
+                                  适合 {item.clothingProfile.sceneTags.join('、')}
+                                  {item.clothingProfile.cautionTags.length ? ` | 注意 ${item.clothingProfile.cautionTags.join('、')}` : ''}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="text-right">
@@ -133,7 +176,7 @@ const SceneActionModal: React.FC<Props> = props => {
                             onClick={() => setNotice(props.onBuy?.(item.id).message || '购物接口未接入。')}
                             className="mt-3 rounded-xl border border-cyan-500/25 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/20"
                           >
-                            {itemActionLabel}
+                            {displayItemActionLabel}
                           </button>
                         </div>
                       </div>
@@ -164,6 +207,22 @@ const SceneActionModal: React.FC<Props> = props => {
                                 {item.category} | {item.rank}
                                 {item.styleTags?.length ? ` | ${item.styleTags.join(' / ')}` : ''}
                               </div>
+                              {isFashionShop && item.clothingProfile && (
+                                <div className="mt-3 space-y-2 text-[11px]">
+                                  <div className="flex flex-wrap gap-1">
+                                    <span className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-fuchsia-100">
+                                      {item.clothingProfile.categoryLabel}
+                                    </span>
+                                    <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-slate-200">
+                                      {item.clothingProfile.quality}
+                                    </span>
+                                  </div>
+                                  <div className="text-slate-400">
+                                    适合 {item.clothingProfile.sceneTags.join('、')}
+                                    {item.clothingProfile.cautionTags.length ? ` | 注意 ${item.clothingProfile.cautionTags.join('、')}` : ''}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="text-right">
@@ -189,7 +248,7 @@ const SceneActionModal: React.FC<Props> = props => {
               )}
 
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{commissionSectionLabel}</div>
+                <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{displayCommissionSectionLabel}</div>
                 <div className="mt-1 text-xs text-slate-400">{props.shop?.commissionHint || '可登记代办、留货或下期进货请求。'}</div>
                 <div className="mt-3 flex flex-col gap-2 md:flex-row">
                   <input

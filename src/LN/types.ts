@@ -25,6 +25,18 @@ export interface Chip {
 
 export type ItemCategory = 'consumable' | 'equipment' | 'material' | 'quest';
 
+export type ClothingQualityTier = '粗制' | '标准' | '精制' | '名牌' | '定制';
+
+export interface ClothingProfile {
+  categoryLabel: string;
+  quality: ClothingQualityTier;
+  silhouette: string;
+  impressionTags: string[];
+  sceneTags: string[];
+  cautionTags: string[];
+  sourceLabel?: string;
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -33,6 +45,9 @@ export interface Item {
   description?: string;
   category: ItemCategory;
   rank: Rank;
+  clothingProfile?: ClothingProfile;
+  sourceShopId?: string;
+  sourceShopLabel?: string;
 }
 
 export interface Message {
@@ -170,6 +185,29 @@ export interface BlackRaceBetRecord {
   net: number;
   resolvedAt: string;
   detail: string;
+}
+
+export interface WardrobeRecord {
+  id: string;
+  itemId: string;
+  name: string;
+  icon: string;
+  description?: string;
+  profile: ClothingProfile;
+  sourceShopId?: string;
+  sourceShopLabel?: string;
+  acquiredAt: string;
+}
+
+export interface PlayerWardrobeState {
+  currentOutfitId: string;
+  records: WardrobeRecord[];
+}
+
+export interface WardrobeSummary {
+  ownedCount: number;
+  currentLabel: string;
+  note: string;
 }
 
 export interface PlayerResidenceState {

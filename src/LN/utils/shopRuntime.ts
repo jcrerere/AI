@@ -1,4 +1,4 @@
-import { Item, Rank, RuntimeShopRecord, RuntimeShopType } from '../types';
+import { ClothingProfile, Item, Rank, RuntimeShopRecord, RuntimeShopType } from '../types';
 import { buildEconomyScenePrices, buildRegionalRetailPrice, resolveShopPriceCategory } from './economyRuntime';
 
 export interface RuntimeShopItem extends Item {
@@ -8,6 +8,7 @@ export interface RuntimeShopItem extends Item {
   sourceEpoch: number;
   availability: 'front' | 'backroom';
   styleTags: string[];
+  clothingProfile?: ClothingProfile;
 }
 
 export interface RuntimeShopView {
@@ -106,6 +107,98 @@ const resolveArchetypeFromShopType = (type: RuntimeShopType): ShopArchetype => {
       return 'general';
   }
 };
+
+const resolveClothingQuality = (rank: Rank, tag?: CatalogItem['tag']): ClothingProfile['quality'] => {
+  if (tag === 'restricted') return rank === Rank.Lv5 ? '定制' : '名牌';
+  switch (rank) {
+    case Rank.Lv1:
+      return '标准';
+    case Rank.Lv2:
+      return '精制';
+    case Rank.Lv3:
+      return '名牌';
+    case Rank.Lv4:
+    case Rank.Lv5:
+      return '定制';
+    default:
+      return '标准';
+  }
+};
+
+const inferClothingCategory = (item: CatalogItem): string => {
+  const styles = new Set(item.styles);
+  if (styles.has('制服')) return '制服';
+  if (styles.has('礼服') || styles.has('商务') || styles.has('正式')) return '礼装';
+  if (styles.has('夜场') || styles.has('挑逗')) return '夜场装';
+  if (styles.has('功能') || styles.has('机能') || styles.has('行动')) return '功能装';
+  if (styles.has('配件')) return '内搭/配件';
+  return '常服';
+};
+
+const inferClothingSilhouette = (item: CatalogItem): string => {
+  const styles = new Set(item.styles);
+  if (styles.has('商务') || styles.has('正式')) return '修身礼序';
+  if (styles.has('制服')) return '身份制式';
+  if (styles.has('夜场')) return '贴身张扬';
+  if (styles.has('功能') || styles.has('机能')) return '机能行动';
+  if (styles.has('学院')) return '学院分层';
+  return '日常利落';
+};
+
+const inferClothingImpressions = (item: CatalogItem): string[] => {
+  const styles = new Set(item.styles);
+  const next = new Set<string>();
+  if (styles.has('体面') || styles.has('正式')) next.add('体面');
+  if (styles.has('身份') || styles.has('制服')) next.add('权威');
+  if (styles.has('商务')) next.add('克制');
+  if (styles.has('学院')) next.add('清爽');
+  if (styles.has('夜场') || styles.has('挑逗')) next.add('撩拨');
+  if (styles.has('机能') || styles.has('行动')) next.add('利落');
+  if (!next.size) next.add('日常');
+  return Array.from(next).slice(0, 3);
+};
+
+const inferClothingScenes = (item: CatalogItem): string[] => {
+  const styles = new Set(item.styles);
+  const next = new Set<string>();
+  if (styles.has('日常') || styles.has('常服')) next.add('日常出行');
+  if (styles.has('商务') || styles.has('正式')) next.add('正式会面');
+  if (styles.has('礼服')) next.add('宴席礼序');
+  if (styles.has('制服') || styles.has('身份')) next.add('身份伪装');
+  if (styles.has('夜场') || styles.has('挑逗')) next.add('夜场邀约');
+  if (styles.has('功能') || styles.has('机能') || styles.has('行动')) next.add('行动任务');
+  if (!next.size) next.add('公开场合');
+  return Array.from(next).slice(0, 3);
+};
+
+const inferClothingCautions = (item: CatalogItem): string[] => {
+  const styles = new Set(item.styles);
+  const cautions = new Set<string>();
+  if (styles.has('礼服') || styles.has('正式')) cautions.add('不适合追逐与近战');
+  if (styles.has('夜场') || styles.has('挑逗')) cautions.add('不适合官方场合');
+  if (styles.has('制服') || item.tag === 'restricted') cautions.add('来源敏感，容易引来盘查');
+  if (styles.has('配件')) cautions.add('更适合搭配，不建议单独作为主装');
+  return Array.from(cautions).slice(0, 2);
+};
+
+const buildClothingProfile = (item: CatalogItem): ClothingProfile => ({
+  categoryLabel: inferClothingCategory(item),
+  quality: resolveClothingQuality(item.rank, item.tag),
+  silhouette: inferClothingSilhouette(item),
+  impressionTags: inferClothingImpressions(item),
+  sceneTags: inferClothingScenes(item),
+  cautionTags: inferClothingCautions(item),
+  sourceLabel:
+    item.tag === 'restricted'
+      ? '暗柜渠道'
+      : item.tag === 'uniform'
+        ? '制式线'
+        : item.tag === 'formal'
+          ? '礼序线'
+          : item.tag === 'night'
+            ? '夜场线'
+            : '常规货架',
+});
 
 const SHOP_SUMMARY: Record<ShopArchetype, string> = {
   fashion: '固定店面货架，主打穿搭、礼装、制服和夜场变体，库存按周期滚动更新。',
@@ -285,6 +378,7 @@ const buildShopItem = (params: {
   availability: 'front' | 'backroom';
   shopName: string;
 }): RuntimeShopItem => {
+  const clothingProfile = params.shop.type === 'clothing' ? buildClothingProfile(params.item) : undefined;
   const priceCategory = resolveShopPriceCategory({
     shopType: params.shop.type,
     itemCategory: params.item.category,
@@ -318,6 +412,7 @@ const buildShopItem = (params: {
     sourceEpoch: params.epoch,
     availability: params.availability,
     styleTags: params.item.styles,
+    clothingProfile,
   };
 };
 

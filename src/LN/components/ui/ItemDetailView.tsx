@@ -64,6 +64,42 @@ const ItemDetailView: React.FC<Props> = ({ item, onClose, onUse }) => {
                  <p className="text-xs text-slate-300 italic leading-relaxed">{item.description}</p>
              </div>
 
+             {item.clothingProfile && (
+                 <div className="bg-fuchsia-950/20 p-3 border border-fuchsia-500/20 rounded">
+                     <h4 className="text-[9px] font-bold text-fuchsia-200/80 uppercase mb-2">衣物语义</h4>
+                     <div className="space-y-2 text-[11px] text-slate-300">
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">品类</span>
+                             <span>{item.clothingProfile.categoryLabel}</span>
+                         </div>
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">品质</span>
+                             <span>{item.clothingProfile.quality}</span>
+                         </div>
+                         <div className="flex justify-between gap-3">
+                             <span className="text-slate-500">轮廓</span>
+                             <span>{item.clothingProfile.silhouette}</span>
+                         </div>
+                         <div>
+                             <div className="text-slate-500 mb-1">适合场景</div>
+                             <div className="flex flex-wrap gap-1">
+                                 {item.clothingProfile.sceneTags.map(tag => (
+                                     <span key={tag} className="rounded-full border border-fuchsia-500/20 bg-fuchsia-500/10 px-2 py-0.5 text-[10px] text-fuchsia-100">{tag}</span>
+                                 ))}
+                             </div>
+                         </div>
+                         <div>
+                             <div className="text-slate-500 mb-1">给人的印象</div>
+                             <div className="flex flex-wrap gap-1">
+                                 {item.clothingProfile.impressionTags.map(tag => (
+                                     <span key={tag} className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-slate-200">{tag}</span>
+                                 ))}
+                             </div>
+                         </div>
+                     </div>
+                 </div>
+             )}
+
              <div className="bg-black/30 p-3 border border-slate-800/60 rounded">
                  <h4 className="text-[9px] font-bold text-slate-500 uppercase mb-2">属性预览</h4>
                  <div className="space-y-2">

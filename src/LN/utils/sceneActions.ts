@@ -1,4 +1,4 @@
-import { Item, Rank, RuntimeShopType } from '../types';
+import { Item, Rank, RuntimeShopType, WardrobeSummary } from '../types';
 
 export type SceneActionRoute = 'shop' | 'black_race_bet' | 'metro_route';
 export type SceneActionLayer = 'life' | 'transport';
@@ -43,6 +43,7 @@ export interface ProceduralShop {
   specialtyLabel?: string;
   ownerLabel?: string;
   dateFriendly?: boolean;
+  wardrobeSummary?: WardrobeSummary;
 }
 
 export interface MetroStop {

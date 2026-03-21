@@ -50,6 +50,9 @@ import {
   PlayerResidenceState,
   ResidenceProfile,
   CityRuntimeData,
+  PlayerWardrobeState,
+  WardrobeRecord,
+  WardrobeSummary,
 } from './types';
 import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum, replaceUiActions } from './utils/pseudoLayer';
 import {
@@ -248,6 +251,7 @@ interface LnSaveData {
   blackRaceMarket?: BlackRaceMarket | null;
   blackRaceHistory?: BlackRaceBetRecord[];
   playerResidence?: PlayerResidenceState;
+  playerWardrobe?: PlayerWardrobeState;
   stateLock?: StateLockConfig;
 }
 
@@ -607,6 +611,11 @@ const EMPTY_RESIDENCE_STATE: PlayerResidenceState = {
   unlockedResidenceIds: [],
 };
 
+const EMPTY_WARDROBE_STATE: PlayerWardrobeState = {
+  currentOutfitId: '',
+  records: [],
+};
+
 const normalizeResidenceState = (
   rawState: Partial<PlayerResidenceState> | null | undefined,
   fallback?: Partial<PlayerResidenceState> | null,
@@ -630,6 +639,26 @@ const normalizeResidenceState = (
     unlockedResidenceIds,
   };
 };
+
+const normalizeWardrobeState = (rawState: Partial<PlayerWardrobeState> | null | undefined): PlayerWardrobeState => ({
+  currentOutfitId: typeof rawState?.currentOutfitId === 'string' ? rawState.currentOutfitId : '',
+  records: Array.isArray(rawState?.records)
+    ? (rawState.records as WardrobeRecord[])
+        .filter(record => record && typeof record.id === 'string' && typeof record.itemId === 'string')
+        .map(record => ({
+          ...record,
+          profile: {
+            categoryLabel: record.profile?.categoryLabel || '常服',
+            quality: record.profile?.quality || '标准',
+            silhouette: record.profile?.silhouette || '日常利落',
+            impressionTags: Array.isArray(record.profile?.impressionTags) ? record.profile.impressionTags.filter(Boolean) : [],
+            sceneTags: Array.isArray(record.profile?.sceneTags) ? record.profile.sceneTags.filter(Boolean) : [],
+            cautionTags: Array.isArray(record.profile?.cautionTags) ? record.profile.cautionTags.filter(Boolean) : [],
+            sourceLabel: record.profile?.sourceLabel || '',
+          },
+        }))
+    : [],
+});
 
 const buildFallbackResidenceProfile = (residence: PlayerResidenceState, districtLabel: string): ResidenceProfile | null => {
   if (!residence.currentResidenceId && !residence.currentResidenceLabel) return null;
@@ -3423,6 +3452,7 @@ const App: React.FC = () => {
     taxOfficeAddress: '',
   });
   const [playerResidence, setPlayerResidence] = useState<PlayerResidenceState>(EMPTY_RESIDENCE_STATE);
+  const [playerWardrobe, setPlayerWardrobe] = useState<PlayerWardrobeState>(EMPTY_WARDROBE_STATE);
   const [betaTasks, setBetaTasks] = useState<BetaTask[]>([]);
   const [acceptedBetaTaskIds, setAcceptedBetaTaskIds] = useState<string[]>([]);
   const [claimableBetaTaskIds, setClaimableBetaTaskIds] = useState<string[]>([]);
@@ -3483,6 +3513,22 @@ const App: React.FC = () => {
   const todoDigest = useMemo(() => buildTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
   const todoDueDigest = useMemo(() => buildDueTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
   const todoOverdueDigest = useMemo(() => buildOverdueTodoDigest(cityRuntime.todos), [cityRuntime.todos]);
+  const currentWardrobeRecord = useMemo(
+    () => playerWardrobe.records.find(record => record.id === playerWardrobe.currentOutfitId) || null,
+    [playerWardrobe],
+  );
+  const wardrobeSummary = useMemo<WardrobeSummary>(
+    () => ({
+      ownedCount: playerWardrobe.records.length,
+      currentLabel: currentWardrobeRecord
+        ? `${currentWardrobeRecord.name} · ${currentWardrobeRecord.profile.categoryLabel}`
+        : '未设当前穿搭',
+      note: currentWardrobeRecord
+        ? `${currentWardrobeRecord.profile.quality} / ${currentWardrobeRecord.profile.sceneTags.slice(0, 2).join('、') || '日常出行'}`
+        : '购入衣物后会自动写入衣柜。',
+    }),
+    [currentWardrobeRecord, playerWardrobe.records.length],
+  );
 
   useEffect(() => {
     const syncFullscreen = () => {
@@ -5125,6 +5171,7 @@ const App: React.FC = () => {
     blackRaceMarket,
     blackRaceHistory,
     playerResidence,
+    playerWardrobe,
     stateLock,
   });
 
@@ -5207,6 +5254,7 @@ const App: React.FC = () => {
     setBlackRaceMarket(payload.blackRaceMarket || buildBlackRaceMarket());
     setBlackRaceHistory(payload.blackRaceHistory || []);
     setPlayerResidence(normalizeResidenceState(payload.playerResidence, EMPTY_RESIDENCE_STATE));
+    setPlayerWardrobe(normalizeWardrobeState(payload.playerWardrobe));
     setStateLock(
       payload.stateLock || {
         lockTime: false,
@@ -6127,6 +6175,52 @@ const App: React.FC = () => {
     });
   };
 
+  const buildWardrobeSummaryFromState = useCallback((state: PlayerWardrobeState): WardrobeSummary => {
+    const current = state.records.find(record => record.id === state.currentOutfitId) || null;
+    return {
+      ownedCount: state.records.length,
+      currentLabel: current ? `${current.name} · ${current.profile.categoryLabel}` : '未设当前穿搭',
+      note: current ? `${current.profile.quality} / ${current.profile.sceneTags.slice(0, 2).join('、') || '日常出行'}` : '购入衣物后会自动写入衣柜。',
+    };
+  }, []);
+
+  const registerWardrobeItem = useCallback((item: Item, shopLabel: string, shopId?: string) => {
+    if (!item.clothingProfile) {
+      return {
+        nextState: playerWardrobe,
+        summary: wardrobeSummary,
+        currentRecord: currentWardrobeRecord,
+        added: false,
+        autoEquipped: false,
+      };
+    }
+    const record: WardrobeRecord = {
+      id: `wardrobe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      itemId: item.id,
+      name: item.name,
+      icon: item.icon,
+      description: item.description,
+      profile: item.clothingProfile,
+      sourceShopId: shopId,
+      sourceShopLabel: shopLabel,
+      acquiredAt: new Date().toISOString(),
+    };
+    const nextState: PlayerWardrobeState = {
+      currentOutfitId: playerWardrobe.currentOutfitId || record.id,
+      records: [record, ...playerWardrobe.records].slice(0, 80),
+    };
+    const summary = buildWardrobeSummaryFromState(nextState);
+    const currentRecord = nextState.records.find(entry => entry.id === nextState.currentOutfitId) || null;
+    setPlayerWardrobe(nextState);
+    return {
+      nextState,
+      summary,
+      currentRecord,
+      added: true,
+      autoEquipped: !playerWardrobe.currentOutfitId,
+    };
+  }, [buildWardrobeSummaryFromState, currentWardrobeRecord, playerWardrobe, wardrobeSummary]);
+
   const handleTriggerSceneAction = (action: SceneActionDescriptor) => {
     if (action.route === 'black_race_bet') {
       setActiveTab('phone');
@@ -6155,9 +6249,13 @@ const App: React.FC = () => {
         };
       }
       if (registered.changed || syncedShop.changed) setCityRuntime(nextRuntime);
+      const runtimeShopView = buildRuntimeShopView(liveShop, locationLabel, mapRuntime.elapsedMinutes || 0);
       setSceneModal({
         mode: 'shop',
-        shop: buildRuntimeShopView(liveShop, locationLabel, mapRuntime.elapsedMinutes || 0),
+        shop: {
+          ...runtimeShopView,
+          wardrobeSummary: runtimeShopView.type === 'clothing' ? wardrobeSummary : undefined,
+        },
       });
       return;
     }
@@ -6218,17 +6316,24 @@ const App: React.FC = () => {
         logs: [...(prev.logs || []), `餐饮消费 ${shop.title} -> ${nextGameTimeText}(${nextGameDayPhase})`].slice(-30),
       }));
     }
-    if (!isRestaurant) {
-      addInventoryItem({
-        id: target.id,
-        name: target.name,
-        quantity: 1,
-        icon: target.icon,
-        description: target.description,
-        category: target.category,
-        rank: target.rank,
-      });
+    const purchasedItem: Item | null = !isRestaurant
+      ? {
+          id: target.id,
+          name: target.name,
+          quantity: 1,
+          icon: target.icon,
+          description: target.description,
+          category: target.category,
+          rank: target.rank,
+          clothingProfile: target.clothingProfile,
+          sourceShopId: shop.shopId || shop.id,
+          sourceShopLabel: shop.title,
+        }
+      : null;
+    if (purchasedItem) {
+      addInventoryItem(purchasedItem);
     }
+    const wardrobeWriteback = purchasedItem?.clothingProfile ? registerWardrobeItem(purchasedItem, shop.title, shop.shopId || shop.id) : null;
     pushFinanceLedgerEntry({
       kind: 'system',
       title: '场景购物',
@@ -6254,7 +6359,10 @@ const App: React.FC = () => {
           prev?.mode === 'shop'
             ? {
                 mode: 'shop',
-                shop: buildRuntimeShopView(purchase.shop, shop.locationLabel, mapRuntime.elapsedMinutes || 0),
+                shop: {
+                  ...buildRuntimeShopView(purchase.shop, shop.locationLabel, mapRuntime.elapsedMinutes || 0),
+                  wardrobeSummary: purchase.shop.type === 'clothing' ? wardrobeWriteback?.summary || wardrobeSummary : undefined,
+                },
               }
             : prev,
         );
@@ -7866,6 +7974,7 @@ const App: React.FC = () => {
     setStorageChips(runtimeChipPool.filter(chip => !equippedChipIds.has(chip.id)));
     setPlayerInventory([...config.selectedItems]);
     setPlayerLingshu(config.selectedLingshu || []);
+    setPlayerWardrobe(EMPTY_WARDROBE_STATE);
     setPlayerResidence(
       normalizeResidenceState(
         nextProtocol === 'beta'
@@ -8393,6 +8502,7 @@ const App: React.FC = () => {
     setSettlementCheckpointMonth(null);
     setBlackRaceMarket(buildBlackRaceMarket());
     setBlackRaceHistory([]);
+    setPlayerWardrobe(EMPTY_WARDROBE_STATE);
     setGameStage('setup');
   };
 
@@ -9029,6 +9139,7 @@ const App: React.FC = () => {
                 statusTags={runtimeStatusTags}
                 chipCount={chipCount}
                 spiritStringCount={spiritStringCount}
+                wardrobeSummary={wardrobeSummary}
               />
             </CyberPanel>
 

@@ -27,6 +27,11 @@ interface Props {
   statusTags?: string[];
   chipCount?: number;
   spiritStringCount?: number;
+  wardrobeSummary?: {
+    currentLabel: string;
+    ownedCount: number;
+    note: string;
+  };
 }
 
 const spiritRaceCoreType = (race: string): string => {
@@ -46,6 +51,7 @@ const PlayerStatePanel: React.FC<Props> = ({
   statusTags = [],
   chipCount = 0,
   spiritStringCount = 0,
+  wardrobeSummary,
 }) => {
   const segments = 20;
   const activeSegments = Math.ceil((stats.formStability / 100) * segments);
@@ -271,6 +277,19 @@ const PlayerStatePanel: React.FC<Props> = ({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {wardrobeSummary && (
+        <div className="mb-4 rounded-xl border border-fuchsia-900/35 bg-[#150914]/45 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] text-slate-400 font-bold">当前穿搭</div>
+            <div className="text-[10px] font-mono text-fuchsia-300">衣柜 {wardrobeSummary.ownedCount}</div>
+          </div>
+          <div className="rounded border border-fuchsia-500/20 bg-black/30 px-2 py-2">
+            <div className="text-[11px] text-fuchsia-100 font-semibold">{wardrobeSummary.currentLabel}</div>
+            <div className="mt-1 text-[10px] leading-4 text-slate-400">{wardrobeSummary.note}</div>
+          </div>
         </div>
       )}
 
