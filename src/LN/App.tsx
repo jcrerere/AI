@@ -111,6 +111,11 @@ import {
   resolveDistrictProfileFromLocation,
 } from './utils/cityRuntime';
 import {
+  buildEventLayerDigest,
+  buildRecentEventSnapshot,
+  syncDistrictEventLayer,
+} from './utils/eventRuntime';
+import {
   buildResidencePreset,
   ensureResidenceStashRecord,
   getResidenceStorageUsage,
@@ -4933,6 +4938,14 @@ const App: React.FC = () => {
     () => buildTaskLayerDigest(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
   );
+  const eventLayerDigest = useMemo(
+    () => buildEventLayerDigest(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
+  );
+  const recentEventSnapshot = useMemo(
+    () => buildRecentEventSnapshot(cityRuntime, currentNarrativeLocation),
+    [cityRuntime, currentNarrativeLocation],
+  );
   const travelRuleSnapshot = useMemo(
     () => buildTravelRuleSnapshot(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
@@ -5073,7 +5086,12 @@ const App: React.FC = () => {
         layerId: latestProgressLayerMessage.id,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
       });
-      return progressed.changed ? progressed.runtime : prev;
+      const syncedEvents = syncDistrictEventLayer(progressed.runtime, {
+        districtId,
+        locationLabel: latestProgressLocation,
+        elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+      });
+      return progressed.changed || syncedEvents.changed ? syncedEvents.runtime : prev;
     });
   }, [gameStage, latestProgressLayerMessage?.id, latestProgressLocation, mapRuntime.elapsedMinutes]);
   const lingshuRuntimeAffixes = useMemo(
@@ -5520,9 +5538,11 @@ const App: React.FC = () => {
       economyDigest,
       localMapDigest,
       taskLayerDigest,
+      eventLayerDigest,
       travelRuleDigest,
       lifeStateDigest,
       forgeDigest,
+      recentEventSnapshot,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -5724,16 +5744,18 @@ const App: React.FC = () => {
             todo_due_digest: todoDueDigest,
             todo_overdue_digest: todoOverdueDigest,
             economy_digest: economyDigest,
-          local_map_digest: localMapDigest,
-          task_layer_digest: taskLayerDigest,
-          travel_rule_digest: travelRuleDigest,
-          life_state_digest: lifeStateDigest,
-          forge_digest: forgeDigest,
+            local_map_digest: localMapDigest,
+            task_layer_digest: taskLayerDigest,
+            event_layer_digest: eventLayerDigest,
+            travel_rule_digest: travelRuleDigest,
+            life_state_digest: lifeStateDigest,
+            forge_digest: forgeDigest,
             current_district: nextSceneState.currentDistrict,
             current_site_type: nextSceneState.currentSiteType,
             current_site_id: nextSceneState.currentSiteId,
             current_site_label: nextSceneState.currentSiteLabel,
             current_faction: playerFaction.name || world.current_faction || '未知势力',
+            recent_events: recentEventSnapshot,
             exchange_rules: {
               ...DEFAULT_STAT_EXCHANGE_RULES,
               ...worldExchangeRules,
@@ -5828,9 +5850,11 @@ const App: React.FC = () => {
     economyDigest,
     localMapDigest,
     taskLayerDigest,
+    eventLayerDigest,
     travelRuleDigest,
     lifeStateDigest,
     forgeDigest,
+    recentEventSnapshot,
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
@@ -6136,6 +6160,7 @@ const App: React.FC = () => {
       dialogueContext?: string;
       localMapDigest?: string;
       taskLayerDigest?: string;
+      eventLayerDigest?: string;
       travelRuleDigest?: string;
       lifeStateDigest?: string;
       forgeDigest?: string;
@@ -6159,6 +6184,7 @@ const App: React.FC = () => {
             context.sceneHint ? `scene=${context.sceneHint}` : '',
             context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
             context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
+            context.eventLayerDigest ? `event_layer=${context.eventLayerDigest}` : '',
             context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
             context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
             context.forgeDigest ? `forge=${context.forgeDigest}` : '',
@@ -6227,6 +6253,7 @@ const App: React.FC = () => {
               context.sceneHint ? `scene=${context.sceneHint}` : '',
               context.localMapDigest ? `local_map=${context.localMapDigest}` : '',
               context.taskLayerDigest ? `task_layer=${context.taskLayerDigest}` : '',
+              context.eventLayerDigest ? `event_layer=${context.eventLayerDigest}` : '',
               context.travelRuleDigest ? `travel_rule=${context.travelRuleDigest}` : '',
               context.lifeStateDigest ? `life_state=${context.lifeStateDigest}` : '',
               context.forgeDigest ? `forge=${context.forgeDigest}` : '',
@@ -8885,6 +8912,7 @@ const App: React.FC = () => {
           dialogueContext: requestSupportContext,
           localMapDigest,
           taskLayerDigest,
+          eventLayerDigest,
           travelRuleDigest,
           lifeStateDigest: requestLifeStateDigest,
           forgeDigest,

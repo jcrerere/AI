@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { CityRuntimeData, RuntimeTodoStatus } from '../../types';
 import { buildLocalMapSnapshot, buildTaskLayerDigest, getCurrentDistrictLabel, getDistrictTaskState, getDistrictTransportSnapshot } from '../../utils/cityRuntime';
 import { buildEconomyBenchmarkSnapshot, buildEconomyScenePrices } from '../../utils/economyRuntime';
+import { buildEventLayerDigest, listDistrictEventOpportunities } from '../../utils/eventRuntime';
 import { buildTravelRuleDigest, buildTravelRuleSnapshot } from '../../utils/transportRuntime';
 
 interface Props {
@@ -36,6 +37,11 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
   const localMap = useMemo(() => buildLocalMapSnapshot(runtime, currentLocation), [runtime, currentLocation]);
   const taskState = useMemo(() => getDistrictTaskState(runtime, localMap.profile.id), [runtime, localMap.profile.id]);
   const taskLayerDigest = useMemo(() => buildTaskLayerDigest(runtime, currentLocation), [runtime, currentLocation]);
+  const districtEvents = useMemo(
+    () => listDistrictEventOpportunities(runtime, localMap.profile.id).filter(event => event.status === 'open').slice(0, 3),
+    [runtime, localMap.profile.id],
+  );
+  const eventLayerDigest = useMemo(() => buildEventLayerDigest(runtime, currentLocation), [runtime, currentLocation]);
   const travelRules = useMemo(() => buildTravelRuleSnapshot(runtime, currentLocation), [runtime, currentLocation]);
   const travelRuleDigest = useMemo(() => buildTravelRuleDigest(runtime, currentLocation), [runtime, currentLocation]);
   const districtShops = useMemo(
@@ -146,6 +152,39 @@ const CityRuntimePanel: React.FC<Props> = ({ runtime, currentLocation, onMarkTod
             <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">最新进度层</div>
             <div className="mt-1 font-mono text-fuchsia-100">{taskState.lastProgressLayerId || 'NULL'}</div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-rose-500/15 bg-rose-950/10 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-rose-200/70">Event Layer</div>
+          <div className="rounded-full border border-rose-400/20 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-100">
+            当前机会 {districtEvents.length}
+          </div>
+        </div>
+        <div className="mt-2 rounded-xl border border-white/8 bg-black/20 px-3 py-3 text-[11px] leading-5 text-slate-300">
+          {eventLayerDigest}
+        </div>
+        <div className="mt-2 space-y-2">
+          {districtEvents.length > 0 ? (
+            districtEvents.map(event => (
+              <div key={event.id} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-rose-100">{event.title}</div>
+                  <div className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{event.category}</div>
+                </div>
+                <div className="mt-1 text-[11px] text-slate-300">{event.teaser}</div>
+                <div className="mt-1 text-[10px] text-slate-500">
+                  {event.locationHint}
+                  {event.routeHint ? ` 路 接口 ${event.routeHint}` : ''}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/10 bg-black/20 px-3 py-3 text-[11px] text-slate-500">
+              当前分区还没有登记到事件账本的区域机会。
+            </div>
+          )}
         </div>
       </div>
 

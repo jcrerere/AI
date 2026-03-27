@@ -13,6 +13,7 @@ world:
   economy_digest: ""
   local_map_digest: ""
   task_layer_digest: ""
+  event_layer_digest: ""
   travel_rule_digest: ""
   life_state_digest: ""
   forge_digest: ""

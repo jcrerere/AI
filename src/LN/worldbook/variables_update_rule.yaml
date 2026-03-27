@@ -49,7 +49,7 @@ rules:
       - 浠呭啓褰撳墠鍒嗗尯鐨勭粡娴庢憳瑕侊紝鍖呭惈鐢熷瓨绾裤€佹秷璐瑰拰鏀跺叆鏂瑰悜
       - 涓嶅洖鍐欏畬鏁翠环鐩垨鏁翠釜浠锋牸鐭╅樀
 
-  world.local_map_digest / world.task_layer_digest:
+  world.local_map_digest / world.task_layer_digest / world.event_layer_digest:
     type: string
     check:
       - local_map_digest 仅写当前格点、邻格、锚点与交通层的压缩摘要

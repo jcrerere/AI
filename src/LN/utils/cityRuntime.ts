@@ -4,6 +4,7 @@ import {
   CityCellRecord,
   CityRuntimeData,
   CityTenantRecord,
+  DistrictEventOpportunityRecord,
   DistrictTaskStateRecord,
   DistrictGridProfile,
   RuntimeShopRecord,
@@ -486,6 +487,7 @@ export const createEmptyCityRuntime = (): CityRuntimeData => ({
   shops: [],
   todos: [],
   districtTaskStates: [],
+  districtEventOpportunities: [],
   transportStops: createDefaultTransportStops(),
   transportLines: createDefaultTransportLines(),
   transportProjects: REGION_DEFAULT_PROJECTS.map(project => ({ ...project })),
@@ -515,6 +517,12 @@ export const normalizeCityRuntime = (input: unknown): CityRuntimeData | null => 
       .map(item => ({
         ...createDistrictTaskState(item.districtId),
         ...item,
+      })),
+    districtEventOpportunities: toArray<DistrictEventOpportunityRecord>(source.districtEventOpportunities)
+      .filter(item => item && typeof item.id === 'string' && typeof item.districtId === 'string')
+      .map(item => ({
+        ...item,
+        routeHint: typeof item.routeHint === 'string' ? item.routeHint : null,
       })),
     transportStops: (() => {
       const fromSave = toArray<TransportStopRecord>(source.transportStops).filter(item => item && typeof item.id === 'string');

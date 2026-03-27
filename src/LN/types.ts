@@ -1007,6 +1007,27 @@ export interface DistrictTaskStateRecord {
   opportunityWindows: number;
 }
 
+export type DistrictEventCategory = 'rumor' | 'encounter' | 'contract' | 'vice' | 'hazard';
+
+export type DistrictEventStatus = 'open' | 'resolved' | 'dismissed' | 'expired';
+
+export interface DistrictEventOpportunityRecord {
+  id: string;
+  districtId: string;
+  regionKey: string;
+  windowIndex: number;
+  templateId: string;
+  category: DistrictEventCategory;
+  title: string;
+  teaser: string;
+  summary: string;
+  routeHint: string | null;
+  locationHint: string;
+  openedAtMinutes: number;
+  lastUpdatedAtMinutes: number;
+  status: DistrictEventStatus;
+}
+
 export interface TransportStopRecord {
   id: string;
   districtId: string;
@@ -1050,6 +1071,7 @@ export interface CityRuntimeData {
   shops: RuntimeShopRecord[];
   todos: RuntimeTodoRecord[];
   districtTaskStates: DistrictTaskStateRecord[];
+  districtEventOpportunities: DistrictEventOpportunityRecord[];
   transportStops: TransportStopRecord[];
   transportLines: TransportLineRecord[];
   transportProjects: TransportProjectRecord[];
