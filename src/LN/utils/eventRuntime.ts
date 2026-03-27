@@ -1,4 +1,11 @@
-import { CityRuntimeData, DistrictEventCategory, DistrictEventOpportunityRecord, DistrictGridProfile } from '../types';
+import {
+  CityRuntimeData,
+  DistrictEventCategory,
+  DistrictEventOpportunityRecord,
+  DistrictGridProfile,
+  RuntimeTodoCategory,
+  RuntimeTodoRecord,
+} from '../types';
 import { getDistrictTaskState, resolveDistrictProfileById } from './cityRuntime';
 
 type EventTemplate = {
@@ -9,7 +16,16 @@ type EventTemplate = {
   summary: string;
   routeHint: string | null;
   locationHint?: string;
+  taskable?: boolean;
+  todoCategory?: RuntimeTodoCategory;
+  dueInMinutes?: number | null;
+  todoTitle?: string;
+  todoSummary?: string;
 };
+
+type EventTodoDraft = Omit<RuntimeTodoRecord, 'id' | 'unread'>;
+
+const EVENT_LIMIT = 60;
 
 const hashText = (input: string): number => {
   let hash = 2166136261;
@@ -39,6 +55,25 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为出入城、规避盘查、追查通行痕迹的前置异动。',
       routeHint: 'travel',
       locationHint: '赫卡关城',
+      taskable: true,
+      todoCategory: 'travel',
+      dueInMinutes: 10 * 60,
+      todoTitle: '处理边检班次异动',
+      todoSummary: '北门边检班次已经改变，若想借此通行或规避盘查，需要尽快去确认。',
+    },
+    {
+      id: 'north_gate_courier_window',
+      category: 'contract',
+      title: '一份加急通行封条正在找临时递送人',
+      teaser: '真正值钱的不是封条本身，而是它能让谁提前半小时进门。',
+      summary: '适合作为低调递送、借证进门和关务关系线的中尺度起点。',
+      routeHint: 'travel',
+      locationHint: '北门分区外勤线',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 8 * 60,
+      todoTitle: '递送加急通行封条',
+      todoSummary: '北门外勤线有人在找敢接加急封条的人，这事有明确时间窗。',
     },
   ],
   airela_central_ring: [
@@ -59,6 +94,29 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为礼宾、假名、会面名单或上层关系误植的切入口。',
       routeHint: 'restaurant',
       locationHint: '帝绶礼宾馆',
+    },
+    {
+      id: 'central_ring_audit_gap',
+      category: 'hazard',
+      title: '中环审计链上突然出现了一段空白时差',
+      teaser: '有人在补账，也有人想借这段空白把另一个名字塞进去。',
+      summary: '适合作为礼制审计、身份挪用和上层关系试探的事件源。',
+      routeHint: 'shop',
+      locationHint: '中环审计外环',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 12 * 60,
+      todoTitle: '补掉中环审计空白',
+      todoSummary: '审计链的空白只会维持很短时间，错过就会被正式追溯。',
+    },
+    {
+      id: 'central_ring_seat_swap',
+      category: 'encounter',
+      title: '一场晚宴的座次名单正在被人暗中重排',
+      teaser: '真正危险的不是换座，而是换座后谁会坐到谁旁边。',
+      summary: '适合作为礼宾、会面、政治试探和关系错位的叙事入口。',
+      routeHint: 'restaurant',
+      locationHint: '中环礼宾线',
     },
   ],
   airela_south_port: [
@@ -90,6 +148,25 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为夜场找人、红灯场所压力测试或关系线接入点。',
       routeHint: 'entertainment',
       locationHint: '罪吻广场',
+      taskable: true,
+      todoCategory: 'meeting',
+      dueInMinutes: 6 * 60,
+      todoTitle: '找到失联夜场从业者',
+      todoSummary: '罪吻片区有人突然断线，熟客和店家都在试探谁愿意把人找回来。',
+    },
+    {
+      id: 'sin_square_room_lock',
+      category: 'hazard',
+      title: '一间包厢被提前锁死，里面的人却还没出来',
+      teaser: '门外的保镖都在装镇定，真正慌的是包厢后面那条生意线。',
+      summary: '适合作为夜场突发、债务、红灯线路和善后处理的任务源。',
+      routeHint: 'entertainment',
+      locationHint: '罪吻广场内环',
+      taskable: true,
+      todoCategory: 'custom',
+      dueInMinutes: 5 * 60,
+      todoTitle: '处理罪吻包厢封锁',
+      todoSummary: '包厢被锁死后的处理窗口很短，拖久了只会惊动更多人。',
     },
   ],
   north_entertainment: [
@@ -101,6 +178,11 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为黑赛、下注、赛道事故或技术作弊的幕后引子。',
       routeHint: 'entertainment',
       locationHint: '裂帛赛道',
+      taskable: true,
+      todoCategory: 'bet',
+      dueInMinutes: 7 * 60,
+      todoTitle: '盯住赛道外圈的收买线',
+      todoSummary: '赛道外圈有人在提前买消息，想动手就得赶在今晚盘口封盘前。',
     },
     {
       id: 'entertainment_demo_leak',
@@ -110,6 +192,20 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为样机泄漏、赞助竞争和路演截胡的事件起点。',
       routeHint: 'black_market',
       locationHint: '浮霓会展塔',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 9 * 60,
+      todoTitle: '截走演示机泄漏参数',
+      todoSummary: '会展塔泄漏参数还没彻底扩散，现在动手还能决定它先落到谁手里。',
+    },
+    {
+      id: 'entertainment_sponsor_quarrel',
+      category: 'encounter',
+      title: '两家赞助人正在抢同一场秀的冠名权',
+      teaser: '表面上是竞价，实质上是谁能决定今晚的观众先看到什么。',
+      summary: '适合作为秀场利益分配、资本抢线和夜场引流的切入口。',
+      routeHint: 'shop',
+      locationHint: '娱乐赛道片区',
     },
   ],
   north_university: [
@@ -121,6 +217,11 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为产研接口、样机试运、资本试探和技术倒手的引子。',
       routeHint: 'black_market',
       locationHint: '诺丝大学产业带',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 14 * 60,
+      todoTitle: '接手路演样机',
+      todoSummary: '这份路演样机要在公开亮相前换手，窗口不长。',
     },
     {
       id: 'university_fund_match',
@@ -130,6 +231,25 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为赞助、竞价、团队挖角与公开路演线的前置异动。',
       routeHint: 'shop',
       locationHint: '诺丝大学外环',
+      taskable: true,
+      todoCategory: 'meeting',
+      dueInMinutes: 18 * 60,
+      todoTitle: '接触路演基金窗口',
+      todoSummary: '基金窗口只会在短时间内挑人碰面，错过这轮就要等下个周期。',
+    },
+    {
+      id: 'university_lab_trade',
+      category: 'contract',
+      title: '一间实验室想把被淘汰的样机壳体悄悄卖成现钱',
+      teaser: '壳体本身不值钱，值钱的是它上面还没擦干净的测试痕迹。',
+      summary: '适合作为产研灰单、样机拆卖和试验记录回收的任务源。',
+      routeHint: 'black_market',
+      locationHint: '诺丝大学产研外廊',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 14 * 60,
+      todoTitle: '接手实验室样机壳体',
+      todoSummary: '实验室想快速出手一批样机壳体，拖久了痕迹会先被清理。',
     },
   ],
   north_capital: [
@@ -141,6 +261,11 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为资本会面、代理签约、清算厅博弈与身份借壳的事件入口。',
       routeHint: 'black_market',
       locationHint: '资本议事片区',
+      taskable: true,
+      todoCategory: 'meeting',
+      dueInMinutes: 16 * 60,
+      todoTitle: '替人带话进代理表决场',
+      todoSummary: '代理表决的清场会继续收紧，能进去的窗口不会留太久。',
     },
   ],
   xiyu_white_bay: [
@@ -174,6 +299,11 @@ const DISTRICT_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为狗镇黑市、截货、改装件倒流与渠道争夺的起点。',
       routeHint: 'black_market',
       locationHint: '狗镇片区',
+      taskable: true,
+      todoCategory: 'commission',
+      dueInMinutes: 20 * 60,
+      todoTitle: '查清狗镇整件货去向',
+      todoSummary: '狗镇废料线里混进了一批整件货，想插手就得赶在它散入各摊口之前。',
     },
   ],
 };
@@ -188,6 +318,14 @@ const REGION_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       summary: '适合作为官署压力、身份追溯和制度性风险的隐线入口。',
       routeHint: 'travel',
     },
+    {
+      id: 'aerila_registry_pressure',
+      category: 'encounter',
+      title: '一条住册线正在悄悄清点谁最近离开了常驻地址',
+      teaser: '表面上只是例行核验，真正敏感的是谁会被看见不在该在的地方。',
+      summary: '适合作为住册、身份、税务和制度追踪的区域信号。',
+      routeHint: 'travel',
+    },
   ],
   north: [
     {
@@ -197,6 +335,14 @@ const REGION_EVENT_TEMPLATES: Record<string, EventTemplate[]> = {
       teaser: '外人只会看到店门还开着，熟人则知道今晚货路已经变了。',
       summary: '适合作为黑市、暗柜、熟客门槛和掮客筛选的区域信号。',
       routeHint: 'black_market',
+    },
+    {
+      id: 'north_price_war',
+      category: 'rumor',
+      title: '两条技术货链突然开始压价抢客',
+      teaser: '便宜只是表面，真正的问题是到底是谁先撑不住。',
+      summary: '适合作为公开市场、资本绞杀和技术渠道分流的背景异动。',
+      routeHint: 'shop',
     },
   ],
   holy: [
@@ -232,7 +378,11 @@ const DEFAULT_EVENT_TEMPLATES: EventTemplate[] = [
   },
 ];
 
-const EVENT_LIMIT = 60;
+const EVENT_TEMPLATE_INDEX = new Map<string, EventTemplate>(
+  [...Object.values(DISTRICT_EVENT_TEMPLATES), ...Object.values(REGION_EVENT_TEMPLATES), DEFAULT_EVENT_TEMPLATES]
+    .flat()
+    .map(template => [template.id, template]),
+);
 
 const pickEventTemplate = (profile: DistrictGridProfile, windowIndex: number): EventTemplate => {
   const districtTemplates = DISTRICT_EVENT_TEMPLATES[profile.id] || [];
@@ -242,7 +392,8 @@ const pickEventTemplate = (profile: DistrictGridProfile, windowIndex: number): E
   return pool[seed % pool.length];
 };
 
-const buildEventId = (districtId: string, windowIndex: number): string => `event_${districtId}_${String(windowIndex).padStart(3, '0')}`;
+const buildEventId = (districtId: string, windowIndex: number): string =>
+  `event_${districtId}_${String(windowIndex).padStart(3, '0')}`;
 
 const createDistrictEventOpportunity = (
   profile: DistrictGridProfile,
@@ -268,6 +419,32 @@ const createDistrictEventOpportunity = (
   };
 };
 
+const resolveTemplateForOpportunity = (event: DistrictEventOpportunityRecord): EventTemplate | null =>
+  EVENT_TEMPLATE_INDEX.get(event.templateId) || null;
+
+const buildEventTodoDraft = (event: DistrictEventOpportunityRecord): EventTodoDraft | null => {
+  const template = resolveTemplateForOpportunity(event);
+  if (!template?.taskable || !template.todoCategory) return null;
+  const dueAtMinutes =
+    typeof template.dueInMinutes === 'number' && Number.isFinite(template.dueInMinutes)
+      ? event.openedAtMinutes + Math.max(0, template.dueInMinutes)
+      : null;
+  return {
+    title: template.todoTitle || `事件处理：${event.title}`,
+    category: template.todoCategory,
+    status: 'active',
+    sourceType: 'scene',
+    sourceId: event.id,
+    locationLabel: event.locationHint,
+    dueAtMinutes,
+    createdAtMinutes: event.openedAtMinutes,
+    summary: template.todoSummary || event.summary,
+    detail: `${event.title}\n${event.teaser}\n${event.summary}`,
+    routeHint: event.routeHint,
+    timelineState: dueAtMinutes === null ? undefined : 'upcoming',
+  };
+};
+
 export const listDistrictEventOpportunities = (
   runtime: CityRuntimeData,
   districtId: string,
@@ -275,6 +452,15 @@ export const listDistrictEventOpportunities = (
   runtime.districtEventOpportunities
     .filter(event => event.districtId === districtId)
     .sort((left, right) => left.windowIndex - right.windowIndex);
+
+export const listTaskableEventTodos = (
+  runtime: CityRuntimeData,
+  districtId: string,
+): EventTodoDraft[] =>
+  listDistrictEventOpportunities(runtime, districtId)
+    .filter(event => event.status === 'open')
+    .map(buildEventTodoDraft)
+    .filter((draft): draft is EventTodoDraft => !!draft);
 
 export const syncDistrictEventLayer = (
   runtime: CityRuntimeData,
@@ -335,9 +521,10 @@ export const buildEventLayerDigest = (runtime: CityRuntimeData, locationLabel: s
 
   const primary = openEvents[0];
   const secondary = openEvents.slice(1, 3).map(event => event.title).join(' / ');
+  const taskableCount = openEvents.filter(event => !!resolveTemplateForOpportunity(event)?.taskable).length;
   const routeText = primary.routeHint ? ` 接口=${primary.routeHint};` : '';
   const extraText = secondary ? ` 备选=${secondary};` : '';
-  return `${profile.regionLabel}·${profile.districtLabel} 当前有 ${openEvents.length} 条隐含区域机会；主引子=「${primary.title}」 ${primary.teaser}${routeText}${extraText}`;
+  return `${profile.regionLabel}·${profile.districtLabel} 当前有 ${openEvents.length} 条隐含区域机会，其中 ${taskableCount} 条可落为正式任务；主引子=「${primary.title}」 ${primary.teaser}${routeText}${extraText}`;
 };
 
 export const buildRecentEventSnapshot = (
@@ -353,6 +540,7 @@ export const buildRecentEventSnapshot = (
     district_label: profile.districtLabel,
     open_count: runtime.districtEventOpportunities.filter(event => event.status === 'open').length,
     current_open_count: listDistrictEventOpportunities(runtime, profile.id).filter(event => event.status === 'open').length,
+    taskable_current_count: listTaskableEventTodos(runtime, profile.id).length,
     recent_titles: recent.map(event => event.title),
     recent_routes: recent.map(event => event.routeHint || ''),
   };

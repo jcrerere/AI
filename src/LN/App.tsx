@@ -113,6 +113,7 @@ import {
 import {
   buildEventLayerDigest,
   buildRecentEventSnapshot,
+  listTaskableEventTodos,
   syncDistrictEventLayer,
 } from './utils/eventRuntime';
 import {
@@ -5091,7 +5092,30 @@ const App: React.FC = () => {
         locationLabel: latestProgressLocation,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
       });
-      return progressed.changed || syncedEvents.changed ? syncedEvents.runtime : prev;
+      let nextRuntime = syncedEvents.runtime;
+      let changed = progressed.changed || syncedEvents.changed;
+      const existingSceneTodoSourceIds = new Set(
+        nextRuntime.todos
+          .filter(
+            todo =>
+              todo.sourceType === 'scene' &&
+              todo.status !== 'completed' &&
+              todo.status !== 'failed' &&
+              todo.status !== 'cancelled',
+          )
+          .map(todo => todo.sourceId),
+      );
+      const taskableEventTodos = listTaskableEventTodos(nextRuntime, districtId).filter(
+        draft => !existingSceneTodoSourceIds.has(draft.sourceId),
+      );
+      taskableEventTodos.forEach(draft => {
+        const todoResult = upsertRuntimeTodo(nextRuntime, draft);
+        nextRuntime = todoResult.runtime;
+        if (todoResult.created) {
+          changed = true;
+        }
+      });
+      return changed ? nextRuntime : prev;
     });
   }, [gameStage, latestProgressLayerMessage?.id, latestProgressLocation, mapRuntime.elapsedMinutes]);
   const lingshuRuntimeAffixes = useMemo(
