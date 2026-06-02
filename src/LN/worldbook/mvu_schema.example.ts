@@ -153,7 +153,15 @@ export const MvuStatDataSchema = z.object({
         status: z.array(AffixSchema).default([]),
       }),
     ).default([]),
-    soul_ledger: z.record(RankSchema, z.number().int().min(0)).default({}),
+    soul_ledger: z
+      .record(RankSchema, z.number().int().min(0))
+      .default(() => ({
+        'Lv.1': 0,
+        'Lv.2': 0,
+        'Lv.3': 0,
+        'Lv.4': 0,
+        'Lv.5': 0,
+      })),
   }),
 });
 

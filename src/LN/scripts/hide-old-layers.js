@@ -65,5 +65,5 @@ $(() => {
 
   $(window).on('pagehide', () => {
     showAllLayers();
-  }
+  });
 });

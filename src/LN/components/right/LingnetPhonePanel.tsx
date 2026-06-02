@@ -1,10 +1,19 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { BlackRaceBetRecord, BlackRaceMarket, FinanceLedgerEntry, NPC, SocialPlatform } from '../../types';
 import NpcCodexPanel from './NpcCodexPanel';
 import { BookOpen, Import, MessageCircle, Search, Send, Sparkles, Wallet } from 'lucide-react';
 import { resolveLocationJurisdiction } from '../../utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from '../../utils/locationTheme';
 import { useCompactViewport } from '../../hooks/useCompactViewport';
+import PersistentImage from '../ui/PersistentImage';
+import {
+  buildLocalImageUri,
+  isLocalImageUri,
+  listLocalImageAssets,
+  parseLocalImageUri,
+  saveLocalImageFile,
+  type LocalImageAssetRecord,
+} from '../../utils/localImageStore';
 
 export interface SocialImportDraft {
   targetNpcId: string;
@@ -34,6 +43,8 @@ interface SocialSpendPayload {
 
 interface Props {
   npcs: NPC[];
+  lingnetRuntimeHints?: Record<string, { dirty: boolean; due: boolean; label: string; detail?: string }>;
+  refreshingLingnetNpcId?: string | null;
   playerName: string;
   playerCredits: number;
   currentLocation: string;
@@ -48,19 +59,27 @@ interface Props {
     settlementExposure: number;
   };
   onToggleFollow: (npcId: string) => void;
+  onRefreshLingnetNpc?: (npcId: string) => Promise<{ ok: boolean; message?: string; postCount?: number }>;
   onAddComment: (npcId: string, postId: string, content: string) => void;
-  onSendDm: (npcId: string, content: string) => { ok: boolean; message?: string; todoTitle?: string; todoCreated?: boolean };
+  onSendDm: (
+    npcId: string,
+    content: string,
+  ) => { ok: boolean; message?: string; todoTitle?: string; todoCreated?: boolean };
   onSpendOnNpc: (payload: SocialSpendPayload) => { ok: boolean; message?: string };
   onPurchaseDarknetService: (payload: { npcId: string; serviceId: string }) => { ok: boolean; message?: string };
-  onPlaceBlackRaceBet: (payload: {
-    optionId: string;
-    amount: number;
-  }) => { ok: boolean; message?: string; outcome?: 'win' | 'lose'; payout?: number; net?: number };
+  onPlaceBlackRaceBet: (payload: { optionId: string; amount: number }) => {
+    ok: boolean;
+    message?: string;
+    outcome?: 'win' | 'lose';
+    payout?: number;
+    net?: number;
+  };
   onImportPost: (payload: SocialImportDraft) => void;
 }
 
 type PhoneView = 'lingnet' | 'darknet' | 'dm' | 'wallet' | 'import';
 type LingnetMode = 'feed' | 'discover' | 'profile';
+type ImportImageMode = 'local' | 'url';
 
 type PaymentDraft = {
   npcId: string;
@@ -249,6 +268,8 @@ const PHONE_TABS: Array<{ id: PhoneView; label: string; icon: React.ReactNode }>
 
 const LingnetPhonePanel: React.FC<Props> = ({
   npcs,
+  lingnetRuntimeHints = {},
+  refreshingLingnetNpcId = null,
   playerName,
   playerCredits,
   currentLocation,
@@ -258,6 +279,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
   blackRaceHistory,
   walletSummary,
   onToggleFollow,
+  onRefreshLingnetNpc,
   onAddComment,
   onSendDm,
   onSpendOnNpc,
@@ -294,6 +316,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const [visibleDmThreadCount, setVisibleDmThreadCount] = useState(DM_THREAD_BATCH_SIZE);
   const [visibleDmMessageCount, setVisibleDmMessageCount] = useState(DM_MESSAGE_BATCH_SIZE);
   const [visiblePaymentCount, setVisiblePaymentCount] = useState(PAYMENT_BATCH_SIZE);
+  const [importImageMode, setImportImageMode] = useState<ImportImageMode>('local');
+  const [localImageAssets, setLocalImageAssets] = useState<LocalImageAssetRecord[]>([]);
+  const [isSavingLocalImage, setIsSavingLocalImage] = useState(false);
   const [importDraft, setImportDraft] = useState<SocialImportDraft>({
     targetNpcId: '__new__',
     localName: '',
@@ -311,24 +336,27 @@ const LingnetPhonePanel: React.FC<Props> = ({
     unlockPrice: 88,
     note: '',
   });
+  const localImageInputRef = useRef<HTMLInputElement | null>(null);
   const isCompactViewport = useCompactViewport();
   const deferredKeyword = useDeferredValue(keyword);
-
-  const socialAccounts = useMemo(
-    () => {
-      if (activeView === 'darknet') return [];
-      return npcs.filter(
-        npc =>
-          npc.socialFeed.length > 0 ||
-          !!npc.socialHandle ||
-          !!npc.socialBio ||
-          (npc.dmThread || []).length > 0 ||
-          npc.playerFollows ||
-          npc.followsPlayer,
-      );
-    },
-    [activeView, npcs],
+  const selectedLocalImageId = useMemo(() => parseLocalImageUri(importDraft.imageUrl), [importDraft.imageUrl]);
+  const selectedLocalImage = useMemo(
+    () => localImageAssets.find(asset => asset.id === selectedLocalImageId) || null,
+    [localImageAssets, selectedLocalImageId],
   );
+
+  const socialAccounts = useMemo(() => {
+    if (activeView === 'darknet') return [];
+    return npcs.filter(
+      npc =>
+        npc.socialFeed.length > 0 ||
+        !!npc.socialHandle ||
+        !!npc.socialBio ||
+        (npc.dmThread || []).length > 0 ||
+        npc.playerFollows ||
+        npc.followsPlayer,
+    );
+  }, [activeView, npcs]);
 
   const filteredAccounts = useMemo(() => {
     if (activeView !== 'lingnet') return socialAccounts;
@@ -341,39 +369,27 @@ const LingnetPhonePanel: React.FC<Props> = ({
     );
   }, [activeView, deferredKeyword, socialAccounts]);
 
-  const feedEntries = useMemo(
-    () => {
-      if (activeView !== 'lingnet' || lingnetMode === 'profile') return [];
-      return filteredAccounts
-        .flatMap(npc => npc.socialFeed.map(post => ({ npc, post, sortKey: Date.parse(post.timestamp) || 0 })))
-        .sort((a, b) => b.sortKey - a.sortKey || b.post.id.localeCompare(a.post.id));
-    },
-    [activeView, filteredAccounts, lingnetMode],
-  );
+  const feedEntries = useMemo(() => {
+    if (activeView !== 'lingnet' || lingnetMode === 'profile') return [];
+    return filteredAccounts
+      .flatMap(npc => npc.socialFeed.map(post => ({ npc, post, sortKey: Date.parse(post.timestamp) || 0 })))
+      .sort((a, b) => b.sortKey - a.sortKey || b.post.id.localeCompare(a.post.id));
+  }, [activeView, filteredAccounts, lingnetMode]);
 
-  const dmAccounts = useMemo(
-    () => {
-      if (activeView !== 'dm') return [];
-      return socialAccounts.filter(npc => isMutualFollow(npc) || (npc.dmThread || []).length > 0);
-    },
-    [activeView, socialAccounts],
-  );
-  const paymentEntries = useMemo(
-    () => {
-      if (activeView !== 'wallet') return [];
-      return socialAccounts
-        .flatMap(npc => (npc.dmThread || []).filter(item => !!item.amount).map(item => ({ npc, item })))
-        .sort((a, b) => (Date.parse(b.item.timestamp) || 0) - (Date.parse(a.item.timestamp) || 0));
-    },
-    [activeView, socialAccounts],
-  );
-  const ledgerEntries = useMemo(
-    () => {
-      if (activeView !== 'wallet') return [];
-      return [...financeLedger].sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
-    },
-    [activeView, financeLedger],
-  );
+  const dmAccounts = useMemo(() => {
+    if (activeView !== 'dm') return [];
+    return socialAccounts.filter(npc => isMutualFollow(npc) || (npc.dmThread || []).length > 0);
+  }, [activeView, socialAccounts]);
+  const paymentEntries = useMemo(() => {
+    if (activeView !== 'wallet') return [];
+    return socialAccounts
+      .flatMap(npc => (npc.dmThread || []).filter(item => !!item.amount).map(item => ({ npc, item })))
+      .sort((a, b) => (Date.parse(b.item.timestamp) || 0) - (Date.parse(a.item.timestamp) || 0));
+  }, [activeView, socialAccounts]);
+  const ledgerEntries = useMemo(() => {
+    if (activeView !== 'wallet') return [];
+    return [...financeLedger].sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
+  }, [activeView, financeLedger]);
   const activeProfileNpc = useMemo(
     () => socialAccounts.find(npc => npc.id === selectedNpcId) || socialAccounts[0] || null,
     [selectedNpcId, socialAccounts],
@@ -387,7 +403,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const locationVisualTheme = useMemo(() => resolveLocationVisualTheme(currentLocation), [currentLocation]);
   const blackRaceAvailable = jurisdiction.key === 'north';
   const selectedBlackRaceOption = useMemo(
-    () => blackRaceMarket?.options.find(option => option.id === blackRaceOptionId) || blackRaceMarket?.options[0] || null,
+    () =>
+      blackRaceMarket?.options.find(option => option.id === blackRaceOptionId) || blackRaceMarket?.options[0] || null,
     [blackRaceMarket, blackRaceOptionId],
   );
   const recentBlackRaceHistory = useMemo(() => blackRaceHistory.slice(0, 5), [blackRaceHistory]);
@@ -412,8 +429,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
       accounts: socialAccounts.length,
       posts: socialAccounts.reduce((sum, npc) => sum + npc.socialFeed.length, 0),
       mutuals: socialAccounts.filter(npc => isMutualFollow(npc)).length,
+      pending: socialAccounts.filter(npc => !!lingnetRuntimeHints[npc.id]).length,
     }),
-    [socialAccounts],
+    [lingnetRuntimeHints, socialAccounts],
   );
   const lockedPremiumCount = useMemo(
     () =>
@@ -449,6 +467,10 @@ const LingnetPhonePanel: React.FC<Props> = ({
     () => (activeDmNpc?.dmThread || []).slice(-visibleDmMessageCount),
     [activeDmNpc, visibleDmMessageCount],
   );
+  const visiblePaymentEntries = useMemo(
+    () => paymentEntries.slice(0, visiblePaymentCount),
+    [paymentEntries, visiblePaymentCount],
+  );
   const visibleLedgerEntries = useMemo(
     () => ledgerEntries.slice(0, visiblePaymentCount),
     [ledgerEntries, visiblePaymentCount],
@@ -456,6 +478,32 @@ const LingnetPhonePanel: React.FC<Props> = ({
   const getStaggerStyle = (index: number, step = 55): React.CSSProperties => ({
     animationDelay: reduceMotion ? '0ms' : `${Math.min(index * step, 440)}ms`,
   });
+  const getLingnetHint = (npc: NPC) => lingnetRuntimeHints[npc.id];
+  const renderLingnetHintBadge = (npc: NPC) => {
+    const hint = getLingnetHint(npc);
+    if (!hint) return null;
+    const toneClass = hint.dirty
+      ? 'border-amber-300/25 bg-amber-500/12 text-amber-100'
+      : 'border-cyan-300/20 bg-cyan-500/10 text-cyan-100';
+    return (
+      <span
+        title={hint.detail || hint.label}
+        className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${toneClass}`}
+      >
+        {hint.label}
+      </span>
+    );
+  };
+  const triggerLingnetRefresh = async (npc: NPC) => {
+    if (!onRefreshLingnetNpc) return;
+    const result = await onRefreshLingnetNpc(npc.id);
+    pushFeedback(
+      result.ok ? '灵网近况已同步' : '灵网近况未更新',
+      result.message || (result.ok ? `${npc.name} 的灵网近况已补写。` : `暂时无法补写 ${npc.name} 的灵网近况。`),
+      result.ok ? 'success' : 'warn',
+      'lingnet',
+    );
+  };
   const feedbackToneClass =
     uiFeedback?.tone === 'success'
       ? 'border-emerald-300/25 bg-emerald-500/14'
@@ -545,6 +593,45 @@ const LingnetPhonePanel: React.FC<Props> = ({
       tone,
       accent,
     });
+  };
+
+  const refreshLocalImageAssets = async () => {
+    try {
+      const assets = await listLocalImageAssets(18);
+      setLocalImageAssets(assets);
+    } catch {
+      setLocalImageAssets([]);
+    }
+  };
+
+  useEffect(() => {
+    void refreshLocalImageAssets();
+  }, []);
+
+  const handleLocalImagePicked = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsSavingLocalImage(true);
+    try {
+      const asset = await saveLocalImageFile(file);
+      setImportImageMode('local');
+      setImportDraft(prev => ({
+        ...prev,
+        imageUrl: buildLocalImageUri(asset.id),
+      }));
+      await refreshLocalImageAssets();
+      pushFeedback('本地图已写入图库', `已保存 ${asset.fileName}，之后可在同浏览器继续复用。`, 'success', 'import');
+    } catch (error) {
+      pushFeedback(
+        '本地图保存失败',
+        error instanceof Error ? error.message : '当前图片暂时无法写入本地图库。',
+        'warn',
+        'import',
+      );
+    } finally {
+      event.target.value = '';
+      setIsSavingLocalImage(false);
+    }
   };
 
   useEffect(() => {
@@ -731,7 +818,12 @@ const LingnetPhonePanel: React.FC<Props> = ({
     }
     setDmDraft('');
     if (result.todoTitle) {
-      pushFeedback(result.todoCreated ? '待办已登记' : '待办已刷新', `已同步到城域账本：${result.todoTitle}`, 'success', 'dm');
+      pushFeedback(
+        result.todoCreated ? '待办已登记' : '待办已刷新',
+        `已同步到城域账本：${result.todoTitle}`,
+        'success',
+        'dm',
+      );
       return;
     }
     pushFeedback('私信已送达', `当前线程：${activeDmNpc.name}`, 'success', 'dm');
@@ -754,7 +846,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
     const isNewNpc = payload.targetNpcId === '__new__';
     const targetNpc = socialAccounts.find(npc => npc.id === payload.targetNpcId);
     if (!payload.imageUrl || !payload.caption) {
-      pushFeedback('导入信息不完整', '图片链接和正文至少要填完整', 'warn', 'import');
+      pushFeedback('导入信息不完整', '图片来源和正文至少要填完整', 'warn', 'import');
       return;
     }
     if (isNewNpc && (!payload.localName || !payload.socialHandle)) {
@@ -797,7 +889,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/5 bg-white/[0.02]">
           <div className="flex items-center gap-3 min-w-0">
-            <img
+            <PersistentImage
               src={npc.avatarUrl}
               alt={npc.name}
               loading="lazy"
@@ -806,7 +898,10 @@ const LingnetPhonePanel: React.FC<Props> = ({
             />
             <div className="min-w-0">
               <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/55">Lingnet Feed</div>
-              <div className="text-sm font-semibold text-white truncate">{npc.name}</div>
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="text-sm font-semibold text-white truncate">{npc.name}</div>
+                {renderLingnetHintBadge(npc)}
+              </div>
               <div className="text-[11px] text-slate-400 truncate">
                 {socialHandleOf(npc)} · {formatTime(post.timestamp)}
               </div>
@@ -826,7 +921,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
           </p>
           {post.image ? (
             <div className="relative overflow-hidden rounded-[22px] border border-cyan-400/15 bg-black">
-              <img
+              <PersistentImage
                 src={post.image}
                 alt={npc.name}
                 loading="lazy"
@@ -855,15 +950,26 @@ const LingnetPhonePanel: React.FC<Props> = ({
             </div>
           ) : null}
           <div className="grid grid-cols-3 gap-2 text-xs">
-            <button
-              type="button"
-              onClick={() =>
-                openPayment({ npcId: npc.id, postId: post.id, kind: 'tip', amount: '30', note: `打赏 ${npc.name}` })
-              }
-              className="rounded-[16px] border border-fuchsia-400/20 bg-fuchsia-500/8 px-3 py-2 text-fuchsia-100 transition hover:border-fuchsia-300/35 hover:text-white"
-            >
-              打赏
-            </button>
+            {getLingnetHint(npc) ? (
+              <button
+                type="button"
+                onClick={() => void triggerLingnetRefresh(npc)}
+                disabled={refreshingLingnetNpcId === npc.id || !onRefreshLingnetNpc}
+                className="rounded-[16px] border border-amber-400/20 bg-amber-500/8 px-3 py-2 text-amber-100 transition hover:border-amber-300/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {refreshingLingnetNpcId === npc.id ? '补写中' : '补近况'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() =>
+                  openPayment({ npcId: npc.id, postId: post.id, kind: 'tip', amount: '30', note: `打赏 ${npc.name}` })
+                }
+                className="rounded-[16px] border border-fuchsia-400/20 bg-fuchsia-500/8 px-3 py-2 text-fuchsia-100 transition hover:border-fuchsia-300/35 hover:text-white"
+              >
+                打赏
+              </button>
+            )}
             <button
               type="button"
               onClick={() => openPayment({ npcId: npc.id, kind: 'transfer', amount: '88', note: `转账给 ${npc.name}` })}
@@ -917,7 +1023,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
       className="ln-card-lift animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-hidden rounded-[28px] border border-cyan-400/15 bg-[linear-gradient(180deg,rgba(8,18,30,0.98),rgba(5,9,16,0.98))] p-4 shadow-[0_18px_48px_rgba(0,0,0,0.16)]"
     >
       <div className="flex gap-3">
-        <img
+        <PersistentImage
           src={npc.avatarUrl}
           alt={npc.name}
           loading="lazy"
@@ -930,7 +1036,10 @@ const LingnetPhonePanel: React.FC<Props> = ({
               <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/55">
                 {isMutualFollow(npc) ? 'Mutual Link' : npc.playerFollows ? 'Observed' : 'Suggested'}
               </div>
-              <div className="truncate text-base font-semibold text-white">{npc.name}</div>
+              <div className="mt-1 flex items-center gap-2 min-w-0">
+                <div className="truncate text-base font-semibold text-white">{npc.name}</div>
+                {renderLingnetHintBadge(npc)}
+              </div>
               <div className="truncate text-xs text-cyan-100/70">{socialHandleOf(npc)}</div>
             </div>
             <button
@@ -963,6 +1072,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
             >
               查看主页
             </button>
+            {getLingnetHint(npc) ? (
+              <button
+                type="button"
+                onClick={() => void triggerLingnetRefresh(npc)}
+                disabled={refreshingLingnetNpcId === npc.id || !onRefreshLingnetNpc}
+                className="rounded-[16px] border border-amber-400/20 px-3 py-2 text-xs text-amber-100 transition hover:border-amber-300/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {refreshingLingnetNpcId === npc.id ? '补写中' : '补近况'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => openDarknetProfile(npc)}
@@ -1003,7 +1122,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
         </div>
         <div className="overflow-hidden rounded-[30px] border border-cyan-400/15 bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.14),_transparent_28%),linear-gradient(180deg,rgba(8,18,30,0.98),rgba(6,10,18,0.98))] p-4">
           <div className="flex gap-4">
-            <img
+            <PersistentImage
               src={activeProfileNpc.avatarUrl}
               alt={activeProfileNpc.name}
               loading="lazy"
@@ -1014,7 +1133,10 @@ const LingnetPhonePanel: React.FC<Props> = ({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/55">Profile</div>
-                  <div className="text-xl font-semibold text-white">{activeProfileNpc.name}</div>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="text-xl font-semibold text-white">{activeProfileNpc.name}</div>
+                    {renderLingnetHintBadge(activeProfileNpc)}
+                  </div>
                   <div className="text-xs text-cyan-100/70">{socialHandleOf(activeProfileNpc)}</div>
                 </div>
                 <button
@@ -1043,6 +1165,16 @@ const LingnetPhonePanel: React.FC<Props> = ({
                 </div>
               </div>
               <div className="mt-4 flex gap-2 flex-wrap">
+                {getLingnetHint(activeProfileNpc) ? (
+                  <button
+                    type="button"
+                    onClick={() => void triggerLingnetRefresh(activeProfileNpc)}
+                    disabled={refreshingLingnetNpcId === activeProfileNpc.id || !onRefreshLingnetNpc}
+                    className="rounded-full border border-amber-400/20 px-3 py-2 text-xs text-amber-100 transition hover:border-amber-300/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {refreshingLingnetNpcId === activeProfileNpc.id ? '补写中' : '补最近动态'}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() =>
@@ -1349,7 +1481,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div className="rounded-[18px] border border-amber-300/10 bg-black/20 px-3 py-3">
             <div className="text-[10px] uppercase tracking-[0.18em] text-amber-100/55">Recent Net</div>
             <div className={`mt-1 text-lg font-semibold ${recentNetFlow >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-              {recentNetFlow >= 0 ? '+' : '-'}{Math.abs(recentNetFlow)}
+              {recentNetFlow >= 0 ? '+' : '-'}
+              {Math.abs(recentNetFlow)}
             </div>
           </div>
         </div>
@@ -1367,11 +1500,17 @@ const LingnetPhonePanel: React.FC<Props> = ({
               <div className="rounded-[22px] border border-amber-300/12 bg-black/20 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100/55">{blackRaceMarket.venue}</div>
+                    <div className="text-[10px] uppercase tracking-[0.2em] text-amber-100/55">
+                      {blackRaceMarket.venue}
+                    </div>
                     <div className="mt-1 text-lg font-semibold text-white">{blackRaceMarket.title}</div>
-                    <div className="mt-1 text-xs text-slate-400">{blackRaceMarket.locationLabel} · {blackRaceMarket.heatLabel}</div>
+                    <div className="mt-1 text-xs text-slate-400">
+                      {blackRaceMarket.locationLabel} · {blackRaceMarket.heatLabel}
+                    </div>
                   </div>
-                  <div className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.18em] ${blackRaceAvailable ? 'border-amber-300/20 bg-amber-500/10 text-amber-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>
+                  <div
+                    className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.18em] ${blackRaceAvailable ? 'border-amber-300/20 bg-amber-500/10 text-amber-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}
+                  >
                     {blackRaceAvailable ? '盘口开放' : '远程只读'}
                   </div>
                 </div>
@@ -1461,8 +1600,11 @@ const LingnetPhonePanel: React.FC<Props> = ({
                             {record.outcome === 'win' ? '命中盘口' : '盘口落空'} · {formatTime(record.resolvedAt)}
                           </div>
                         </div>
-                        <div className={`text-sm font-semibold ${record.net >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                          {record.net >= 0 ? '+' : '-'}{Math.abs(record.net)}
+                        <div
+                          className={`text-sm font-semibold ${record.net >= 0 ? 'text-emerald-300' : 'text-red-300'}`}
+                        >
+                          {record.net >= 0 ? '+' : '-'}
+                          {Math.abs(record.net)}
                         </div>
                       </div>
                     ))}
@@ -1502,7 +1644,8 @@ const LingnetPhonePanel: React.FC<Props> = ({
                   </div>
                 </div>
                 <div className={`text-sm font-semibold ${entry.amount >= 0 ? 'text-emerald-300' : 'text-amber-200'}`}>
-                  {entry.amount >= 0 ? '+' : '-'}{Math.abs(entry.amount)}
+                  {entry.amount >= 0 ? '+' : '-'}
+                  {Math.abs(entry.amount)}
                 </div>
               </div>
             ))
@@ -1633,12 +1776,121 @@ const LingnetPhonePanel: React.FC<Props> = ({
             </div>
             <div className="mt-3">
               <input
-                type="url"
-                value={importDraft.imageUrl}
-                onChange={event => setImportDraft(prev => ({ ...prev, imageUrl: event.target.value }))}
-                placeholder="公开图片 URL"
-                className={formFieldClass}
+                ref={localImageInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleLocalImagePicked}
+                className="hidden"
               />
+              <div className="rounded-[20px] border border-sky-400/12 bg-black/20 p-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setImportImageMode('local')}
+                    className={`rounded-[16px] border px-3 py-2 text-xs font-semibold transition ${
+                      importImageMode === 'local'
+                        ? 'border-sky-300/40 bg-sky-400/10 text-white'
+                        : 'border-white/8 bg-white/[0.02] text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    本地图
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportImageMode('url')}
+                    className={`rounded-[16px] border px-3 py-2 text-xs font-semibold transition ${
+                      importImageMode === 'url'
+                        ? 'border-sky-300/40 bg-sky-400/10 text-white'
+                        : 'border-white/8 bg-white/[0.02] text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    URL
+                  </button>
+                </div>
+                {importImageMode === 'local' ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => localImageInputRef.current?.click()}
+                        disabled={isSavingLocalImage}
+                        className="flex-1 rounded-[16px] border border-sky-300/25 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100 transition hover:border-sky-200/45 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isSavingLocalImage
+                          ? '写入本地图库中...'
+                          : selectedLocalImage
+                            ? '重新选择本地图'
+                            : '从手机/本地选择图片'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setImportDraft(prev => ({ ...prev, imageUrl: '' }))}
+                        className="rounded-[16px] border border-white/8 px-3 py-2 text-xs text-slate-400 transition hover:text-white"
+                      >
+                        清空
+                      </button>
+                    </div>
+                    <div className="rounded-[16px] border border-white/5 bg-white/[0.02] px-3 py-2 text-xs leading-5 text-slate-400">
+                      本地图会压缩后保存在当前浏览器图库里。同设备、同浏览器下，读档和新档都能继续复用这些图。
+                    </div>
+                    {selectedLocalImage ? (
+                      <div className="text-xs text-slate-300">
+                        当前已选：{selectedLocalImage.fileName} · {selectedLocalImage.width}x{selectedLocalImage.height}
+                      </div>
+                    ) : null}
+                    {localImageAssets.length > 0 ? (
+                      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {localImageAssets.map(asset => {
+                          const active = asset.id === selectedLocalImageId;
+                          return (
+                            <button
+                              key={asset.id}
+                              type="button"
+                              onClick={() =>
+                                setImportDraft(prev => ({
+                                  ...prev,
+                                  imageUrl: buildLocalImageUri(asset.id),
+                                }))
+                              }
+                              className={`overflow-hidden rounded-[16px] border text-left transition ${
+                                active
+                                  ? 'border-sky-200/60 shadow-[0_0_0_1px_rgba(125,211,252,0.45)]'
+                                  : 'border-white/8 hover:border-sky-300/25'
+                              }`}
+                              title={asset.fileName}
+                            >
+                              <PersistentImage
+                                src={asset.dataUrl}
+                                alt={asset.fileName}
+                                loading="lazy"
+                                decoding="async"
+                                className="aspect-[4/5] w-full object-cover"
+                              />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-[16px] border border-dashed border-white/8 px-3 py-4 text-center text-xs text-slate-500">
+                        当前本地图库还是空的，先从手机相册里选一张图。
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-3 space-y-3">
+                    <input
+                      type="url"
+                      value={isLocalImageUri(importDraft.imageUrl) ? '' : importDraft.imageUrl}
+                      onChange={event => setImportDraft(prev => ({ ...prev, imageUrl: event.target.value }))}
+                      placeholder="公开图片 URL"
+                      className={formFieldClass}
+                    />
+                    <div className="rounded-[16px] border border-white/5 bg-white/[0.02] px-3 py-2 text-xs leading-5 text-slate-400">
+                      URL 模式适合直接搬运公开图片；如果你主要在手机长期玩，更推荐上面的本地图模式。
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="mt-3">
               <textarea
@@ -1693,7 +1945,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <div className="text-[10px] uppercase tracking-[0.2em] text-sky-100/55">Preview</div>
             {importDraft.imageUrl ? (
               <div className="mt-3 overflow-hidden rounded-[22px] border border-sky-400/12 bg-black/20 p-3">
-                <img
+                <PersistentImage
                   src={importDraft.imageUrl}
                   alt="preview"
                   loading="lazy"
@@ -1703,7 +1955,7 @@ const LingnetPhonePanel: React.FC<Props> = ({
               </div>
             ) : (
               <div className="mt-3 rounded-[22px] border border-dashed border-sky-400/12 px-4 py-10 text-center text-sm text-slate-500">
-                填写图片 URL 后显示预览。
+                选中本地图或填入 URL 后，这里会显示预览。
               </div>
             )}
             <div className="mt-3 rounded-[18px] border border-sky-400/10 bg-black/20 px-3 py-3 text-sm leading-6 text-slate-300">
@@ -1715,6 +1967,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <div className="mt-3 space-y-2 text-sm text-slate-300">
               <div className="rounded-[18px] border border-white/5 bg-white/[0.02] px-3 py-2">
                 公开内容进灵网，来源映射与后续扩写留在暗网。
+              </div>
+              <div className="rounded-[18px] border border-white/5 bg-white/[0.02] px-3 py-2">
+                本地图会保存到当前浏览器图库里，换新档还能继续选用，但不会自动绑定到全新角色。
               </div>
               <div className="rounded-[18px] border border-white/5 bg-white/[0.02] px-3 py-2">
                 新建账号时至少填写本土化名称和灵网句柄。
@@ -1766,7 +2021,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div>
             <div className="text-2xl font-semibold tracking-tight text-white">灵能手机</div>
             <div className="mt-1 text-[11px] text-slate-400">{phoneTheme.headerDescription}</div>
-            <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] ${locationVisualTheme.phoneRegionPillClass}`}>
+            <div
+              className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] ${locationVisualTheme.phoneRegionPillClass}`}
+            >
               {locationVisualTheme.label}
             </div>
             <div
@@ -1786,7 +2043,9 @@ const LingnetPhonePanel: React.FC<Props> = ({
             <div className="text-[10px] uppercase tracking-[0.22em] text-white/60">Jurisdiction Layer</div>
             <div className="text-[11px] font-semibold text-white">{jurisdiction.regionLabel}</div>
           </div>
-          <div className={`mt-2 inline-flex items-center rounded-full border px-2 py-1 text-[10px] ${locationVisualTheme.phoneRegionPillClass}`}>
+          <div
+            className={`mt-2 inline-flex items-center rounded-full border px-2 py-1 text-[10px] ${locationVisualTheme.phoneRegionPillClass}`}
+          >
             {locationVisualTheme.label}
           </div>
           <div className="mt-2 text-[11px] leading-5 text-slate-200/85">{jurisdiction.summary}</div>
@@ -1801,33 +2060,29 @@ const LingnetPhonePanel: React.FC<Props> = ({
         </div>
       </div>
       <div className="px-4 pt-3">
-        <div
-          className={
-            isCompactViewport ? '-mx-1 overflow-x-auto px-1 custom-scrollbar scrollbar-hidden' : undefined
-          }
-        >
+        <div className={isCompactViewport ? '-mx-1 overflow-x-auto px-1 custom-scrollbar scrollbar-hidden' : undefined}>
           <div
             className={`gap-2 rounded-[24px] border p-1 ${phoneTheme.navWrap} ${
               isCompactViewport ? 'flex min-w-max snap-x snap-mandatory' : 'grid grid-cols-5'
             }`}
           >
             {PHONE_TABS.map(tab => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => switchView(tab.id as PhoneView)}
-              className={`ln-card-lift rounded-[18px] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.99] ${
-                isCompactViewport
-                  ? 'min-w-[92px] shrink-0 snap-start flex-col px-3 py-3'
-                  : 'flex-col px-2 py-2 sm:flex-row'
-              } ${activeView === tab.id ? phoneTheme.navActive : phoneTheme.navIdle}`}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-            </button>
-          ))}
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => switchView(tab.id as PhoneView)}
+                className={`ln-card-lift rounded-[18px] text-[11px] font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.99] ${
+                  isCompactViewport
+                    ? 'min-w-[92px] shrink-0 snap-start flex-col px-3 py-3'
+                    : 'flex-col px-2 py-2 sm:flex-row'
+                } ${activeView === tab.id ? phoneTheme.navActive : phoneTheme.navIdle}`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
       </div>
       <div
         className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 custom-scrollbar"
@@ -1854,10 +2109,11 @@ const LingnetPhonePanel: React.FC<Props> = ({
           <div className={`animate-in fade-in ${phoneTheme.sceneClass}`}>
             <div className="rounded-[24px] border border-cyan-400/12 bg-cyan-500/5 px-4 py-3">
               <div className="text-[10px] uppercase tracking-[0.22em] text-cyan-200/60">Lingnet Layer</div>
-              <div className="mt-1 grid grid-cols-2 gap-2 text-sm text-slate-200 sm:grid-cols-3">
+              <div className="mt-1 grid grid-cols-2 gap-2 text-sm text-slate-200 sm:grid-cols-4">
                 <div>{lingnetStats.accounts} 个活跃账号</div>
                 <div>{lingnetStats.posts} 条公开动态</div>
                 <div>{lingnetStats.mutuals} 个互关联系人</div>
+                <div>{lingnetStats.pending} 个账号待补近况</div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

@@ -273,8 +273,8 @@ const buildProceduralShop = (currentLocation: string, latestPlayerInput: string,
       shopTag: title,
       price: Math.max(30, Math.round(rankBasePrice(item.rank) * priceFactor) + surcharge),
       sourceEpoch: 1,
-      availability: 'front',
-      styleTags: [],
+      availability: 'front' as const,
+      styleTags: [] as string[],
     };
   });
   const summaryMap: Record<ProceduralShop['archetype'], string> = {

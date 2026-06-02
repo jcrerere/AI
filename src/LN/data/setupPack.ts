@@ -1,4 +1,8 @@
 import { CareerTrack, Chip, EquippedItem, Item, LingshuPart, Rank, Skill } from '../types';
+import {
+  canonicalizeSpiritSkillCard,
+  createPartSkillPools as createSpiritSkillPoolsByPart,
+} from './spiritSkillPool';
 
 export interface LnSetupPackData {
   version: 2;
@@ -8,6 +12,7 @@ export interface LnSetupPackData {
   selectedStarterItemIds: string[];
   zoneOptions: string[];
   lingshuParts: LingshuPart[];
+  selectedCoreSkills: Skill[];
   partSkillPools: Record<string, Skill[]>;
   partEquipPools: Record<string, EquippedItem[]>;
   careerTracks: CareerTrack[];
@@ -53,9 +58,262 @@ export const LN_AUTHOR_BOARD_OPTIONS: Chip[] = [
 ];
 
 const LN_AUTHOR_STARTER_CHIPS: Chip[] = [
-  { id: 'sc1', name: '基础骇入', type: 'active', rank: Rank.Lv1, description: '简单的电子门锁破解协议。' },
-  { id: 'sc2', name: '初级义眼光学', type: 'passive', rank: Rank.Lv1, description: '稍微提高视觉缩放倍率。' },
-  { id: 'sc3', name: '肾上腺素增强', type: 'process', rank: Rank.Lv1, description: '战斗时略微提高反应速度。' },
+  {
+    id: 'chip_trace_sampling',
+    name: '灵痕采样',
+    type: 'passive',
+    rank: Rank.Lv1,
+    description: '可识别现场是否存在灵能残留，不再两眼一抹黑。',
+    effectLines: ['可发现灵能残留与异常痕迹', '感知+1'],
+    aiSummary: '调查起步芯片，让使用者至少能看见“这里发生过什么”。',
+    sixDimBonuses: { 感知: 1 },
+  },
+  {
+    id: 'chip_trace_layering',
+    name: '灵痕分层',
+    type: 'process',
+    rank: Rank.Lv2,
+    description: '区分残留的新旧、强弱和大致人数，调查不再只靠猜。',
+    effectLines: ['可判断痕迹新旧、强弱与人数规模', '感知+1', '意志+1'],
+    aiSummary: '在案发现场、追踪和搜查中获得更可靠的第一轮判断。',
+    sixDimBonuses: { 感知: 1, 意志: 1 },
+  },
+  {
+    id: 'chip_trace_replay',
+    name: '灵痕复盘',
+    type: 'process',
+    rank: Rank.Lv3,
+    description: '从残留中复原最近一段动作顺序，看出追逐、拖拽、交手或逃离。',
+    effectLines: ['可复原短时行动轨迹', '感知+2', '意志+1'],
+    aiSummary: '调查正式进入“还原过程”阶段，不只知道有事发生，还能看出怎么发生。',
+    sixDimBonuses: { 感知: 2, 意志: 1 },
+  },
+  {
+    id: 'chip_trace_analysis',
+    name: '灵痕析术',
+    type: 'active',
+    rank: Rank.Lv4,
+    description: '可从残留中判断术式类别、施压方向、是否负伤与是否带诅咒。',
+    effectLines: ['可分析术式类型与异常状态', '感知+2', '意志+2'],
+    aiSummary: '高危调查芯片，能把“看见痕迹”推进到“读懂对手”。',
+    sixDimBonuses: { 感知: 2, 意志: 2 },
+  },
+  {
+    id: 'chip_trace_lock',
+    name: '灵痕追锁',
+    type: 'active',
+    rank: Rank.Lv5,
+    description: '锁定单一目标的灵痕并持续追索一段时间，调查直接跨入追猎阶段。',
+    effectLines: ['可锁定单一目标灵痕持续追索', '感知+3', '意志+2'],
+    aiSummary: '顶级调查芯片，能把线索直接变成追踪权。',
+    sixDimBonuses: { 感知: 3, 意志: 2 },
+  },
+  {
+    id: 'chip_intrusion_protocol',
+    name: '入侵协议',
+    type: 'active',
+    rank: Rank.Lv1,
+    description: '可开启低级门禁、读取民用终端与普通监控。',
+    effectLines: ['可破解低级门禁与民用终端', '感知+1', '意志+1'],
+    aiSummary: '黑客起步芯片，先把最低层的电子阻碍变成可互动对象。',
+    sixDimBonuses: { 感知: 1, 意志: 1 },
+  },
+  {
+    id: 'chip_permission_strip',
+    name: '权限剥离',
+    type: 'process',
+    rank: Rank.Lv2,
+    description: '可绕过基础权限校验，复制日志、导出记录、删除小段痕迹。',
+    effectLines: ['可绕过基础权限并调取日志', '感知+1', '意志+2'],
+    aiSummary: '不只是开门，而是开始真正改写和带走信息。',
+    sixDimBonuses: { 感知: 1, 意志: 2 },
+  },
+  {
+    id: 'chip_backdoor_seed',
+    name: '后门植入',
+    type: 'process',
+    rank: Rank.Lv3,
+    description: '可在设备或小型网络中埋下后门，为后续反复接入留口子。',
+    effectLines: ['可植入后门并保留后续入口', '感知+2', '意志+2'],
+    aiSummary: '黑客线的真正分水岭，开始具备持续控制价值。',
+    sixDimBonuses: { 感知: 2, 意志: 2 },
+  },
+  {
+    id: 'chip_link_hijack',
+    name: '链路劫持',
+    type: 'active',
+    rank: Rank.Lv4,
+    description: '短时夺控摄像头、门锁、炮台、安保终端等单体设备。',
+    effectLines: ['可短时夺控单体设备', '感知+2', '意志+2', '敏捷+1'],
+    aiSummary: '高压场景里能把对方的设施直接掰成自己的工具。',
+    sixDimBonuses: { 感知: 2, 意志: 2, 敏捷: 1 },
+  },
+  {
+    id: 'chip_domain_takeover',
+    name: '域控接管',
+    type: 'process',
+    rank: Rank.Lv5,
+    description: '短时间接管一个小场景内的电子秩序，但会留下明显的系统反应。',
+    effectLines: ['可接管小场景电子秩序', '感知+2', '意志+3', '转化率+5%'],
+    aiSummary: '顶级黑客芯片，已经是在改写局部环境规则。',
+    sixDimBonuses: { 感知: 2, 意志: 3 },
+    conversionRateBonus: 5,
+  },
+  {
+    id: 'chip_burst_step',
+    name: '爆步驱动',
+    type: 'active',
+    rank: Rank.Lv1,
+    description: '获得一次短距爆发位移，在追人、抢门、闪身时非常直接。',
+    effectLines: ['获得短距爆发位移', '敏捷+1', '体质+1'],
+    aiSummary: '动作线起步芯片，先给出明确的位移权。',
+    sixDimBonuses: { 敏捷: 1, 体质: 1 },
+  },
+  {
+    id: 'chip_breakline_return',
+    name: '变线折返',
+    type: 'active',
+    rank: Rank.Lv2,
+    description: '高速移动中可急停、折返、切线，追逐和脱离都更难被读。',
+    effectLines: ['可高速变线、急停与折返', '敏捷+2'],
+    aiSummary: '让动作不只是快，而是难以预测。',
+    sixDimBonuses: { 敏捷: 2 },
+  },
+  {
+    id: 'chip_reflex_leverage',
+    name: '反射借力',
+    type: 'passive',
+    rank: Rank.Lv3,
+    description: '翻越、撞门、坠落缓冲和突发规避的动作代价明显下降。',
+    effectLines: ['大幅降低翻越、冲撞与缓冲代价', '敏捷+2', '体质+1'],
+    aiSummary: '动作线中段核心，让移动和环境互动一起变强。',
+    sixDimBonuses: { 敏捷: 2, 体质: 1 },
+  },
+  {
+    id: 'chip_firststrike_predict',
+    name: '先手预测',
+    type: 'process',
+    rank: Rank.Lv4,
+    description: '短时预演交锋首拍，提升抢拍、卡位、先手压制的成功率。',
+    effectLines: ['可短时预演交锋首拍', '敏捷+2', '感知+1', '意志+1'],
+    aiSummary: '高危冲突里更容易拿到第一轮主动。',
+    sixDimBonuses: { 敏捷: 2, 感知: 1, 意志: 1 },
+  },
+  {
+    id: 'chip_combat_overclock',
+    name: '临战超频',
+    type: 'active',
+    rank: Rank.Lv5,
+    description: '在短时间内强行拉高动作、出力和抗压，适合抢决胜段。',
+    effectLines: ['短时全面拔高动作与出力', '力量+2', '敏捷+2', '体质+1', '意志+1'],
+    aiSummary: '动作线顶级爆发芯片，适合强闯、近战和抢斩杀。',
+    sixDimBonuses: { 力量: 2, 敏捷: 2, 体质: 1, 意志: 1 },
+  },
+  {
+    id: 'chip_spirit_taste_extract',
+    name: '灵味萃取',
+    type: 'process',
+    rank: Rank.Lv1,
+    description: '把料理从“能吃”变成“有功能”，可稳定偏向恢复体力或安抚精神。',
+    effectLines: ['料理可稳定提供基础恢复', '感知+1', '魅力+1', '恢复率+3%'],
+    aiSummary: '厨艺线起步芯片，让吃饭本身开始有玩法价值。',
+    sixDimBonuses: { 感知: 1, 魅力: 1 },
+    recoveryRateBonus: 3,
+  },
+  {
+    id: 'chip_recipe_compile',
+    name: '配方编译',
+    type: 'process',
+    rank: Rank.Lv2,
+    description: '可根据对象状态调整配方，做出偏提神、安睡、回稳或压惊的料理。',
+    effectLines: ['可按对象状态定向出餐', '感知+1', '意志+1', '恢复率+5%'],
+    aiSummary: '让厨艺进入“对人下菜”的状态管理玩法。',
+    sixDimBonuses: { 感知: 1, 意志: 1 },
+    recoveryRateBonus: 5,
+  },
+  {
+    id: 'chip_effective_cooking',
+    name: '效能调炊',
+    type: 'process',
+    rank: Rank.Lv3,
+    description: '可处理低阶灵材，让食物附带短时强化或状态修复效果。',
+    effectLines: ['可将低阶灵材转成短时增益餐', '感知+2', '魅力+1', '恢复率+6%'],
+    aiSummary: '厨艺线真正成型，开始把资源转成队伍状态优势。',
+    sixDimBonuses: { 感知: 2, 魅力: 1 },
+    recoveryRateBonus: 6,
+  },
+  {
+    id: 'chip_banquet_arrangement',
+    name: '宴席编排',
+    type: 'passive',
+    rank: Rank.Lv4,
+    description: '可围绕多人状态和场景目标编排整席料理，适合经营、招待与养成。',
+    effectLines: ['一席料理可同时作用多人', '感知+2', '魅力+2', '恢复率+8%'],
+    aiSummary: '高阶厨艺芯片，经营线和社交线会很有存在感。',
+    sixDimBonuses: { 感知: 2, 魅力: 2 },
+    recoveryRateBonus: 8,
+  },
+  {
+    id: 'chip_spirit_banquet_master',
+    name: '灵宴主厨',
+    type: 'process',
+    rank: Rank.Lv5,
+    description: '可做战前、恢复、安抚、诱导等高功能料理，已经接近完整后勤体系。',
+    effectLines: ['可制作高功能性灵能料理', '感知+2', '魅力+2', '意志+1', '恢复率+10%'],
+    aiSummary: '厨艺线顶点，食物本身可以成为战前准备和长期经营的核心环节。',
+    sixDimBonuses: { 感知: 2, 魅力: 2, 意志: 1 },
+    recoveryRateBonus: 10,
+  },
+  {
+    id: 'chip_heatforge_calc',
+    name: '热锻演算',
+    type: 'process',
+    rank: Rank.Lv1,
+    description: '可完成基础修补与保养，让工具和装备不至于轻易报废。',
+    effectLines: ['可进行基础修补与保养', '力量+1', '感知+1'],
+    aiSummary: '锻造线起步芯片，先解决“能不能修”的问题。',
+    sixDimBonuses: { 力量: 1, 感知: 1 },
+  },
+  {
+    id: 'chip_structure_calib',
+    name: '结构校模',
+    type: 'process',
+    rank: Rank.Lv2,
+    description: '可校正武器和工具的误差、重心与手感，让现成装备更顺手。',
+    effectLines: ['可校正装备手感与结构误差', '力量+1', '感知+1', '意志+1'],
+    aiSummary: '锻造线开始真正产生“同一把装备也能更好用”的差异。',
+    sixDimBonuses: { 力量: 1, 感知: 1, 意志: 1 },
+  },
+  {
+    id: 'chip_mod_assembly',
+    name: '改件拼装',
+    type: 'active',
+    rank: Rank.Lv3,
+    description: '可给装备加装临时改件，出门前快速改出当前最需要的方向。',
+    effectLines: ['可加装临时改件', '力量+1', '感知+2', '意志+1'],
+    aiSummary: '锻造线中段核心，让准备环节真正变成策略环节。',
+    sixDimBonuses: { 力量: 1, 感知: 2, 意志: 1 },
+  },
+  {
+    id: 'chip_reforge_pattern',
+    name: '重锻编模',
+    type: 'process',
+    rank: Rank.Lv4,
+    description: '可对现有装备进行重锻，明显改变其性能倾向与使用风格。',
+    effectLines: ['可重锻装备并改写性能方向', '力量+1', '感知+2', '意志+2'],
+    aiSummary: '高阶锻造芯片，已经不是修补，而是在重新定义装备。',
+    sixDimBonuses: { 力量: 1, 感知: 2, 意志: 2 },
+  },
+  {
+    id: 'chip_field_assembly',
+    name: '战地拼装',
+    type: 'active',
+    rank: Rank.Lv5,
+    description: '可用素材和旧件快速拼出可用品，在极限条件下维持作战与生存。',
+    effectLines: ['可在现场快速拼装可用品', '力量+2', '感知+2', '意志+2'],
+    aiSummary: '锻造线顶点，能把废件和素材直接转成继续推进局面的资本。',
+    sixDimBonuses: { 力量: 2, 感知: 2, 意志: 2 },
+  },
 ];
 
 const LN_AUTHOR_STARTER_ITEMS: Item[] = [
@@ -73,18 +331,7 @@ const LN_AUTHOR_LINGSHU_EQUIPMENT: EquippedItem[] = [
   { id: 'lse_6', name: '导流压阀', rank: Rank.Lv4, description: '在峰值阶段控制灵压回涌。' },
 ];
 
-const LN_AUTHOR_LINGXIAN_POOL: Skill[] = [
-  { id: 'lss_1', name: '灵弦：回声锁定', level: 1, description: '锁定目标灵压特征。' },
-  { id: 'lss_2', name: '灵弦：镜像偏折', level: 2, description: '短时偏折感知，规避干扰。' },
-  { id: 'lss_3', name: '灵弦：潮汐复位', level: 3, description: '清除噪讯，快速恢复秩序。' },
-  { id: 'lss_4', name: '灵弦：静默屏障', level: 4, description: '形成短时静默域，压制外部侵扰。' },
-  { id: 'lss_5', name: '灵弦：神经超载', level: 4, description: '短时间提高反应与输出。' },
-  { id: 'lss_6', name: '灵弦：痛觉迟钝', level: 5, description: '抑制痛觉反馈，增强持续作战。' },
-  { id: 'lss_7', name: '灵弦：震荡折返', level: 3, description: '回弹冲击并削弱目标稳定。' },
-  { id: 'lss_8', name: '灵弦：温域适配', level: 2, description: '减轻高温/低温环境影响。' },
-  { id: 'lss_9', name: '灵弦：相位切换', level: 5, description: '短时调整相位降低命中概率。' },
-  { id: 'lss_10', name: '灵弦：脉冲净化', level: 1, description: '小幅净化杂质并修复波形。' },
-];
+// Legacy placeholder spirit skills were intentionally removed.
 
 export const LN_AUTHOR_ZONE_OPTIONS = ['艾瑞拉区', '淬灵区', '汐屿区', '诺丝区', '栖灵区', '圣教区', '交界地', '南荒'];
 
@@ -111,7 +358,12 @@ export const LN_AUTHOR_CAREER_TRACKS: CareerTrack[] = [
   },
 ];
 
-export const cloneChipList = (chips: Chip[]): Chip[] => chips.map(chip => ({ ...chip }));
+export const cloneChipList = (chips: Chip[]): Chip[] =>
+  chips.map(chip => ({
+    ...chip,
+    effectLines: chip.effectLines ? [...chip.effectLines] : undefined,
+    sixDimBonuses: chip.sixDimBonuses ? { ...chip.sixDimBonuses } : undefined,
+  }));
 export const cloneItemList = (items: Item[]): Item[] => items.map(item => ({ ...item }));
 export const cloneSkillList = (skills: Skill[]): Skill[] => skills.map(skill => ({ ...skill }));
 export const cloneEquipList = (items: EquippedItem[]): EquippedItem[] => items.map(item => ({ ...item }));
@@ -139,6 +391,33 @@ export const cloneSkillPoolMap = (pools: Record<string, Skill[]>): Record<string
 export const cloneEquipPoolMap = (pools: Record<string, EquippedItem[]>): Record<string, EquippedItem[]> =>
   Object.fromEntries(Object.entries(pools).map(([key, items]) => [key, cloneEquipList(items || [])]));
 
+const sanitizeSkillList = (skills?: Skill[], slotKey?: string): Skill[] =>
+  (skills || [])
+    .map(skill => canonicalizeSpiritSkillCard({ ...skill }, slotKey))
+    .filter(Boolean) as Skill[];
+
+const sanitizeLingshuParts = (parts: LingshuPart[]): LingshuPart[] =>
+  cloneLingshuParts(parts).map(part => {
+    const spiritSkills = sanitizeSkillList(part.spiritSkills ?? (part.spiritSkill ? [part.spiritSkill] : []), part.key).filter(
+      skill => skill.mountType !== 'core',
+    );
+    return {
+      ...part,
+      spiritSkill: spiritSkills[0] || null,
+      spiritSkills,
+    };
+  });
+
+const sanitizeSkillPoolMap = (pools: Record<string, Skill[]>, parts: LingshuPart[]): Record<string, Skill[]> => {
+  const partKeyById = new Map(parts.map(part => [part.id, part.key]));
+  return Object.fromEntries(
+    Object.entries(pools).map(([key, skills]) => [
+      key,
+      sanitizeSkillList(skills, partKeyById.get(key)).filter(skill => skill.mountType !== 'core'),
+    ]),
+  );
+};
+
 const buildDefaultLingshuParts = (): LingshuPart[] =>
   BODY_PART_DEFS.map((part, index) => ({
     id: `ls_${part.key}_${index + 1}`,
@@ -151,8 +430,29 @@ const buildDefaultLingshuParts = (): LingshuPart[] =>
     spiritSkills: [],
   }));
 
+const buildSkillPoolMergeKey = (skill: Skill): string =>
+  `${`${skill.familyId || skill.name || ''}`.trim().toLowerCase()}::${Number.isFinite(skill.level) ? skill.level : 0}`;
+
+const mergeSkillPoolEntries = (base: Skill[], incoming: Skill[]): Skill[] => {
+  const next = cloneSkillList(base);
+  const seen = new Set(next.map(buildSkillPoolMergeKey));
+  for (const skill of incoming || []) {
+    const key = buildSkillPoolMergeKey(skill);
+    if (!seen.has(key)) {
+      next.push({ ...skill });
+      seen.add(key);
+      continue;
+    }
+    if (skill.isCustom) {
+      const index = next.findIndex(entry => buildSkillPoolMergeKey(entry) === key);
+      if (index >= 0) next[index] = { ...skill };
+    }
+  }
+  return next;
+};
+
 export const createPartSkillPools = (parts: LingshuPart[]): Record<string, Skill[]> =>
-  Object.fromEntries(parts.map(part => [part.id, LN_AUTHOR_LINGXIAN_POOL.map(skill => ({ ...skill }))]));
+  createSpiritSkillPoolsByPart(parts);
 
 export const createPartEquipPools = (parts: LingshuPart[]): Record<string, EquippedItem[]> =>
   Object.fromEntries(parts.map(part => [part.id, LN_AUTHOR_LINGSHU_EQUIPMENT.map(item => ({ ...item }))]));
@@ -167,6 +467,7 @@ export const buildDefaultSetupPack = (): LnSetupPackData => {
     selectedStarterItemIds: LN_AUTHOR_STARTER_ITEMS.map(item => item.id),
     zoneOptions: [...LN_AUTHOR_ZONE_OPTIONS],
     lingshuParts,
+    selectedCoreSkills: [],
     partSkillPools: cloneSkillPoolMap(createPartSkillPools(lingshuParts)),
     partEquipPools: cloneEquipPoolMap(createPartEquipPools(lingshuParts)),
     careerTracks: cloneCareerTracks(LN_AUTHOR_CAREER_TRACKS),
@@ -195,18 +496,25 @@ export const normalizeSetupPack = (pack?: Partial<LnSetupPackData> | null): LnSe
     : defaults.selectedStarterItemIds;
   const zoneOptions = normalizeStringArray(pack?.zoneOptions) || defaults.zoneOptions;
   const lingshuParts = Array.isArray(pack?.lingshuParts) && pack.lingshuParts.length
-    ? cloneLingshuParts(pack.lingshuParts)
+    ? sanitizeLingshuParts(pack.lingshuParts)
     : defaults.lingshuParts;
+  const selectedCoreSkills = Array.isArray(pack?.selectedCoreSkills)
+    ? sanitizeSkillList(pack.selectedCoreSkills).slice(0, 5)
+    : defaults.selectedCoreSkills;
   const sourceSkillPools =
     pack?.partSkillPools && typeof pack.partSkillPools === 'object'
-      ? cloneSkillPoolMap(pack.partSkillPools as Record<string, Skill[]>)
+      ? sanitizeSkillPoolMap(cloneSkillPoolMap(pack.partSkillPools as Record<string, Skill[]>), lingshuParts)
       : defaults.partSkillPools;
   const sourceEquipPools =
     pack?.partEquipPools && typeof pack.partEquipPools === 'object'
       ? cloneEquipPoolMap(pack.partEquipPools as Record<string, EquippedItem[]>)
       : defaults.partEquipPools;
   const partSkillPools = Object.fromEntries(
-    lingshuParts.map(part => [part.id, cloneSkillList(sourceSkillPools[part.id] || defaults.partSkillPools[part.id] || [])]),
+    lingshuParts.map(part => {
+      const defaultPool = defaults.partSkillPools[part.id] || [];
+      const incomingPool = sourceSkillPools[part.id] || [];
+      return [part.id, mergeSkillPoolEntries(defaultPool, incomingPool)];
+    }),
   );
   const partEquipPools = Object.fromEntries(
     lingshuParts.map(part => [part.id, cloneEquipList(sourceEquipPools[part.id] || defaults.partEquipPools[part.id] || [])]),
@@ -223,6 +531,7 @@ export const normalizeSetupPack = (pack?: Partial<LnSetupPackData> | null): LnSe
     selectedStarterItemIds,
     zoneOptions,
     lingshuParts,
+    selectedCoreSkills,
     partSkillPools,
     partEquipPools,
     careerTracks,

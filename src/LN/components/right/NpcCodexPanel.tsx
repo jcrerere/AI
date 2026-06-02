@@ -4,6 +4,7 @@ import { resolveNpcCodexAccessState } from '../../utils/npcCodex';
 import NpcCodexEntryPanel from './NpcCodexEntryPanel';
 import { BookOpen, Search, UserRoundSearch } from 'lucide-react';
 import { useCompactViewport } from '../../hooks/useCompactViewport';
+import PersistentImage from '../ui/PersistentImage';
 
 interface Props {
   npcs: NPC[];
@@ -49,11 +50,21 @@ const buildSearchHaystack = (npc: NPC): string =>
     npc.darknetProfile?.summary,
     npc.darknetProfile?.accessTier,
     npc.darknetProfile?.marketVector,
-    ...((npc.darknetProfile?.services || []).flatMap(service => [service.title, service.summary, service.kind, ...(service.tags || [])])),
+    ...(npc.darknetProfile?.services || []).flatMap(service => [
+      service.title,
+      service.summary,
+      service.kind,
+      ...(service.tags || []),
+    ]),
     ...(npc.clueNotes || []),
     ...(npc.darknetProfile?.tags || []),
     ...(npc.darknetProfile?.knownAssociates || []),
-    ...((npc.darknetProfile?.intelRecords || []).flatMap(record => [record.title, record.source, record.location, ...(record.tags || [])])),
+    ...(npc.darknetProfile?.intelRecords || []).flatMap(record => [
+      record.title,
+      record.source,
+      record.location,
+      ...(record.tags || []),
+    ]),
   ]
     .join(' ')
     .toLowerCase();
@@ -80,7 +91,8 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, on
         if (dossierDiff !== 0) return dossierDiff;
         const darknetDiff = accessB.darknetLevel - accessA.darknetLevel;
         if (darknetDiff !== 0) return darknetDiff;
-        const recordDiff = (b.darknetProfile?.intelRecords?.length || 0) - (a.darknetProfile?.intelRecords?.length || 0);
+        const recordDiff =
+          (b.darknetProfile?.intelRecords?.length || 0) - (a.darknetProfile?.intelRecords?.length || 0);
         if (recordDiff !== 0) return recordDiff;
         if (!!b.isContact !== !!a.isContact) return b.isContact ? 1 : -1;
         return (a.name || '').localeCompare(b.name || '', 'zh-CN');
@@ -91,9 +103,18 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, on
       });
   }, [deferredKeyword, npcs]);
 
-  const indexedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).dossierLevel > 0).length, [entries]);
-  const deepLinkedCount = useMemo(() => entries.filter(npc => resolveNpcCodexAccessState(npc).darknetLevel >= 3).length, [entries]);
-  const serviceNodeCount = useMemo(() => entries.filter(npc => (npc.darknetProfile?.services || []).length > 0).length, [entries]);
+  const indexedCount = useMemo(
+    () => entries.filter(npc => resolveNpcCodexAccessState(npc).dossierLevel > 0).length,
+    [entries],
+  );
+  const deepLinkedCount = useMemo(
+    () => entries.filter(npc => resolveNpcCodexAccessState(npc).darknetLevel >= 3).length,
+    [entries],
+  );
+  const serviceNodeCount = useMemo(
+    () => entries.filter(npc => (npc.darknetProfile?.services || []).length > 0).length,
+    [entries],
+  );
 
   useEffect(() => {
     setVisibleEntryCount(indexBatchSize);
@@ -171,7 +192,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, on
               >
                 <div className="flex items-center gap-3">
                   <div className="h-16 w-12 overflow-hidden rounded-sm border border-emerald-500/15 bg-black shrink-0">
-                    <img
+                    <PersistentImage
                       src={npc.avatarUrl}
                       alt={getEntryName(npc)}
                       loading="lazy"
@@ -191,9 +212,7 @@ const NpcCodexPanel: React.FC<Props> = ({ npcs, playerCredits, selectedNpcId, on
                         {getEntryStageLabel(npc)}
                       </span>
                     </div>
-                    <div className="mt-2 text-[11px] leading-5 text-slate-300/80">
-                      {getEntryHint(npc)}
-                    </div>
+                    <div className="mt-2 text-[11px] leading-5 text-slate-300/80">{getEntryHint(npc)}</div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px]">
                       <span className="inline-flex items-center gap-1 text-slate-400">
                         <UserRoundSearch className="w-3 h-3" />

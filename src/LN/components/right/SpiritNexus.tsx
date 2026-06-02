@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import { NPC, EquippedItem, Skill, Item, RuntimeAffix } from '../../types';
 import { Fingerprint, Waves, ShieldAlert, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { buildSpiritSkillNpcPoolLabel, getSpiritSkillMinNpcRank, getSpiritSkillNpcPool } from '../../data/spiritSkillPool';
 
 interface Props {
   npc: NPC;
@@ -23,6 +24,20 @@ const rankLevel = (rank?: string) => {
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const SIX_DIM_KEYS: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = ['力量', '敏捷', '体质', '感知', '意志', '魅力'];
+const npcPoolBadgeClass = (skill: Pick<Skill, 'familyId' | 'npcPool'>) => {
+  switch (getSpiritSkillNpcPool(skill)) {
+    case 'exclusive':
+      return 'border-rose-700/60 bg-rose-950/30 text-rose-200';
+    case 'rare_pool':
+      return 'border-amber-700/60 bg-amber-950/30 text-amber-200';
+    case 'common_pool':
+    default:
+      return 'border-cyan-700/60 bg-cyan-950/30 text-cyan-200';
+  }
+};
+
+const rankCompactLabel = (rank: string) => rank.replace('Lv.', 'Lv');
+
 const getSkillEffectLines = (skill: Skill): string[] => {
   const preset = (skill.effectLines || []).filter(Boolean);
   if (preset.length > 0) return preset;
@@ -253,9 +268,19 @@ const SpiritNexus: React.FC<Props> = ({
                               <div className="flex justify-between items-start mb-1 gap-2">
                                 <span className="text-[11px] text-cyan-300 font-bold truncate">{skill.name}</span>
                                 <div className="flex items-center gap-1">
-                                  <span className="text-[10px] text-amber-400 bg-amber-950/30 font-mono px-1 rounded">LV.{skill.level}</span>
+                                    <span className="text-[10px] text-amber-400 bg-amber-950/30 font-mono px-1 rounded">{skill.displayLevelLabel || `LV.${skill.level}`}</span>
                                   {expanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
                                 </div>
+                              </div>
+                              <div className="mb-1 flex flex-wrap gap-1 pr-8">
+                                <span className={`border px-1.5 py-0.5 text-[10px] ${npcPoolBadgeClass(skill)}`}>
+                                  {buildSpiritSkillNpcPoolLabel(skill)}
+                                </span>
+                                {getSpiritSkillMinNpcRank(skill) && (
+                                  <span className="border border-slate-700 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-300">
+                                    {rankCompactLabel(getSpiritSkillMinNpcRank(skill)!)} 起
+                                  </span>
+                                )}
                               </div>
                               {expanded ? (
                                 <div className="space-y-1 pr-8">

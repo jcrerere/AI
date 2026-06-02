@@ -1,13 +1,14 @@
 [Template]
 name=LN剧情生成模板
-version=1.4.0
+version=1.5.0
 description=适配灵能世界 LN 伪0层与 MVU 变量写回的模块化输出模板
 
 [OutputOrder]
 1=<maintext>
 2=<npcdata> (optional)
-3=<sum>
-4=<UpdateVariable> (optional)
+3=<ui_actions> (optional)
+4=<sum>
+5=<UpdateVariable>
 
 [MainTextRules]
 required=true
@@ -18,6 +19,13 @@ optional=true
 format=JSON array wrapped by <npcdata>
 required_fields=name,gender,affiliation,position
 notes=只记录本轮正文里明确出现或被识别的 NPC；未知字段宁缺勿滥
+runtime_cache=前端会自动把<npcdata>合并到 /stat_data/npc_runtime，普通回合不要整表回填 NPC 仓。
+offscreen_resume=若 npc_runtime 中存在离屏待补全摘要，则再次接触该 NPC 时应先补足中间近况，再进入当前回合。
+
+[UIActionsRules]
+optional=true
+allowed_values=shop,black_race_bet,metro_route
+notes=只在场景明确进入购物、黑赛下注、地铁线路时输出；其他情况省略
 
 [SumRules]
 required=true
@@ -25,10 +33,11 @@ length=1-3句
 notes=只写回合事实摘要，至少覆盖时间/地点/结果中的两项，可补一句悬念
 
 [UpdateVariableRules]
-required=false
+required=true
 format=JSONPatch
 must_sync=world.current_time,world.current_location,world.current_district,world.current_site_label,player.core_status,player.assets.lcoin,player.residence.current_residence_label,player.core_affixes
-rules=所有路径以 /stat_data 开头；变量变更必须能从正文或摘要中追溯；可使用 replace/delta/insert/remove/move
+rules=所有路径以 /stat_data 开头；变量变更必须能从正文或摘要中追溯；可使用 replace/delta/insert/remove/move；若本轮无变量变化则输出空数组 []
+runtime_guard=npc_runtime 是前端维护的已发现 NPC 运行时仓；没有明确意图时不要整表重建 registry。
 example=|-
   <UpdateVariable>
   <Analysis>(IN ENGLISH, <= 80 words)
@@ -50,4 +59,4 @@ example=|-
   </UpdateVariable>
 
 [HardGate]
-forbidden=不要输出外世界地点/组织；不要伪造未出现的 NPC 详细数据；不要把 <sum> 写成思维链
+forbidden=不要输出外世界地点/组织；不要伪造未出现的 NPC 详细数据；不要把 <sum> 写成思维链；不要在无对应场景时滥用 <ui_actions>

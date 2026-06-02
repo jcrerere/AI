@@ -1,6 +1,7 @@
 import React from 'react';
 import { Chip, Rank } from '../../types';
 import { getRankColor, getRankBg } from '../../constants';
+import { formatChipBonusTags } from '../../utils/chipBonuses';
 import { Cpu, Zap, Disc } from 'lucide-react';
 
 interface Props {
@@ -14,6 +15,7 @@ const ChipMatrix: React.FC<Props> = ({ chips, onChipClick }) => {
       {/* 6 Fixed Slots Layout */}
       {[0, 1, 2, 3, 4, 5].map((idx) => {
         const chip = chips[idx];
+        const bonusTags = chip ? formatChipBonusTags(chip) : [];
         return (
           <div 
             key={idx}
@@ -41,6 +43,7 @@ const ChipMatrix: React.FC<Props> = ({ chips, onChipClick }) => {
                 <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 bg-black/90 border border-slate-700 p-2 text-xs z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className={`font-bold ${getRankColor(chip.rank)}`}>{chip.name}</div>
                     <div className="text-slate-400 mt-1">{chip.description}</div>
+                    {bonusTags.length ? <div className="text-slate-500 mt-1">{bonusTags.slice(0, 3).join(' / ')}</div> : null}
                 </div>
             )}
           </div>

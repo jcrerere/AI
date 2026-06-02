@@ -21,20 +21,22 @@ const SceneActionModal: React.FC<Props> = props => {
   const kicker = props.mode === 'shop' ? (isRestaurant ? '固定餐厅' : '固定店铺') : '轨道通勤';
   const icon = props.mode === 'shop' ? <ShoppingBag className="w-4 h-4" /> : <TrainFront className="w-4 h-4" />;
   const colorClass = props.mode === 'shop' ? (isRestaurant ? 'border-rose-500/20 bg-rose-500/[0.05]' : 'border-cyan-500/20 bg-cyan-500/[0.05]') : 'border-amber-500/20 bg-amber-500/[0.05]';
-  const displayItemActionLabel = isFashionShop ? '收入衣柜' : itemActionLabel;
-  const displayCommissionSectionLabel = isFashionShop ? '定制 / 代办' : commissionSectionLabel;
-  const displayFrontShelfLabel = isFashionShop ? '当期衣架' : frontShelfLabel;
   const itemActionLabel = isRestaurant ? '点单' : '购买';
   const commissionSectionLabel = isRestaurant ? '订座 / 留菜' : '进货委托';
   const frontShelfLabel = isRestaurant ? props.shop?.venueLabel || '当期菜单' : '前台货架';
+  const displayItemActionLabel = isFashionShop ? '收入衣柜' : itemActionLabel;
+  const displayCommissionSectionLabel = isFashionShop ? '定制 / 代办' : commissionSectionLabel;
+  const displayFrontShelfLabel = isFashionShop ? '当期衣架' : frontShelfLabel;
+
+  const currentMetroStopId = props.mode === 'metro' ? props.metro?.currentStop.id ?? '' : '';
 
   const currentLineNames = useMemo(() => {
     if (props.mode !== 'metro' || !props.metro) return '';
     return props.metro.lines
-      .filter(line => line.stops.some(stop => stop.id === props.metro.currentStop.id))
+      .filter(line => line.stops.some(stop => stop.id === currentMetroStopId))
       .map(line => line.name)
       .join(' / ');
-  }, [props]);
+  }, [currentMetroStopId, props.metro, props.mode]);
 
   const frontItems = useMemo(
     () => (props.mode === 'shop' ? (props.shop?.items || []).filter(item => item.availability !== 'backroom') : []),

@@ -7,6 +7,7 @@ import ChipPanel from '../left/ChipPanel';
 import ItemDetailView from '../ui/ItemDetailView';
 import InventoryModal from '../ui/InventoryModal';
 import ImageLightbox from '../ui/ImageLightbox';
+import PersistentImage from '../ui/PersistentImage';
 import { Heart, ShieldCheck, MapPin, Cpu, Package } from 'lucide-react';
 
 interface Props {
@@ -27,7 +28,10 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
     () => (npc.bodyParts || []).reduce((sum, part) => sum + ((part.skills || []).length || 0), 0),
     [npc.bodyParts],
   );
-  const visibleTags = (npc.statusTags || []).map(tag => tag.trim()).filter(Boolean).slice(0, 6);
+  const visibleTags = (npc.statusTags || [])
+    .map(tag => tag.trim())
+    .filter(Boolean)
+    .slice(0, 6);
 
   return (
     <div className="h-full flex flex-col animate-in slide-in-from-right-4 duration-300 relative">
@@ -45,16 +49,20 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
               onClick={() => setShowAvatar(true)}
               className="w-24 h-32 shrink-0 overflow-hidden rounded-2xl border border-cyan-500/40 bg-black"
             >
-              <img src={npc.avatarUrl} alt={npc.name} className="w-full h-full object-cover" />
+              <PersistentImage src={npc.avatarUrl} alt={npc.name} className="w-full h-full object-cover" />
             </button>
 
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-2xl font-bold text-white">{npc.name}</div>
-                  <div className="mt-1 truncate text-sm font-semibold text-cyan-300">{npc.position || '身份未登记'}</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-cyan-300">
+                    {npc.position || '身份未登记'}
+                  </div>
                 </div>
-                <span className={`h-2 w-2 shrink-0 rounded-full ${npc.status === 'online' ? 'bg-emerald-500' : npc.status === 'busy' ? 'bg-amber-400' : 'bg-slate-600'}`} />
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${npc.status === 'online' ? 'bg-emerald-500' : npc.status === 'busy' ? 'bg-amber-400' : 'bg-slate-600'}`}
+                />
               </div>
 
               <div className="mt-2 inline-flex max-w-full items-center gap-1 rounded-full border border-slate-700 bg-slate-900/50 px-2 py-1 text-[11px] text-slate-300">
@@ -85,9 +93,16 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
               </div>
 
               <div className="mt-4 flex items-center gap-2">
-                {npc.gender === 'female' ? <Heart className="w-4 h-4 text-pink-500" /> : <ShieldCheck className="w-4 h-4 text-blue-500" />}
+                {npc.gender === 'female' ? (
+                  <Heart className="w-4 h-4 text-pink-500" />
+                ) : (
+                  <ShieldCheck className="w-4 h-4 text-blue-500" />
+                )}
                 <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
-                  <div className={`h-full ${relationColor.split(' ')[0]}`} style={{ width: `${Math.max(0, Math.min(100, relationValue))}%` }} />
+                  <div
+                    className={`h-full ${relationColor.split(' ')[0]}`}
+                    style={{ width: `${Math.max(0, Math.min(100, relationValue))}%` }}
+                  />
                 </div>
                 <span className={`text-xs font-mono ${relationColor.split(' ')[1]}`}>
                   {relationLabel} {relationValue}
@@ -114,7 +129,10 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
           {visibleTags.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {visibleTags.map(tag => (
-                <span key={tag} className="rounded-full border border-cyan-900/50 bg-cyan-950/20 px-2 py-1 text-[11px] text-cyan-200">
+                <span
+                  key={tag}
+                  className="rounded-full border border-cyan-900/50 bg-cyan-950/20 px-2 py-1 text-[11px] text-cyan-200"
+                >
                   {tag}
                 </span>
               ))}
@@ -131,16 +149,11 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
         )}
 
         {(npc.chips || []).length > 0 && (
-          <ChipPanel
-            chips={npc.chips || []}
-            storageChips={[]}
-            neuralProtocol="none"
-            isReadOnly
-          />
+          <ChipPanel chips={npc.chips || []} storageChips={[]} neuralProtocol="none" isReadOnly />
         )}
 
         <CyberPanel title="携带物品" className="relative">
-          {selectedItem && <ItemDetailView item={selectedItem} onClose={() => setSelectedItem(null)} />}
+          {selectedItem && <ItemDetailView item={selectedItem} onClose={() => setSelectedItem(null)} locationLabel={npc.location} />}
           {(npc.inventory || []).length === 0 ? (
             <div className="p-3 text-sm text-slate-500">未记录到可查看物品。</div>
           ) : (
@@ -181,6 +194,7 @@ const NPCProfile: React.FC<Props> = ({ npc, onBack }) => {
           items={npc.inventory || []}
           title={`${npc.name} 的物品`}
           onClose={() => setShowInventory(false)}
+          locationLabel={npc.location}
         />
       )}
 

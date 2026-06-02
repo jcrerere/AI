@@ -179,9 +179,17 @@ rules:
     check:
       - 只记录该灵枢当前状态，不重复写全量世界规则
 
+  npc_runtime:
+    type: object
+    check:
+      - 作为前端维护的已发现 NPC 运行时仓，默认由前端根据 <npcdata> 和当前交互自动写回
+      - 普通回合不要整表重写 registry；仅在明确需要补写离屏摘要、锚点或单个 NPC 运行时状态时增量更新
+      - 只记录后续仍可能再次互动的 NPC 摘要与当前投影，不回填完整世界书正文
+
   monthly_settlement:
     type: process
     check:
       - 跨月时必须结算固定收支、关系漂移、区域事件
       - 月结后的结果必须写回 stat_data，而非只写在正文中
       - 若余额不足，未结清部分必须累积到 player.chip.tax_arrears
+

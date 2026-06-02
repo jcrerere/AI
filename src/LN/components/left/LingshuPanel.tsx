@@ -33,10 +33,10 @@ const DEFAULT_EQUIPMENT: EquippedItem[] = [
 ];
 
 const DEFAULT_SKILLS: Skill[] = [
-  { id: 'lss_1', name: '灵弦：回声锁定', level: 1, description: '锁定目标灵压特征，提升追踪精度。' },
-  { id: 'lss_2', name: '灵弦：镜像偏折', level: 2, description: '短时偏折感知，提高规避能力。' },
-  { id: 'lss_3', name: '灵弦：潮汐复位', level: 3, description: '清除回路杂讯，快速恢复秩序。' },
-  { id: 'lss_4', name: '灵弦：静默屏障', level: 4, description: '形成短时静默域，压制外部侵扰。' },
+  { id: 'lss_demo_1', name: '灵敏嗅觉', level: 1, description: '强化气味分层、残留识别与追踪判断。' },
+  { id: 'lss_demo_2', name: '共振抗压', level: 2, description: '提高对精神冲击、羞辱压迫与灵压穿透的承受。' },
+  { id: 'lss_demo_3', name: '温域适配', level: 1, displayLevelLabel: '无级', description: '适应高温、低温与温差突变环境，减轻环境变化造成的干扰。' },
+  { id: 'lss_demo_4', name: '神经超载', level: 1, displayLevelLabel: '无级', description: '短时间强提神经反应与动作输出，具体负荷和后劲交由场景表现。' },
 ];
 
 const rankValue = (rank: Rank) => parseInt(rank.replace('Lv.', ''), 10);
@@ -48,6 +48,8 @@ const levelToRank = (level: number): Rank => {
   if (level === 4) return Rank.Lv4;
   return Rank.Lv5;
 };
+
+const displaySkillName = (skillName: string) => `${skillName || ''}`.replace(/^灵弦[:：]\s*/, '').trim();
 
 const LingshuPanel: React.FC<Props> = ({ parts, onChange, embedded = false }) => {
   const initialParts = parts.length > 0 ? parts : DEFAULT_PARTS;
@@ -106,7 +108,7 @@ const LingshuPanel: React.FC<Props> = ({ parts, onChange, embedded = false }) =>
               </div>
               <div className="text-xs text-slate-100 truncate">{part?.name || '空'}</div>
               <div className="text-[10px] text-slate-500 truncate">装配：{part?.equippedItem?.name || '空'}</div>
-              <div className="text-[10px] text-slate-500 truncate">灵弦：{part?.spiritSkill?.name || '空'}</div>
+              <div className="text-[10px] text-slate-500 truncate">灵弦：{part?.spiritSkill?.name ? displaySkillName(part.spiritSkill.name) : '空'}</div>
             </div>
           );
         })}
@@ -147,7 +149,7 @@ const LingshuPanel: React.FC<Props> = ({ parts, onChange, embedded = false }) =>
                         <div className="text-[10px] text-fuchsia-400">{rankLabel(part.rank)}</div>
                       </div>
                       <div className="text-[10px] text-slate-500 truncate mt-1">装配：{part.equippedItem?.name || '空'}</div>
-                      <div className="text-[10px] text-slate-500 truncate">灵弦：{part.spiritSkill?.name || '空'}</div>
+                      <div className="text-[10px] text-slate-500 truncate">灵弦：{part.spiritSkill?.name ? displaySkillName(part.spiritSkill.name) : '空'}</div>
                     </button>
                   ))}
                 </div>
@@ -208,17 +210,24 @@ const LingshuPanel: React.FC<Props> = ({ parts, onChange, embedded = false }) =>
                     <div className="max-h-[300px] overflow-y-auto scrollbar-hidden space-y-2 pr-1">
                       {filteredSkills.map(skill => {
                         const skillRank = levelToRank(skill.level);
+                        const selected = activePart?.spiritSkill?.id === skill.id;
                         return (
                           <button
                             key={skill.id}
-                            onClick={() => updateActivePart({ spiritSkill: skill })}
-                            className={`w-full text-left border rounded p-2 ${activePart?.spiritSkill?.id === skill.id ? 'border-purple-500 bg-purple-900/20' : 'border-slate-700 bg-black/30'}`}
+                            onClick={() =>
+                              updateActivePart({
+                                spiritSkill: selected ? null : skill,
+                                spiritSkills: selected ? [] : [skill],
+                              })
+                            }
+                            className={`w-full text-left border rounded p-2 ${selected ? 'border-purple-500 bg-purple-900/20' : 'border-slate-700 bg-black/30'}`}
                           >
                             <div className="flex justify-between items-center">
-                              <span className="text-xs text-slate-100">{skill.name}</span>
-                              <span className="text-[10px] text-purple-400">{rankLabel(skillRank)}</span>
+                              <span className="text-xs text-slate-100">{displaySkillName(skill.name)}</span>
+                              <span className="text-[10px] text-purple-400">{skill.displayLevelLabel || rankLabel(skillRank)}</span>
                             </div>
                             <div className="text-[10px] text-slate-500 mt-1">{skill.description}</div>
+                            {selected && <div className="text-[10px] text-purple-200 mt-1">再次点击可取消</div>}
                           </button>
                         );
                       })}

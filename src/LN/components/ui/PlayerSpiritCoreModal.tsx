@@ -2,6 +2,7 @@
 import { Skill, Rank, RuntimeAffix } from '../../types';
 import { getRankColor } from '../../constants';
 import { X, AlertTriangle, Sparkles, Trash2, Atom, Lock, Brain, Infinity as InfinityIcon, Gauge, RefreshCw, Sigma, ChevronDown, ChevronRight } from 'lucide-react';
+import { buildSpiritSkillNpcPoolLabel, getSpiritSkillMinNpcRank, getSpiritSkillNpcPool } from '../../data/spiritSkillPool';
 
 interface Props {
   skills: Skill[];
@@ -21,6 +22,19 @@ interface Props {
 const parseRankLevel = (rank: Rank): number => Number(rank.replace('Lv.', '')) || 1;
 const normalizeRate = (value: number): number => (value > 3 ? value / 100 : value);
 const SIX_DIM_KEYS: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = ['力量', '敏捷', '体质', '感知', '意志', '魅力'];
+const displaySkillName = (skillName: string): string => `${skillName || ''}`.replace(/^灵弦[:：]\s*/, '').trim();
+const npcPoolBadgeClass = (skill: Pick<Skill, 'familyId' | 'npcPool'>, isFemale: boolean) => {
+  switch (getSpiritSkillNpcPool(skill)) {
+    case 'exclusive':
+      return 'border-rose-700/60 bg-rose-950/30 text-rose-200';
+    case 'rare_pool':
+      return isFemale ? 'border-fuchsia-700/60 bg-fuchsia-950/30 text-fuchsia-200' : 'border-amber-700/60 bg-amber-950/30 text-amber-200';
+    case 'common_pool':
+    default:
+      return 'border-cyan-700/60 bg-cyan-950/30 text-cyan-200';
+  }
+};
+const rankCompactLabel = (rank: Rank) => rank.replace('Lv.', 'Lv');
 const CORE_MP_CAP_BY_RANK: Record<Rank, number> = {
   [Rank.Lv1]: 200,
   [Rank.Lv2]: 800,
@@ -238,11 +252,21 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
                     className="w-full p-3 text-left"
                   >
                     <div className="flex justify-between items-start mb-1 gap-2">
-                      <span className={`text-sm font-bold ${isFemale ? 'text-fuchsia-100' : 'text-amber-100'} group-hover:text-white`}>{skill.name}</span>
+                      <span className={`text-sm font-bold ${isFemale ? 'text-fuchsia-100' : 'text-amber-100'} group-hover:text-white`}>{displaySkillName(skill.name)}</span>
                       <div className="flex items-center gap-1">
-                        <span className={`text-[10px] ${isFemale ? 'text-fuchsia-500 bg-fuchsia-950/30' : 'text-amber-500 bg-amber-950/30'} font-mono px-1 rounded`}>LV.{skill.level}</span>
+                        <span className={`text-[10px] ${isFemale ? 'text-fuchsia-500 bg-fuchsia-950/30' : 'text-amber-500 bg-amber-950/30'} font-mono px-1 rounded`}>{skill.displayLevelLabel || `LV.${skill.level}`}</span>
                         {expanded ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
                       </div>
+                    </div>
+                    <div className="mb-1 flex flex-wrap gap-1 pr-8">
+                      <span className={`border px-1.5 py-0.5 text-[10px] ${npcPoolBadgeClass(skill, isFemale)}`}>
+                        {buildSpiritSkillNpcPoolLabel(skill)}
+                      </span>
+                      {getSpiritSkillMinNpcRank(skill) && (
+                        <span className="border border-slate-700 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-300">
+                          {rankCompactLabel(getSpiritSkillMinNpcRank(skill)!)} 起
+                        </span>
+                      )}
                     </div>
                     {expanded ? (
                       <div className="space-y-1.5 pr-8">
@@ -261,10 +285,13 @@ const PlayerSpiritCoreModal: React.FC<Props> = ({
                         e.stopPropagation();
                         onRemoveSkill(skill.id);
                       }}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-2 text-red-500 hover:bg-red-950/50 rounded transition-all"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-[10px] text-red-300 border border-red-900/60 bg-red-950/30 hover:bg-red-950/50 rounded transition-all"
                       title="移除此灵弦"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <span className="inline-flex items-center gap-1">
+                        <Trash2 className="w-3 h-3" />
+                        移除
+                      </span>
                     </button>
                   )}
                 </div>

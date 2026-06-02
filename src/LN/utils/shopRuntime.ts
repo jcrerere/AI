@@ -1,4 +1,4 @@
-import { ClothingProfile, Item, Rank, RuntimeShopRecord, RuntimeShopType } from '../types';
+import { ClothingProfile, Item, Rank, RuntimeShopRecord, RuntimeShopTier, RuntimeShopType } from '../types';
 import { buildEconomyScenePrices, buildRegionalRetailPrice, resolveShopPriceCategory } from './economyRuntime';
 
 export interface RuntimeShopItem extends Item {

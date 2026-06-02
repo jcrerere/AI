@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import PersistentImage from './PersistentImage';
 
 interface Props {
   src: string;
@@ -12,10 +13,13 @@ const ImageLightbox: React.FC<Props> = ({ src, title, subtitle, onClose }) => {
   const [showCloseHint, setShowCloseHint] = useState(false);
 
   return (
-    <div className="fixed inset-0 z-[160] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[160] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 sm:p-8"
+      onClick={onClose}
+    >
       <div className="relative w-full max-w-3xl" onClick={event => event.stopPropagation()}>
         <div className="relative overflow-hidden rounded-[24px] border border-cyan-500/30 bg-black shadow-[0_0_50px_rgba(6,182,212,0.18)]">
-          <img src={src} alt={title || 'image'} className="w-full max-h-[82vh] object-contain bg-black" />
+          <PersistentImage src={src} alt={title || 'image'} className="w-full max-h-[82vh] object-contain bg-black" />
 
           <div
             className="absolute top-0 right-0 h-20 w-20 flex items-start justify-end p-3"

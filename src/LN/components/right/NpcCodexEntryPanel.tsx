@@ -3,6 +3,7 @@ import { NPC, NpcDossierSection, NpcGalleryImage, NpcDarknetRecord, NpcDarknetSe
 import { resolveNpcCodexAccessState, resolveNpcIntelUnlockedCount } from '../../utils/npcCodex';
 import CyberPanel from '../ui/CyberPanel';
 import ImageLightbox from '../ui/ImageLightbox';
+import PersistentImage from '../ui/PersistentImage';
 import { BadgeInfo, BookOpen, BriefcaseBusiness, Coins, Globe2, Image as ImageIcon, Lock } from 'lucide-react';
 import { useCompactViewport } from '../../hooks/useCompactViewport';
 
@@ -83,8 +84,8 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
         id: 'darknet_summary',
         title: '暗网画像',
         content:
-          darkProfile?.summary?.trim()
-          || `${npc.name} 当前只建立了基础暗网索引，未形成完整画像。继续接触、交易或推进剧情后，可补齐更深层的节点记录。`,
+          darkProfile?.summary?.trim() ||
+          `${npc.name} 当前只建立了基础暗网索引，未形成完整画像。继续接触、交易或推进剧情后，可补齐更深层的节点记录。`,
         unlockLevel: 3,
       },
       {
@@ -149,7 +150,10 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
     return index < unlockedGalleryCount;
   };
 
-  const unlockedIntelCount = useMemo(() => resolveNpcIntelUnlockedCount(npc, darknetRecords.length), [darknetRecords.length, npc]);
+  const unlockedIntelCount = useMemo(
+    () => resolveNpcIntelUnlockedCount(npc, darknetRecords.length),
+    [darknetRecords.length, npc],
+  );
   const galleryBatchSize = isCompactViewport ? 4 : GALLERY_BATCH_SIZE;
   const recordBatchSize = isCompactViewport ? 4 : RECORD_BATCH_SIZE;
   const visibleGalleryItems = useMemo(
@@ -193,7 +197,10 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
   return (
     <div className="relative h-full flex flex-col animate-in slide-in-from-right-4 duration-300 font-mono">
       <div className="mb-4 flex items-center justify-between gap-3 shrink-0">
-        <button onClick={onBack} className="text-xs uppercase tracking-[0.2em] text-emerald-300/80 transition hover:text-emerald-200">
+        <button
+          onClick={onBack}
+          className="text-xs uppercase tracking-[0.2em] text-emerald-300/80 transition hover:text-emerald-200"
+        >
           &larr; 返回暗网目录
         </button>
         <span className="rounded-sm border border-emerald-500/20 bg-emerald-500/8 px-2 py-1 text-[11px] uppercase tracking-[0.22em] text-emerald-300">
@@ -206,10 +213,16 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
         <div className="flex gap-4 items-start">
           <button
             type="button"
-            onClick={() => setLightboxImage({ src: npc.avatarUrl, title: npc.name, subtitle: access.dossierLevel <= 1 ? '当前仅开放外观线索' : npc.position })}
+            onClick={() =>
+              setLightboxImage({
+                src: npc.avatarUrl,
+                title: npc.name,
+                subtitle: access.dossierLevel <= 1 ? '当前仅开放外观线索' : npc.position,
+              })
+            }
             className="relative w-24 h-32 overflow-hidden rounded-sm border border-emerald-500/20 bg-black shrink-0"
           >
-            <img
+            <PersistentImage
               src={npc.avatarUrl}
               alt={npc.name}
               loading="lazy"
@@ -220,19 +233,27 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
 
           <div className="min-w-0 flex-1">
             <div className="text-[10px] uppercase tracking-[0.24em] text-emerald-300/55">Restricted Subject</div>
-            <div className="mt-1 truncate text-2xl font-bold text-white">{access.dossierLevel <= 1 ? '未识别人形' : npc.name}</div>
-            <div className="mt-1 truncate text-sm font-semibold text-emerald-200">{access.dossierLevel <= 1 ? '仅开放外观线索' : npc.position}</div>
+            <div className="mt-1 truncate text-2xl font-bold text-white">
+              {access.dossierLevel <= 1 ? '未识别人形' : npc.name}
+            </div>
+            <div className="mt-1 truncate text-sm font-semibold text-emerald-200">
+              {access.dossierLevel <= 1 ? '仅开放外观线索' : npc.position}
+            </div>
             <div className="mt-2 inline-flex max-w-full items-center rounded-sm border border-emerald-500/15 bg-black/35 px-2 py-1 text-[11px] text-slate-300">
               {access.dossierLevel <= 1 ? '来源待确认' : npc.affiliation}
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
               <div className="rounded-sm border border-emerald-500/15 bg-black/35 p-2">
                 <div className="uppercase tracking-[0.18em] text-emerald-300/45">Access</div>
-                <div className="mt-1 text-white">人物 Lv.{access.dossierLevel} / 暗网 Lv.{access.darknetLevel}</div>
+                <div className="mt-1 text-white">
+                  人物 Lv.{access.dossierLevel} / 暗网 Lv.{access.darknetLevel}
+                </div>
               </div>
               <div className="rounded-sm border border-emerald-500/15 bg-black/35 p-2">
                 <div className="uppercase tracking-[0.18em] text-emerald-300/45">Tier</div>
-                <div className="mt-1 text-white">{access.darknetUnlocked ? darkProfile?.accessTier || '已开放' : '未开放'}</div>
+                <div className="mt-1 text-white">
+                  {access.darknetUnlocked ? darkProfile?.accessTier || '已开放' : '未开放'}
+                </div>
               </div>
               <div className="rounded-sm border border-emerald-500/15 bg-black/35 p-2">
                 <div className="uppercase tracking-[0.18em] text-emerald-300/45">Citizen</div>
@@ -250,7 +271,10 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {(darkProfile?.tags || []).slice(0, isCompactViewport ? 4 : 6).map(tag => (
-                <span key={tag} className="rounded-sm border border-emerald-500/15 bg-black/30 px-2 py-1 text-[10px] text-slate-300">
+                <span
+                  key={tag}
+                  className="rounded-sm border border-emerald-500/15 bg-black/30 px-2 py-1 text-[10px] text-slate-300"
+                >
                   {tag}
                 </span>
               ))}
@@ -297,7 +321,10 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
         {activeSection === 'clue' && (
           <CyberPanel title="线索摘录" variant="terminal" className="p-4 space-y-3">
             {clueNotes.map(note => (
-              <div key={note} className="rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-2 text-sm leading-6 text-slate-300">
+              <div
+                key={note}
+                className="rounded-sm border border-emerald-500/15 bg-black/30 px-3 py-2 text-sm leading-6 text-slate-300"
+              >
                 {note}
               </div>
             ))}
@@ -314,7 +341,9 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
               return (
                 <div key={section.id} className="rounded-sm border border-emerald-500/15 bg-black/30 p-3">
                   <div className="text-sm font-bold uppercase tracking-[0.16em] text-white">{section.title}</div>
-                  <div className={`mt-2 text-sm leading-6 ${locked ? 'text-slate-600 blur-[2px] select-none' : 'text-slate-300'}`}>
+                  <div
+                    className={`mt-2 text-sm leading-6 ${locked ? 'text-slate-600 blur-[2px] select-none' : 'text-slate-300'}`}
+                  >
                     {locked ? '该条目尚未解锁。' : section.content}
                   </div>
                 </div>
@@ -336,10 +365,17 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                       key={item.id}
                       type="button"
                       disabled={!unlocked}
-                      onClick={() => unlocked && setLightboxImage({ src: item.src, title: item.title || npc.name, subtitle: item.caption || item.sourceLabel })}
+                      onClick={() =>
+                        unlocked &&
+                        setLightboxImage({
+                          src: item.src,
+                          title: item.title || npc.name,
+                          subtitle: item.caption || item.sourceLabel,
+                        })
+                      }
                       className="relative overflow-hidden rounded-sm border border-emerald-500/15 bg-black text-left disabled:cursor-not-allowed"
                     >
-                      <img
+                      <PersistentImage
                         src={item.src}
                         alt={item.title || npc.name}
                         loading="lazy"
@@ -384,7 +420,9 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                   </div>
                 </div>
                 {serviceFeedback ? (
-                  <div className={`rounded-sm border px-3 py-2 text-[11px] ${serviceFeedback.tone === 'success' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/25 bg-amber-500/10 text-amber-200'}`}>
+                  <div
+                    className={`rounded-sm border px-3 py-2 text-[11px] ${serviceFeedback.tone === 'success' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-200' : 'border-amber-500/25 bg-amber-500/10 text-amber-200'}`}
+                  >
                     {serviceFeedback.text}
                   </div>
                 ) : null}
@@ -398,7 +436,10 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                       const unlocked = access.darknetLevel >= (service.unlockLevel || 1);
                       const affordable = playerCredits >= service.price;
                       return (
-                        <div key={service.id} className="rounded-sm border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))] p-3">
+                        <div
+                          key={service.id}
+                          className="rounded-sm border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))] p-3"
+                        >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-white">{service.title}</div>
@@ -406,17 +447,26 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                                 {getServiceKindLabel(service)} · {service.availability || '暗网节点交割'}
                               </div>
                             </div>
-                            <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${getRiskClassName({ risk: service.risk } as NpcDarknetRecord)}`}>
+                            <span
+                              className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${getRiskClassName({ risk: service.risk } as NpcDarknetRecord)}`}
+                            >
                               {getRiskLabel({ risk: service.risk } as NpcDarknetRecord)}
                             </span>
                           </div>
-                          <div className={`mt-3 text-sm leading-6 ${unlocked ? 'text-slate-200' : 'text-slate-600 blur-[2px] select-none'}`}>
-                            {unlocked ? service.summary : `需要暗网等级 Lv.${service.unlockLevel || 2} 后解锁服务说明。`}
+                          <div
+                            className={`mt-3 text-sm leading-6 ${unlocked ? 'text-slate-200' : 'text-slate-600 blur-[2px] select-none'}`}
+                          >
+                            {unlocked
+                              ? service.summary
+                              : `需要暗网等级 Lv.${service.unlockLevel || 2} 后解锁服务说明。`}
                           </div>
                           {(service.tags || []).length > 0 ? (
                             <div className="mt-3 flex flex-wrap gap-2">
                               {(service.tags || []).map(tag => (
-                                <span key={tag} className="rounded-sm border border-emerald-500/15 bg-black/20 px-2 py-1 text-[10px] text-slate-300">
+                                <span
+                                  key={tag}
+                                  className="rounded-sm border border-emerald-500/15 bg-black/20 px-2 py-1 text-[10px] text-slate-300"
+                                >
                                   {tag}
                                 </span>
                               ))}
@@ -425,7 +475,9 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                           <div className="mt-4 flex items-center justify-between gap-3">
                             <div>
                               <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Price</div>
-                              <div className="mt-1 text-lg font-semibold text-amber-200">{service.price.toLocaleString()} 灵能币</div>
+                              <div className="mt-1 text-lg font-semibold text-amber-200">
+                                {service.price.toLocaleString()} 灵能币
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -455,17 +507,24 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
               visibleDarknetRecords.map((record, index) => {
                 const unlocked = isIntelUnlocked(record, index);
                 return (
-                  <div key={record.id} className="overflow-hidden rounded-md border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))]">
+                  <div
+                    key={record.id}
+                    className="overflow-hidden rounded-md border border-emerald-500/15 bg-[linear-gradient(180deg,rgba(5,10,8,0.98),rgba(3,7,6,0.98))]"
+                  >
                     <div className="flex items-start justify-between gap-3 px-3 py-3 border-b border-emerald-500/10">
                       <div className="min-w-0">
-                        <div className="text-sm font-semibold uppercase tracking-[0.12em] text-white truncate">{unlocked ? record.title : '未解锁记录'}</div>
+                        <div className="text-sm font-semibold uppercase tracking-[0.12em] text-white truncate">
+                          {unlocked ? record.title : '未解锁记录'}
+                        </div>
                         <div className="mt-1 text-[11px] text-slate-500 truncate">
                           {unlocked
                             ? `${record.source || '匿名源'} · ${record.location || darkProfile?.lastSeen || '暗网节点'} · ${formatRecordTime(record.timestamp)}`
                             : `需要暗网等级 Lv.${record.unlockLevel || 2} 或继续推进关系后解锁`}
                         </div>
                       </div>
-                      <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${getRiskClassName(record)}`}>
+                      <span
+                        className={`shrink-0 rounded-full border px-2 py-1 text-[10px] ${getRiskClassName(record)}`}
+                      >
                         {getRiskLabel(record)}
                       </span>
                     </div>
@@ -474,10 +533,13 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                       <button
                         type="button"
                         disabled={!unlocked}
-                        onClick={() => unlocked && setLightboxImage({ src: record.image!, title: record.title, subtitle: record.content })}
+                        onClick={() =>
+                          unlocked &&
+                          setLightboxImage({ src: record.image!, title: record.title, subtitle: record.content })
+                        }
                         className="block w-full disabled:cursor-not-allowed"
                       >
-                        <img
+                        <PersistentImage
                           src={record.image}
                           alt={record.title}
                           loading="lazy"
@@ -488,13 +550,18 @@ const NpcCodexEntryPanel: React.FC<Props> = ({ npc, playerCredits, onBack, onPur
                     ) : null}
 
                     <div className="p-3">
-                      <div className={`text-sm leading-6 ${unlocked ? 'text-slate-200' : 'text-slate-600 blur-[2px] select-none'}`}>
+                      <div
+                        className={`text-sm leading-6 ${unlocked ? 'text-slate-200' : 'text-slate-600 blur-[2px] select-none'}`}
+                      >
                         {unlocked ? record.content : '该条记录已经入库，但正文仍处于加密/折叠状态。'}
                       </div>
                       {(record.tags || []).length > 0 ? (
                         <div className="mt-3 flex flex-wrap gap-2">
                           {(record.tags || []).map(tag => (
-                            <span key={tag} className={`rounded-sm border px-2 py-1 text-[10px] ${unlocked ? 'border-emerald-500/15 bg-black/20 text-slate-300' : 'border-slate-900 bg-black/30 text-slate-600'}`}>
+                            <span
+                              key={tag}
+                              className={`rounded-sm border px-2 py-1 text-[10px] ${unlocked ? 'border-emerald-500/15 bg-black/20 text-slate-300' : 'border-slate-900 bg-black/30 text-slate-600'}`}
+                            >
                               {tag}
                             </span>
                           ))}

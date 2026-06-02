@@ -1,5 +1,6 @@
 ﻿import React, { useMemo, useState } from 'react';
 import { Chip, PlayerCivilianStatus, Rank } from '../../types';
+import { formatChipBonusTags } from '../../utils/chipBonuses';
 import CyberPanel from '../ui/CyberPanel';
 import {
   AlertTriangle,
@@ -368,6 +369,7 @@ const ChipPanel: React.FC<Props> = ({
         <div className="absolute inset-0 z-30 bg-black p-4 border border-white/10 animate-in fade-in zoom-in-95 duration-200">
           {(() => {
             const tone = rankTone(selectedChip.rank);
+            const bonusTags = formatChipBonusTags(selectedChip);
             return (
               <>
                 <div className={`border ${tone.softBorder} rounded-lg p-3 ${tone.bg}`}>
@@ -404,6 +406,29 @@ const ChipPanel: React.FC<Props> = ({
                 <div className="mt-3 text-[11px] text-slate-400 leading-relaxed border border-slate-800 rounded p-3 bg-black/40">
                   {selectedChip.description}
                 </div>
+
+                {(selectedChip.effectLines?.length || bonusTags.length) ? (
+                  <div className="mt-3 rounded border border-slate-800 bg-black/40 p-3 space-y-2">
+                    {selectedChip.effectLines?.length ? (
+                      <div className="space-y-1">
+                        {selectedChip.effectLines.map(line => (
+                          <div key={line} className="text-[11px] text-slate-300">
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {bonusTags.length ? (
+                      <div className="flex flex-wrap gap-1">
+                        {bonusTags.map(tag => (
+                          <span key={tag} className="rounded-full border border-cyan-900/60 bg-cyan-950/20 px-2 py-0.5 text-[10px] text-cyan-200">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {selectedChip.forgeProfile && (
                   <div className="mt-3 rounded border border-cyan-500/20 bg-cyan-500/[0.06] p-3">
@@ -463,12 +488,22 @@ const ChipPanel: React.FC<Props> = ({
             {storageChips.map(chip => {
               const lockedByDoctor = chip.type === 'board' || chip.type === 'beta';
               const full = chip.type !== 'board' && chip.type !== 'beta' && normalChips.length >= maxSlots;
+              const bonusTags = formatChipBonusTags(chip);
 
               return (
                 <div key={chip.id} className="border border-slate-800 bg-slate-900/30 p-2 flex items-center justify-between">
                   <div>
                     <div className="text-xs text-white">{chip.name}</div>
                     <div className="text-[10px] text-slate-500">{formatRank(chip.rank)}</div>
+                    {bonusTags.length ? (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {bonusTags.slice(0, 3).map(tag => (
+                          <span key={tag} className="rounded-full border border-slate-700 bg-black/30 px-1.5 py-0.5 text-[10px] text-slate-300">
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"

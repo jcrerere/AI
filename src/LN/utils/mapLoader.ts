@@ -1,3 +1,4 @@
+import qilingMapData from '../public/ln-maps/qiling.json';
 import { WorldNodeMapData } from '../types';
 import { normalizeWorldNodeMap } from './mapData';
 
@@ -10,10 +11,7 @@ export const isWorldMapEmpty = (map: WorldNodeMapData | null | undefined): boole
 
 export const loadDefaultQilingMap = async (): Promise<WorldNodeMapData> => {
   try {
-    const response = await fetch('/ln-maps/qiling.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const raw = await response.json();
-    const normalized = normalizeWorldNodeMap(raw);
+    const normalized = normalizeWorldNodeMap(qilingMapData);
     if (!normalized) throw new Error('invalid map schema');
     return normalized;
   } catch (error) {
@@ -21,4 +19,3 @@ export const loadDefaultQilingMap = async (): Promise<WorldNodeMapData> => {
     return createEmptyWorldMap();
   }
 };
-

@@ -9,12 +9,31 @@ import {
   cloneEquipPoolMap,
   cloneItemList,
   cloneLingshuParts,
+  cloneSkillList,
   cloneSkillPoolMap,
   LN_SETUP_PACK_LEGACY_STORAGE_KEY,
   LN_SETUP_PACK_STORAGE_KEY,
   LnSetupPackData,
   normalizeSetupPack,
 } from '../../data/setupPack';
+import {
+  buildSpiritSkillAccessLabel,
+  buildSpiritSkillNpcPolicyLabel,
+  buildSpiritSkillNpcPoolLabel,
+  buildSpiritSkillPlainLabel,
+  buildSpiritSkillSlotSummary,
+  createCoreSkillPool,
+  DEFAULT_PLAYER_RACE,
+  getAllowedPlayerRaceOptions,
+  getSpiritSkillFamilyKey,
+  getSpiritSkillMinNpcRank,
+  getSpiritSkillNpcPool,
+  isSpiritSkillAvailable,
+  isPlayerRaceAllowedForGender,
+  isSpiritSkillCompatibleWithPart,
+  resolveSpiritSkillAccess,
+} from '../../data/spiritSkillPool';
+import { formatChipBonusTags } from '../../utils/chipBonuses';
 import CareerLineEditorModal from '../ui/CareerLineEditorModal';
 
 interface Props {
@@ -37,6 +56,34 @@ interface PickerEntry {
   description: string;
 }
 
+interface LingshuSkillGroup {
+  key: string;
+  name: string;
+  plainLabel: string;
+  slotSummary: string;
+  previewSkill: Skill;
+  selectedSkill?: Skill;
+  skills: Skill[];
+  available: boolean;
+  breakUnlocked: boolean;
+  accessLabel: string;
+  note?: string;
+}
+
+interface SpiritCoreSkillGroup {
+  key: string;
+  name: string;
+  plainLabel: string;
+  slotSummary: string;
+  previewSkill: Skill;
+  selectedSkill?: Skill;
+  skills: Skill[];
+  available: boolean;
+  breakUnlocked: boolean;
+  accessLabel: string;
+  note?: string;
+}
+
 const DEFAULT_SETUP_PACK = buildDefaultSetupPack();
 
 const levelToRank = (level: number): Rank => {
@@ -49,9 +96,45 @@ const levelToRank = (level: number): Rank => {
 
 const rankValue = (rank: Rank) => parseInt(rank.replace('Lv.', ''), 10);
 const rankLabel = (rank: Rank) => `${rankValue(rank)}级`;
+const rankCompactLabel = (rank: Rank) => `Lv${rankValue(rank)}`;
 
 const getPartSkills = (part?: Pick<LingshuPart, 'spiritSkills' | 'spiritSkill'> | null): Skill[] =>
   part?.spiritSkills ?? (part?.spiritSkill ? [part.spiritSkill] : []);
+
+const normalizeSkillSelection = (skills: Skill[]): Skill[] => {
+  const familyMap = new Map<string, Skill>();
+  for (const skill of skills) {
+    familyMap.set(getSpiritSkillFamilyKey(skill), skill);
+  }
+  return [...familyMap.values()];
+};
+
+const displaySkillName = (skillName: string) => `${skillName || ''}`.replace(/^灵弦[:：]\s*/, '').trim();
+
+const npcPoolBadgeClass = (skill: Pick<Skill, 'familyId' | 'npcPool'>) => {
+  switch (getSpiritSkillNpcPool(skill)) {
+    case 'exclusive':
+      return 'border-rose-700/60 bg-rose-950/30 text-rose-200';
+    case 'rare_pool':
+      return 'border-amber-700/60 bg-amber-950/30 text-amber-200';
+    case 'common_pool':
+    default:
+      return 'border-cyan-700/60 bg-cyan-950/30 text-cyan-200';
+  }
+};
+
+const formatSkillSummaryText = (skill: Skill) =>
+  `${displaySkillName(skill.name)} ${skill.displayLevelLabel || `${skill.level}级`} · ${buildSpiritSkillNpcPolicyLabel(skill)}`;
+
+const resolveCustomSkillMinNpcRank = (
+  pool: Skill['npcPool'] | undefined,
+  rawValue: 'auto' | Rank,
+  level: number,
+): Rank | undefined => {
+  if (pool === 'exclusive' || pool === 'common_pool' || !pool) return undefined;
+  if (rawValue !== 'auto') return rawValue;
+  return level >= 5 ? Rank.Lv4 : Rank.Lv3;
+};
 
 const psionicStrengthByLevel = (level: number, gender: 'male' | 'female') => {
   const lv = Math.min(5, Math.max(1, level));
@@ -82,6 +165,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   const [step, setStep] = useState<Step>('identity');
   const [name, setName] = useState('测试体-V');
   const [gender, setGender] = useState<'male' | 'female'>('male');
+  const [race, setRace] = useState<string>(DEFAULT_PLAYER_RACE);
 
   const [psionicRank, setPsionicRank] = useState<Rank>(Rank.Lv1);
   const [credits, setCredits] = useState<number>(1000);
@@ -106,13 +190,16 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   const [selectedStarterItemIds, setSelectedStarterItemIds] = useState<string[]>(() => [...DEFAULT_SETUP_PACK.selectedStarterItemIds]);
 
   const [lingshuParts, setLingshuParts] = useState<LingshuPart[]>(() => cloneLingshuParts(DEFAULT_SETUP_PACK.lingshuParts));
+  const [selectedCoreSkills, setSelectedCoreSkills] = useState<Skill[]>(() => cloneSkillList(DEFAULT_SETUP_PACK.selectedCoreSkills));
   const [partSkillPools, setPartSkillPools] = useState<Record<string, Skill[]>>(() => cloneSkillPoolMap(DEFAULT_SETUP_PACK.partSkillPools));
   const [partEquipPools, setPartEquipPools] = useState<Record<string, EquippedItem[]>>(() => cloneEquipPoolMap(DEFAULT_SETUP_PACK.partEquipPools));
   const [lingshuOpen, setLingshuOpen] = useState(false);
+  const [coreOpen, setCoreOpen] = useState(false);
   const [activeLingshuId, setActiveLingshuId] = useState<string>(DEFAULT_SETUP_PACK.lingshuParts[0]?.id || '');
   const [lingshuSelectMode, setLingshuSelectMode] = useState<LingshuSelectMode>('skills');
   const [lingshuEquipFilter, setLingshuEquipFilter] = useState<'all' | Rank>('all');
   const [lingshuSkillFilter, setLingshuSkillFilter] = useState<'all' | Rank>('all');
+  const [coreSkillFilter, setCoreSkillFilter] = useState<'all' | Rank>('all');
 
   const [zoneOptions, setZoneOptions] = useState<string[]>(() => [...DEFAULT_SETUP_PACK.zoneOptions]);
   const [startingLocation, setStartingLocation] = useState<string>(DEFAULT_SETUP_PACK.zoneOptions[0] || '');
@@ -145,6 +232,8 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   const [customLingshuSkillName, setCustomLingshuSkillName] = useState('');
   const [customLingshuSkillDesc, setCustomLingshuSkillDesc] = useState('');
   const [customLingshuSkillLevel, setCustomLingshuSkillLevel] = useState<number>(1);
+  const [customLingshuSkillNpcPool, setCustomLingshuSkillNpcPool] = useState<Skill['npcPool']>('common_pool');
+  const [customLingshuSkillMinNpcRank, setCustomLingshuSkillMinNpcRank] = useState<'auto' | Rank>('auto');
   const [customLingshuEquipName, setCustomLingshuEquipName] = useState('');
   const [customLingshuEquipDesc, setCustomLingshuEquipDesc] = useState('');
   const [customLingshuEquipRank, setCustomLingshuEquipRank] = useState<Rank>(Rank.Lv1);
@@ -155,6 +244,8 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   const [careerEditorOpen, setCareerEditorOpen] = useState(false);
   const [careerTracks, setCareerTracks] = useState<CareerTrack[]>(() => cloneCareerTracks(DEFAULT_SETUP_PACK.careerTracks));
   const [newZoneOption, setNewZoneOption] = useState('');
+
+  const availableRaceOptions = useMemo(() => getAllowedPlayerRaceOptions(gender), [gender]);
 
   const starterItems = useMemo(
     () => availableItems.filter(item => selectedStarterItemIds.includes(item.id)),
@@ -174,6 +265,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     setZoneOptions(pack.zoneOptions);
     setStartingLocation(pack.zoneOptions[0] || '');
     setLingshuParts(pack.lingshuParts);
+    setSelectedCoreSkills(pack.selectedCoreSkills);
     setPartSkillPools(pack.partSkillPools);
     setPartEquipPools(pack.partEquipPools);
     setActiveLingshuId(pack.lingshuParts[0]?.id || '');
@@ -188,6 +280,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     selectedStarterItemIds: [...selectedStarterItemIds],
     zoneOptions: [...zoneOptions],
     lingshuParts: cloneLingshuParts(lingshuParts),
+    selectedCoreSkills: cloneSkillList(selectedCoreSkills),
     partSkillPools: cloneSkillPoolMap(partSkillPools),
     partEquipPools: cloneEquipPoolMap(partEquipPools),
     careerTracks: cloneCareerTracks(careerTracks),
@@ -202,6 +295,44 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     setSixDim({ 力量: 10, 敏捷: 9, 体质: 10, 感知: 8, 意志: 9, 魅力: 7 });
     setSixDimFreePoints(18);
   }, [gender]);
+
+  useEffect(() => {
+    if (isPlayerRaceAllowedForGender(race, gender)) return;
+    setRace(availableRaceOptions[0]?.value || DEFAULT_PLAYER_RACE);
+  }, [availableRaceOptions, gender, race]);
+
+  useEffect(() => {
+    setLingshuParts(prev => {
+      let changed = false;
+      const next = prev.map(part => {
+        const selectedSkills = getPartSkills(part);
+        const filtered = normalizeSkillSelection(
+          selectedSkills.filter(
+            skill =>
+              skill.mountType !== 'core' &&
+              isSpiritSkillCompatibleWithPart(skill, part.key) &&
+              (skill.isCustom || isSpiritSkillAvailable(skill, race, gender)),
+          ),
+        );
+        if (filtered.length === selectedSkills.length) return part;
+        changed = true;
+        return {
+          ...part,
+          spiritSkill: filtered[0] || null,
+          spiritSkills: filtered,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [gender, race]);
+
+  useEffect(() => {
+    setSelectedCoreSkills(prev =>
+      normalizeSkillSelection(
+        prev.filter(skill => skill.mountType === 'core' && (skill.isCustom || isSpiritSkillAvailable(skill, race, gender))),
+      ).slice(0, gender === 'female' ? 5 : 3),
+    );
+  }, [gender, race]);
 
   useEffect(() => {
     setConversionRate(prev => Math.min(conversionRange.max, Math.max(conversionRange.min, prev)));
@@ -232,7 +363,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     } catch (error) {
       console.warn('写入本地开局包失败:', error);
     }
-  }, [availableBoards, availableChips, availableItems, selectedStarterItemIds, zoneOptions, lingshuParts, partSkillPools, partEquipPools, careerTracks]);
+  }, [availableBoards, availableChips, availableItems, selectedStarterItemIds, zoneOptions, lingshuParts, selectedCoreSkills, partSkillPools, partEquipPools, careerTracks]);
 
   useEffect(() => {
     if (availableBoards.length === 0) return;
@@ -310,13 +441,156 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   }, [activeEquipPool, lingshuEquipFilter, sortDir]);
 
   const lingshuFilteredSkills = useMemo(() => {
-    const base = lingshuSkillFilter === 'all' ? activeSkillPool : activeSkillPool.filter(s => levelToRank(s.level) === lingshuSkillFilter);
-    return [...base].sort((a, b) => (sortDir === 'asc' ? a.level - b.level : b.level - a.level));
-  }, [activeSkillPool, lingshuSkillFilter, sortDir]);
+    return [...activeSkillPool].sort((a, b) => (sortDir === 'asc' ? a.level - b.level : b.level - a.level));
+  }, [activeSkillPool, sortDir]);
+
+  const spiritCoreSkillPool = useMemo(() => createCoreSkillPool(), []);
+  const maxCoreSkillSlots = gender === 'female' ? 5 : 3;
+
+  const coreSkillGroups = useMemo(() => {
+    const grouped = new Map<string, Skill[]>();
+    for (const skill of spiritCoreSkillPool) {
+      if (coreSkillFilter !== 'all' && levelToRank(skill.level) !== coreSkillFilter) continue;
+      const key = getSpiritSkillFamilyKey(skill);
+      grouped.set(key, [...(grouped.get(key) || []), skill]);
+    }
+
+    const selectedFamilyMap = new Map(
+      normalizeSkillSelection(selectedCoreSkills).map(skill => [getSpiritSkillFamilyKey(skill), skill]),
+    );
+
+    const groups = [...grouped.entries()]
+      .map(([key, skills]) => {
+        const orderedSkills = [...skills].sort((a, b) => a.level - b.level);
+        const selectedSkill = selectedFamilyMap.get(key);
+        const previewSkill = selectedSkill || orderedSkills[orderedSkills.length - 1];
+        const access = resolveSpiritSkillAccess(previewSkill, race, gender);
+        return {
+          key,
+          name: previewSkill.name,
+          plainLabel: buildSpiritSkillPlainLabel(previewSkill),
+          slotSummary: buildSpiritSkillSlotSummary(previewSkill),
+          previewSkill,
+          selectedSkill,
+          skills: orderedSkills,
+          available: access.available,
+          breakUnlocked: access.breakUnlocked,
+          accessLabel: buildSpiritSkillAccessLabel(previewSkill, race, gender),
+          note: access.note,
+        } satisfies SpiritCoreSkillGroup;
+      })
+      .filter(Boolean) as SpiritCoreSkillGroup[];
+
+    const sorted = groups.sort((a, b) => {
+      if (a.available !== b.available) return a.available ? -1 : 1;
+      if (Boolean(a.selectedSkill) !== Boolean(b.selectedSkill)) return a.selectedSkill ? -1 : 1;
+      const levelDiff = sortDir === 'asc' ? a.previewSkill.level - b.previewSkill.level : b.previewSkill.level - a.previewSkill.level;
+      if (levelDiff !== 0) return levelDiff;
+      return a.name.localeCompare(b.name, 'zh-Hans-CN');
+    });
+
+    return {
+      available: sorted.filter(group => group.available),
+      locked: sorted.filter(group => !group.available),
+    };
+  }, [coreSkillFilter, gender, race, selectedCoreSkills, sortDir, spiritCoreSkillPool]);
+
+  const lingshuSkillGroups = useMemo(() => {
+    if (!activePart) return { available: [] as LingshuSkillGroup[], locked: [] as LingshuSkillGroup[] };
+
+    const grouped = new Map<string, Skill[]>();
+    for (const skill of lingshuFilteredSkills) {
+      const key = getSpiritSkillFamilyKey(skill);
+      grouped.set(key, [...(grouped.get(key) || []), skill]);
+    }
+
+    const selectedFamilyMap = new Map(
+      normalizeSkillSelection(getPartSkills(activePart)).map(skill => [getSpiritSkillFamilyKey(skill), skill]),
+    );
+
+    const groups = [...grouped.entries()]
+      .map(([key, skills]) => {
+        const orderedSkills = [...skills].sort((a, b) => a.level - b.level);
+        if (
+          lingshuSkillFilter !== 'all' &&
+          !orderedSkills.some(skill => levelToRank(skill.level) === lingshuSkillFilter)
+        ) {
+          return null;
+        }
+
+        const selectedSkill = selectedFamilyMap.get(key);
+        const previewSkill = selectedSkill || orderedSkills[orderedSkills.length - 1];
+        const access = resolveSpiritSkillAccess(previewSkill, race, gender);
+        const partCompatible = selectedSkill
+          ? isSpiritSkillCompatibleWithPart(selectedSkill, activePart.key)
+          : orderedSkills.some(skill => isSpiritSkillCompatibleWithPart(skill, activePart.key));
+        const available = access.available && partCompatible;
+        const note = !partCompatible
+          ? `当前部位不适配这类灵弦，请改装到 ${buildSpiritSkillSlotSummary(previewSkill)}。`
+          : access.note;
+        return {
+          key,
+          name: previewSkill.name,
+          plainLabel: buildSpiritSkillPlainLabel(previewSkill),
+          slotSummary: buildSpiritSkillSlotSummary(previewSkill),
+          previewSkill,
+          selectedSkill,
+          skills: orderedSkills,
+          available,
+          breakUnlocked: access.breakUnlocked,
+          accessLabel: partCompatible ? buildSpiritSkillAccessLabel(previewSkill, race, gender) : '当前部位不适配',
+          note,
+        } satisfies LingshuSkillGroup;
+      })
+      .filter(Boolean) as LingshuSkillGroup[];
+
+    const sorted = groups.sort((a, b) => {
+      if (a.available !== b.available) return a.available ? -1 : 1;
+      if (Boolean(a.selectedSkill) !== Boolean(b.selectedSkill)) return a.selectedSkill ? -1 : 1;
+      const levelDiff = sortDir === 'asc' ? a.previewSkill.level - b.previewSkill.level : b.previewSkill.level - a.previewSkill.level;
+      if (levelDiff !== 0) return levelDiff;
+      return a.name.localeCompare(b.name, 'zh-Hans-CN');
+    });
+
+    return {
+      available: sorted.filter(group => group.available),
+      locked: sorted.filter(group => !group.available),
+    };
+  }, [activePart, gender, lingshuFilteredSkills, lingshuSkillFilter, race, sortDir]);
 
   const updateActivePart = (patch: Partial<LingshuPart>) => {
     if (!activePart) return;
     setLingshuParts(prev => prev.map(p => (p.id === activePart.id ? { ...p, ...patch } : p)));
+  };
+
+  const setActivePartSkills = (skills: Skill[]) => {
+    const normalizedSkills = normalizeSkillSelection(skills).slice(0, 3);
+    updateActivePart({
+      spiritSkill: normalizedSkills[0] || null,
+      spiritSkills: normalizedSkills,
+    });
+  };
+
+  const toggleCoreSkill = (skill: Skill) => {
+    if (!skill.isCustom && !isSpiritSkillAvailable(skill, race, gender)) return;
+    if (skill.mountType !== 'core') return;
+
+    setSelectedCoreSkills(prev => {
+      const selected = normalizeSkillSelection(prev);
+      const familyKey = getSpiritSkillFamilyKey(skill);
+      const existing = selected.find(entry => getSpiritSkillFamilyKey(entry) === familyKey);
+
+      if (existing?.id === skill.id) {
+        return selected.filter(entry => getSpiritSkillFamilyKey(entry) !== familyKey);
+      }
+
+      if (existing) {
+        return selected.map(entry => (getSpiritSkillFamilyKey(entry) === familyKey ? skill : entry));
+      }
+
+      if (selected.length >= maxCoreSkillSlots) return selected;
+      return [...selected, skill];
+    });
   };
 
   const setPartLevel = (level: number) => {
@@ -325,16 +599,25 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
 
   const toggleSkill = (skill: Skill) => {
     if (!activePart) return;
-    const selected = getPartSkills(activePart);
-    const exists = selected.some(s => s.id === skill.id);
+    if (!skill.isCustom && !isSpiritSkillAvailable(skill, race, gender)) return;
+    if (!isSpiritSkillCompatibleWithPart(skill, activePart.key)) return;
 
-    if (exists) {
-      updateActivePart({ spiritSkills: selected.filter(s => s.id !== skill.id) });
+    const selected = normalizeSkillSelection(getPartSkills(activePart));
+    const familyKey = getSpiritSkillFamilyKey(skill);
+    const existing = selected.find(s => getSpiritSkillFamilyKey(s) === familyKey);
+
+    if (existing?.id === skill.id) {
+      setActivePartSkills(selected.filter(s => getSpiritSkillFamilyKey(s) !== familyKey));
+      return;
+    }
+
+    if (existing) {
+      setActivePartSkills(selected.map(s => (getSpiritSkillFamilyKey(s) === familyKey ? skill : s)));
       return;
     }
 
     if (selected.length >= 3) return;
-    updateActivePart({ spiritSkills: [...selected, skill] });
+    setActivePartSkills([...selected, skill]);
   };
 
   const chooseEquipment = (item: EquippedItem) => {
@@ -355,13 +638,20 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     }));
     setLingshuParts(prev =>
       prev.map(p =>
-        p.id === activePart.id ? { ...p, spiritSkills: getPartSkills(p).filter(s => s.id !== pendingDeleteSkill.id) } : p,
+        p.id === activePart.id
+          ? {
+              ...p,
+              spiritSkill: getPartSkills(p).find(s => s.id !== pendingDeleteSkill.id) || null,
+              spiritSkills: getPartSkills(p).filter(s => s.id !== pendingDeleteSkill.id),
+            }
+          : p,
       ),
     );
     setPendingDeleteSkill(null);
   };
 
   const isPartConfigured = (part: LingshuPart) => !!part.equippedItem && getPartSkills(part).length > 0;
+  const isCoreConfigured = normalizeSkillSelection(selectedCoreSkills).length > 0;
 
   const isChipSelected = (id: string) => selectedChipIds.includes(id);
 
@@ -510,25 +800,30 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
   const addCustomLingshuSkill = () => {
     if (!activePart || !customLingshuSkillName.trim() || !customLingshuSkillDesc.trim()) return;
     const level = Math.min(5, Math.max(1, customLingshuSkillLevel));
+    const normalizedName = customLingshuSkillName.trim().replace(/^灵弦[:：]\s*/, '');
+    const npcPool = customLingshuSkillNpcPool || 'common_pool';
+    const minNpcRank = resolveCustomSkillMinNpcRank(npcPool, customLingshuSkillMinNpcRank, level);
     const skill: Skill = {
       id: `custom_lingshu_skill_${Date.now()}`,
-      name: customLingshuSkillName.trim().startsWith('灵弦：')
-        ? customLingshuSkillName.trim()
-        : `灵弦：${customLingshuSkillName.trim()}`,
+      name: normalizedName,
       level,
       description: customLingshuSkillDesc.trim(),
       isCustom: true,
+      npcPool,
+      minNpcRank,
     };
     setPartSkillPools(prev => ({
       ...prev,
       [activePart.id]: [skill, ...(prev[activePart.id] || [])],
     }));
-    if (getPartSkills(activePart).length < 3) {
+    if (normalizeSkillSelection(getPartSkills(activePart)).length < 3) {
       toggleSkill(skill);
     }
     setCustomLingshuSkillName('');
     setCustomLingshuSkillDesc('');
     setCustomLingshuSkillLevel(1);
+    setCustomLingshuSkillNpcPool('common_pool');
+    setCustomLingshuSkillMinNpcRank('auto');
   };
 
   const addCustomLingshuEquip = () => {
@@ -570,22 +865,228 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
     });
   };
 
+  const renderSkillGroupCard = (group: LingshuSkillGroup) => {
+    const selectedSkills = activePart ? normalizeSkillSelection(getPartSkills(activePart)) : [];
+    const selectedSkill = group.selectedSkill;
+    const full = !selectedSkill && selectedSkills.length >= 3;
+    const inDeleteMode = skillActionMode === 'delete';
+    const previewRank = levelToRank(group.previewSkill.level);
+
+    return (
+      <div
+        key={group.key}
+        className={`min-h-[210px] border rounded p-3 ${
+          selectedSkill
+            ? 'border-purple-500 bg-purple-900/20'
+            : group.available
+              ? `${rankBorderClass(previewRank)} bg-black/30`
+              : 'border-rose-900/70 bg-black/40'
+        } ${!inDeleteMode && !group.available ? 'opacity-70' : ''}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-sm text-slate-100 leading-5">{displaySkillName(group.name)}</div>
+            <div className="text-[11px] text-slate-400 mt-1">{group.plainLabel}</div>
+          </div>
+          {selectedSkill && (
+            <div className="text-[10px] text-purple-300 whitespace-nowrap">
+              已选 {selectedSkill.displayLevelLabel || `${selectedSkill.level}级`}
+            </div>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-500 mt-2">适配部位：{group.slotSummary}</div>
+        <div
+          className={`text-[10px] mt-1 ${
+            group.breakUnlocked ? 'text-amber-300' : group.available ? 'text-cyan-300' : 'text-rose-300'
+          }`}
+        >
+          {group.accessLabel}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1">
+          <span className={`border px-1.5 py-0.5 text-[10px] ${npcPoolBadgeClass(group.previewSkill)}`}>
+            {buildSpiritSkillNpcPoolLabel(group.previewSkill)}
+          </span>
+          {getSpiritSkillMinNpcRank(group.previewSkill) && (
+            <span className="border border-slate-700 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-300">
+              {rankCompactLabel(getSpiritSkillMinNpcRank(group.previewSkill)!)} 起
+            </span>
+          )}
+          {group.previewSkill.isCustom && (
+            <span className="border border-violet-700/60 bg-violet-950/30 px-1.5 py-0.5 text-[10px] text-violet-200">
+              自定义
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-400 mt-2 leading-5">{group.previewSkill.description}</div>
+        {group.note && <div className="text-[10px] text-slate-500 mt-2 leading-5">{group.note}</div>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {group.skills.map(skill => {
+            const chosen = selectedSkill?.id === skill.id;
+            const disabled = !inDeleteMode && (!group.available || (full && !chosen));
+            return (
+              <button
+                key={skill.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  if (inDeleteMode) {
+                    requestDeleteSkill(skill);
+                    return;
+                  }
+                  toggleSkill(skill);
+                }}
+                className={`border px-2 py-1 text-[10px] transition-colors ${
+                  chosen
+                    ? 'border-purple-400 bg-purple-800/40 text-purple-100'
+                    : inDeleteMode
+                      ? 'border-red-700 text-red-200 hover:bg-red-900/20'
+                      : disabled
+                        ? 'border-slate-800 text-slate-600 cursor-not-allowed'
+                        : 'border-slate-700 text-slate-200 hover:bg-white/5'
+                }`}
+              >
+                {skill.displayLevelLabel || `${skill.level}级`}
+              </button>
+            );
+          })}
+        </div>
+        {selectedSkill && !inDeleteMode && (
+          <button
+            type="button"
+            onClick={() => toggleSkill(selectedSkill)}
+            className="mt-3 border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/5"
+          >
+            取消当前灵弦
+          </button>
+        )}
+        {full && !selectedSkill && !inDeleteMode && (
+          <div className="text-[10px] text-amber-300 mt-2">当前部位已装满 3 条灵弦，需先替换已有家族。</div>
+        )}
+        {inDeleteMode && <div className="text-[10px] text-red-300 mt-2">点击对应等级即可删除该等级卡。</div>}
+      </div>
+    );
+  };
+
+  const renderCoreSkillGroupCard = (group: SpiritCoreSkillGroup) => {
+    const selectedSkill = group.selectedSkill;
+    const selectedSkills = normalizeSkillSelection(selectedCoreSkills);
+    const full = !selectedSkill && selectedSkills.length >= maxCoreSkillSlots;
+    const previewRank = levelToRank(group.previewSkill.level);
+
+    return (
+      <div
+        key={group.key}
+        className={`min-h-[210px] border rounded p-3 ${
+          selectedSkill
+            ? 'border-amber-500 bg-amber-900/20'
+            : group.available
+              ? `${rankBorderClass(previewRank)} bg-black/30`
+              : 'border-rose-900/70 bg-black/40'
+        } ${!group.available ? 'opacity-70' : ''}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-sm text-slate-100 leading-5">{displaySkillName(group.name)}</div>
+            <div className="text-[11px] text-slate-400 mt-1">{group.plainLabel}</div>
+          </div>
+          {selectedSkill && (
+            <div className="text-[10px] text-amber-300 whitespace-nowrap">
+              已选 {selectedSkill.displayLevelLabel || `${selectedSkill.level}级`}
+            </div>
+          )}
+        </div>
+        <div className="text-[10px] text-slate-500 mt-2">外显媒介：{group.slotSummary}</div>
+        <div
+          className={`text-[10px] mt-1 ${
+            group.breakUnlocked ? 'text-amber-300' : group.available ? 'text-cyan-300' : 'text-rose-300'
+          }`}
+        >
+          {group.accessLabel}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1">
+          <span className={`border px-1.5 py-0.5 text-[10px] ${npcPoolBadgeClass(group.previewSkill)}`}>
+            {buildSpiritSkillNpcPoolLabel(group.previewSkill)}
+          </span>
+          {getSpiritSkillMinNpcRank(group.previewSkill) && (
+            <span className="border border-slate-700 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-300">
+              {rankCompactLabel(getSpiritSkillMinNpcRank(group.previewSkill)!)} 起
+            </span>
+          )}
+          {group.previewSkill.isCustom && (
+            <span className="border border-violet-700/60 bg-violet-950/30 px-1.5 py-0.5 text-[10px] text-violet-200">
+              自定义
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-slate-400 mt-2 leading-5">{group.previewSkill.description}</div>
+        {group.note && <div className="text-[10px] text-slate-500 mt-2 leading-5">{group.note}</div>}
+        <div className="mt-3 flex flex-wrap gap-2">
+          {group.skills.map(skill => {
+            const chosen = selectedSkill?.id === skill.id;
+            const disabled = !group.available || (full && !chosen);
+            return (
+              <button
+                key={skill.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggleCoreSkill(skill)}
+                className={`border px-2 py-1 text-[10px] transition-colors ${
+                  chosen
+                    ? 'border-amber-400 bg-amber-800/40 text-amber-100'
+                    : disabled
+                      ? 'border-slate-800 text-slate-600 cursor-not-allowed'
+                      : 'border-slate-700 text-slate-200 hover:bg-white/5'
+                }`}
+              >
+                {skill.displayLevelLabel || `${skill.level}级`}
+              </button>
+            );
+          })}
+        </div>
+        {selectedSkill && (
+          <button
+            type="button"
+            onClick={() => toggleCoreSkill(selectedSkill)}
+            className="mt-3 border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-white/5"
+          >
+            取消当前灵核灵弦
+          </button>
+        )}
+        {full && !selectedSkill && (
+          <div className="text-[10px] text-amber-300 mt-2">灵核槽位已满，需先替换已持有的同类或其他灵核灵弦。</div>
+        )}
+      </div>
+    );
+  };
+
   const handleComplete = () => {
     const normalizedLocation = startingLocation.trim() || zoneOptions[0] || DEFAULT_SETUP_PACK.zoneOptions[0];
     const finalFactionName = normalizedLocation;
     const normalizedLingshu = lingshuParts.map(part => {
-      const normalizedSkills = getPartSkills(part);
+      const normalizedSkills = normalizeSkillSelection(
+        getPartSkills(part).filter(
+          skill =>
+            skill.mountType !== 'core' &&
+            isSpiritSkillCompatibleWithPart(skill, part.key) &&
+            (skill.isCustom || isSpiritSkillAvailable(skill, race, gender)),
+        ),
+      ).slice(0, 3);
       return {
         ...part,
         level: part.level || rankValue(part.rank),
         rank: part.rank,
+        spiritSkill: normalizedSkills[0] || null,
         spiritSkills: normalizedSkills,
       };
     });
+    const normalizedCoreSkills = normalizeSkillSelection(
+      selectedCoreSkills.filter(skill => skill.mountType === 'core' && (skill.isCustom || isSpiritSkillAvailable(skill, race, gender))),
+    ).slice(0, maxCoreSkillSlots);
 
     const config: GameConfig = {
       name: name.trim() || '未命名接入者',
       gender,
+      race,
       citizenId: `NC-${Math.floor(Math.random() * 1000000)}`,
       startCredits: credits,
       startPsionicRank: psionicRank,
@@ -601,6 +1102,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
       startSixDim: { ...sixDim, freePoints: sixDimFreePoints, cap: 99 },
       hasRedString: false,
       selectedLingshu: cloneLingshuParts(normalizedLingshu),
+      selectedCoreSkills: cloneSkillList(normalizedCoreSkills),
       neuralProtocol,
       careerTracks: cloneCareerTracks(careerTracks),
     };
@@ -660,7 +1162,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
         {step === 'identity' && (
           <section className="space-y-4">
             <div className="text-xs font-bold uppercase text-cyan-400 flex items-center gap-2">
-              <Fingerprint className="w-4 h-4" /> 姓名与性别
+              <Fingerprint className="w-4 h-4" /> 姓名、性别与种族
             </div>
             <input
               type="text"
@@ -673,13 +1175,37 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
               <button type="button" onClick={() => setGender('male')} className={`border p-3 text-sm font-bold ${gender === 'male' ? 'border-cyan-500 bg-cyan-900/20 text-cyan-300' : 'border-slate-700 text-slate-400'}`}>男性</button>
               <button type="button" onClick={() => setGender('female')} className={`border p-3 text-sm font-bold ${gender === 'female' ? 'border-pink-500 bg-pink-900/20 text-pink-300' : 'border-slate-700 text-slate-400'}`}>女性</button>
             </div>
+            <div className="space-y-2">
+              <div className="text-xs text-slate-400">
+                {gender === 'male'
+                  ? '男性当前仅开放人类与汐屿族；女性开放全部种族。种族会直接影响灵弦卡池、专属池与破锁池。'
+                  : '女性当前开放全部种族。种族会直接影响灵弦卡池、专属池与破锁池。'}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {availableRaceOptions.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setRace(option.value)}
+                    className={`border rounded p-3 text-left transition-colors ${
+                      race === option.value
+                        ? 'border-emerald-500 bg-emerald-900/20 text-emerald-200'
+                        : 'border-slate-700 text-slate-300 hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="text-sm font-bold">{option.label}</div>
+                    <div className="text-[10px] text-slate-500 mt-1 leading-5">{option.note}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
         )}
 
         {step === 'build' && (
           <section className="space-y-4">
             <div className="text-xs font-bold uppercase text-purple-400 flex items-center gap-2">
-              <Zap className="w-4 h-4" /> 差异化配置（{gender === 'male' ? '男性' : '女性'})
+              <Zap className="w-4 h-4" /> 差异化配置（{gender === 'male' ? '男性' : '女性'} / {race}）
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -727,11 +1253,24 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
 
             <div className="space-y-3 border border-slate-800 p-3">
               <div className="text-xs text-slate-300 font-bold">统一模块：先天灵枢 + 神经协议</div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <button onClick={() => setLingshuOpen(true)} className="text-left border border-fuchsia-800 px-3 py-3 hover:bg-fuchsia-900/20">
                   <div className="text-sm text-fuchsia-300 flex items-center gap-1"><Sparkles className="w-4 h-4" /> 先天灵枢</div>
                   <div className="text-[10px] text-slate-500 mt-1">
                     按部位配置：等级、灵能强度、{gender === 'male' ? '感知强度' : '吸收速率'}、装备、灵弦（上限 3）
+                  </div>
+                </button>
+                <button onClick={() => setCoreOpen(true)} className="text-left border border-amber-800 px-3 py-3 hover:bg-amber-900/20">
+                  <div className="text-sm text-amber-300 flex items-center gap-1"><Zap className="w-4 h-4" /> 灵核灵弦</div>
+                  <div className="text-[10px] text-slate-500 mt-1">
+                    独立配置灵核能力：{normalizeSkillSelection(selectedCoreSkills).length}/{maxCoreSkillSlots}，按能力家族切换等级与持有状态
+                  </div>
+                  <div className={`text-[10px] mt-2 ${isCoreConfigured ? 'text-amber-300' : 'text-slate-600'}`}>
+                    {isCoreConfigured
+                      ? normalizeSkillSelection(selectedCoreSkills)
+                          .map(skill => formatSkillSummaryText(skill))
+                          .join(' / ')
+                      : '未配置'}
                   </div>
                 </button>
                 <button onClick={() => setNeuralOpen(true)} className="text-left border border-cyan-800 px-3 py-3 hover:bg-cyan-900/20">
@@ -965,6 +1504,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                     const selected = isChipSelected(entry.id);
                     const full = !selected && selectedChipIds.length >= maxChipSlots;
                     const chipObj = availableChips.find(chip => chip.id === entry.id);
+                    const bonusTags = chipObj ? formatChipBonusTags(chipObj) : [];
                     return (
                       <button
                         key={entry.id}
@@ -984,6 +1524,24 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                         <div className="text-sm text-slate-100 leading-5">{entry.name}</div>
                         <div className="text-xs text-cyan-300 mt-2">{rankLabel(entry.rank)}</div>
                         <div className="text-[11px] text-slate-400 mt-2 leading-5">{entry.description}</div>
+                        {chipObj?.effectLines?.length ? (
+                          <div className="mt-2 space-y-1">
+                            {chipObj.effectLines.slice(0, 2).map(line => (
+                              <div key={line} className="text-[10px] text-slate-500 leading-4">
+                                {line}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        {bonusTags.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {bonusTags.slice(0, 4).map(tag => (
+                              <span key={tag} className="rounded-full border border-cyan-900/60 bg-cyan-950/20 px-1.5 py-0.5 text-[10px] text-cyan-200">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {inDeleteMode && <div className="text-[10px] text-red-300 mt-2">点击删除（将二次确认）</div>}
                       </button>
                     );
@@ -1162,7 +1720,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                         <span className="text-[10px] text-fuchsia-400">{rankLabel(part.rank)}</span>
                       </div>
                       <div className="text-[10px] text-slate-500 truncate">装备：{part.equippedItem?.name || '空'}</div>
-                      <div className="text-[10px] text-slate-500 truncate">灵弦：{getPartSkills(part).length}/3</div>
+                      <div className="text-[10px] text-slate-500 truncate">灵弦：{normalizeSkillSelection(getPartSkills(part)).length}/3</div>
                       <div className={`text-[10px] mt-1 ${isPartConfigured(part) ? 'text-green-400' : 'text-slate-600'}`}>
                         {isPartConfigured(part) ? '已完成' : '待配置'}
                       </div>
@@ -1217,8 +1775,12 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                         className={`border rounded p-3 text-left transition-colors ${lingshuSelectMode === 'skills' ? 'border-purple-500 bg-purple-900/20' : 'border-purple-800 hover:bg-purple-900/10'}`}
                       >
                         <div className="text-xs text-purple-300 flex items-center gap-1"><BookOpen className="w-3 h-3" /> 灵弦卡池（独立）</div>
-                        <div className="text-[10px] text-slate-500 mt-1">已选 {getPartSkills(activePart).length}/3</div>
-                        <div className="text-[10px] text-slate-400 truncate mt-1">{getPartSkills(activePart).map(s => s.name).join(' / ') || '未选择'}</div>
+                        <div className="text-[10px] text-slate-500 mt-1">已选 {normalizeSkillSelection(getPartSkills(activePart)).length}/3</div>
+                        <div className="text-[10px] text-slate-400 truncate mt-1">
+                          {normalizeSkillSelection(getPartSkills(activePart))
+                            .map(s => formatSkillSummaryText(s))
+                            .join(' / ') || '未选择'}
+                        </div>
                       </button>
 
                       <button
@@ -1233,7 +1795,7 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                     {lingshuSelectMode === 'skills' ? (
                       <div className="border border-purple-900/40 rounded p-3 bg-[#070309]/70">
                         <div className="flex items-center justify-between gap-2 mb-3 relative">
-                          <div className="text-xs text-purple-300 font-bold">灵弦选择：{activePart.name}（{getPartSkills(activePart).length}/3）</div>
+                          <div className="text-xs text-purple-300 font-bold">灵弦选择：{activePart.name}（{normalizeSkillSelection(getPartSkills(activePart)).length}/3）</div>
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
@@ -1301,6 +1863,30 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                                 <option key={level} value={level}>{level}级</option>
                               ))}
                             </select>
+                            <select
+                              value={customLingshuSkillNpcPool}
+                              onChange={e => {
+                                const nextPool = e.target.value as Skill['npcPool'];
+                                setCustomLingshuSkillNpcPool(nextPool);
+                                if (nextPool !== 'rare_pool') setCustomLingshuSkillMinNpcRank('auto');
+                              }}
+                              className="bg-black border border-slate-700 px-2 py-1 text-xs text-white"
+                            >
+                              <option value="common_pool">普通池</option>
+                              <option value="rare_pool">稀有共享</option>
+                              <option value="exclusive">专属</option>
+                            </select>
+                            <select
+                              value={customLingshuSkillMinNpcRank}
+                              onChange={e => setCustomLingshuSkillMinNpcRank(e.target.value as 'auto' | Rank)}
+                              disabled={customLingshuSkillNpcPool !== 'rare_pool'}
+                              className="bg-black border border-slate-700 px-2 py-1 text-xs text-white disabled:opacity-50"
+                            >
+                              <option value="auto">最低 NPC 等级：自动</option>
+                              {Object.values(Rank).map(rank => (
+                                <option key={rank} value={rank}>最低 NPC 等级：{rankLabel(rank)}</option>
+                              ))}
+                            </select>
                           </div>
                           <textarea
                             value={customLingshuSkillDesc}
@@ -1309,6 +1895,19 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                             placeholder="灵弦效果描述"
                             className="w-full mt-2 bg-black border border-slate-700 px-2 py-1 text-xs text-white"
                           />
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            <span className={`border px-1.5 py-0.5 text-[10px] ${npcPoolBadgeClass({ npcPool: customLingshuSkillNpcPool, familyId: '' })}`}>
+                              {buildSpiritSkillNpcPoolLabel({ npcPool: customLingshuSkillNpcPool, familyId: '' })}
+                            </span>
+                            {resolveCustomSkillMinNpcRank(customLingshuSkillNpcPool, customLingshuSkillMinNpcRank, customLingshuSkillLevel) && (
+                              <span className="border border-slate-700 bg-slate-900/60 px-1.5 py-0.5 text-[10px] text-slate-300">
+                                {rankCompactLabel(resolveCustomSkillMinNpcRank(customLingshuSkillNpcPool, customLingshuSkillMinNpcRank, customLingshuSkillLevel)!)} 起
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-2 leading-5">
+                            普通池给 `runtime_common` 使用，稀有共享给 `runtime_rare` 使用，专属只留给你手工设计的命名人物。
+                          </div>
                           <button
                             onClick={addCustomLingshuSkill}
                             className="w-full mt-2 border border-purple-700 text-purple-300 hover:bg-purple-900/20 text-xs py-1.5"
@@ -1317,35 +1916,82 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                           </button>
                         </div>
                         )}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {lingshuFilteredSkills.map(skill => {
-                            const selectedSkills = getPartSkills(activePart);
-                            const chosen = selectedSkills.some(s => s.id === skill.id);
-                            const full = !chosen && selectedSkills.length >= 3;
-                            const skillRank = levelToRank(skill.level);
-                            const inDeleteMode = skillActionMode === 'delete';
-                            return (
-                              <button
-                                key={skill.id}
-                                disabled={!inDeleteMode && full}
-                                onClick={() => {
-                                  if (inDeleteMode) {
-                                    requestDeleteSkill(skill);
-                                    return;
-                                  }
-                                  toggleSkill(skill);
-                                }}
-                                className={`min-h-[140px] border rounded p-3 text-left transition-colors ${rankBorderClass(skillRank)} ${
-                                  chosen ? 'bg-purple-900/20' : 'bg-black/30 hover:bg-white/5'
-                                } ${!inDeleteMode && full ? 'opacity-40 cursor-not-allowed' : ''} ${inDeleteMode ? 'hover:border-red-400/80 hover:bg-red-900/20' : ''}`}
-                              >
-                                <div className="text-sm text-slate-100 leading-5">{skill.name}</div>
-                                <div className="text-xs text-purple-300 mt-2">{rankLabel(skillRank)}</div>
-                                <div className="text-[11px] text-slate-400 mt-2 leading-5">{skill.description}</div>
-                                {inDeleteMode && <div className="text-[10px] text-red-300 mt-2">点击删除（将二次确认）</div>}
-                              </button>
-                            );
-                          })}
+                        <div className="mb-3 border border-slate-800 rounded p-3 bg-black/30">
+                          <div className="text-xs text-slate-300 font-bold mb-2">灵弦来源图例</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] leading-5 text-slate-400">
+                            <div>
+                              <span className="text-cyan-300">通用池</span>
+                              ：所有种族与性别都可选。
+                            </div>
+                            <div>
+                              <span className="text-cyan-300">女性通用 / 男性通用</span>
+                              ：仅对应性别可选。
+                            </div>
+                            <div>
+                              <span className="text-cyan-300">人类女性特有 / 人类男性特有</span>
+                              ：仅人类对应性别可选。
+                            </div>
+                            <div>
+                              <span className="text-cyan-300">月光精灵专属 / 魅魔专属 / 其他种族专属</span>
+                              ：仅对应种族可选。
+                            </div>
+                            <div>
+                              <span className="text-amber-300">XX破锁</span>
+                              ：原本不属于当前池子，但因设定存在例外觉醒路径。
+                            </div>
+                            <div>
+                              <span className="text-rose-300">锁定</span>
+                              ：当前种族或性别不满足条件，无法选用。
+                            </div>
+                            <div>
+                              <span className="text-cyan-300">普通池</span>
+                              ：运行时路人 NPC 可自动使用。
+                            </div>
+                            <div>
+                              <span className="text-amber-300">稀有共享</span>
+                              ：运行时稀有 NPC 可用，并受最低灵能等级门槛约束。
+                            </div>
+                            <div>
+                              <span className="text-rose-300">专属</span>
+                              ：仅保留给你手工设计的命名人物。
+                            </div>
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-3 leading-5">
+                            同系灵弦已按一张卡合并，下面切换等级就是切换同一能力的强度，不会再把 1 级和 5 级拆成不同能力。
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="text-xs text-emerald-300 font-bold">当前可选（{lingshuSkillGroups.available.length}）</div>
+                              <div className="text-[10px] text-slate-500">优先展示当前种族、性别与部位都成立的灵弦</div>
+                            </div>
+                            {lingshuSkillGroups.available.length > 0 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {lingshuSkillGroups.available.map(renderSkillGroupCard)}
+                              </div>
+                            ) : (
+                              <div className="border border-slate-800 rounded p-3 text-[11px] text-slate-500 bg-black/20">
+                                当前部位暂无可直接装配的灵弦。
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <div className="text-xs text-rose-300 font-bold">当前不可选（{lingshuSkillGroups.locked.length}）</div>
+                              <div className="text-[10px] text-slate-500">放在下方保留参考，但不会混进可选区</div>
+                            </div>
+                            {lingshuSkillGroups.locked.length > 0 ? (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {lingshuSkillGroups.locked.map(renderSkillGroupCard)}
+                              </div>
+                            ) : (
+                              <div className="border border-slate-800 rounded p-3 text-[11px] text-slate-500 bg-black/20">
+                                当前筛选下没有锁定灵弦。
+                              </div>
+                            )}
+                          </div>
                         </div>
 
                       </div>
@@ -1425,6 +2071,117 @@ const GameSetup: React.FC<Props> = ({ onComplete }) => {
                     )}
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {coreOpen && (
+        <div className="fixed inset-0 z-[126] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl border border-slate-700 bg-[#080408] rounded-lg overflow-hidden max-h-[85vh] flex flex-col">
+            <div className="h-12 border-b border-slate-700 flex items-center justify-between px-4 shrink-0">
+              <div className="text-sm font-bold text-amber-300">
+                {gender === 'male' ? '男性灵核配置' : '女性灵核配置'}（{gender === 'male' ? '发散型' : '奇点型'}）
+              </div>
+              <button onClick={() => setCoreOpen(false)} className="text-slate-400 hover:text-white">关闭</button>
+            </div>
+
+            <div className="p-4 overflow-y-auto scrollbar-hidden space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
+                <div className="border border-slate-800 rounded p-3 bg-black/20 space-y-3">
+                  <div>
+                    <div className="text-xs text-amber-300 font-bold">灵核概要</div>
+                    <div className="text-[10px] text-slate-500 mt-1 leading-5">
+                      灵核位于脑部，是灵魂与灵能交融后器官化的核心；灵核灵弦可借双手、双眼、口部或身躯等部位外显。
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[10px]">
+                    <div className="border border-slate-800 rounded p-2 bg-black/30">
+                      <div className="text-slate-500">已选灵核灵弦</div>
+                      <div className="text-amber-300 font-bold">{normalizeSkillSelection(selectedCoreSkills).length}/{maxCoreSkillSlots}</div>
+                    </div>
+                    <div className="border border-slate-800 rounded p-2 bg-black/30">
+                      <div className="text-slate-500">可选家族</div>
+                      <div className="text-cyan-300 font-bold">{coreSkillGroups.available.length}</div>
+                    </div>
+                  </div>
+                  <div className="border border-slate-800 rounded p-3 bg-black/30">
+                    <div className="text-[11px] text-slate-300 font-bold">当前配置</div>
+                    <div className="text-[10px] text-slate-500 mt-2 leading-5">
+                      {normalizeSkillSelection(selectedCoreSkills).length > 0
+                        ? normalizeSkillSelection(selectedCoreSkills)
+                            .map(skill => formatSkillSummaryText(skill))
+                            .join(' / ')
+                        : '暂无灵核灵弦'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border border-slate-800 rounded p-3 bg-black/20 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-sm text-amber-300 font-bold">灵核灵弦池</div>
+                      <div className="text-[10px] text-slate-500 mt-1">这里只显示灵核能力，不再混入身体部位灵枢卡池。</div>
+                    </div>
+                    <select
+                      value={coreSkillFilter}
+                      onChange={e => setCoreSkillFilter(e.target.value as 'all' | Rank)}
+                      className="bg-black border border-slate-700 px-2 py-1 text-xs text-white"
+                    >
+                      <option value="all">全部等级</option>
+                      {Object.values(Rank).map(rank => <option key={rank} value={rank}>{rankLabel(rank)}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="border border-slate-800 rounded p-3 bg-black/30">
+                    <div className="text-xs text-slate-300 font-bold mb-2">灵核说明</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[10px] leading-5 text-slate-400">
+                      <div>
+                        <span className="text-amber-300">外显媒介</span>
+                        ：显示这条灵核灵弦常通过哪些部位外显，不代表它属于该部位灵枢。
+                      </div>
+                      <div>
+                        <span className="text-cyan-300">来源标签</span>
+                        ：沿用性别、种族与破锁规则，但独立于灵枢部位适配。
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="text-xs text-emerald-300 font-bold">当前可选（{coreSkillGroups.available.length}）</div>
+                        <div className="text-[10px] text-slate-500">优先展示当前种族与性别都成立的灵核灵弦</div>
+                      </div>
+                      {coreSkillGroups.available.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {coreSkillGroups.available.map(renderCoreSkillGroupCard)}
+                        </div>
+                      ) : (
+                        <div className="border border-slate-800 rounded p-3 text-[11px] text-slate-500 bg-black/20">
+                          当前条件下暂无可直接装载的灵核灵弦。
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="text-xs text-rose-300 font-bold">当前不可选（{coreSkillGroups.locked.length}）</div>
+                        <div className="text-[10px] text-slate-500">保留作设定参考</div>
+                      </div>
+                      {coreSkillGroups.locked.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                          {coreSkillGroups.locked.map(renderCoreSkillGroupCard)}
+                        </div>
+                      ) : (
+                        <div className="border border-slate-800 rounded p-3 text-[11px] text-slate-500 bg-black/20">
+                          当前筛选下没有锁定灵核灵弦。
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-
+﻿
 export enum Rank {
   Lv1 = 'Lv.1',
   Lv2 = 'Lv.2',
@@ -7,12 +7,15 @@ export enum Rank {
   Lv5 = 'Lv.5'
 }
 
+export type NpcTier = 'authored' | 'runtime_rare' | 'runtime_common';
+export type NpcSkillPool = 'common_pool' | 'rare_pool' | 'exclusive';
+
 export enum FormStatus {
   Stable = '稳定',
   Warning = '警告',
   Danger = '危险',
   Critical = '濒死',
-  Collapsed = '微缩形态'
+  Collapsed = '微缩形态',
 }
 
 export interface Chip {
@@ -21,6 +24,11 @@ export interface Chip {
   type: 'active' | 'passive' | 'process' | 'board' | 'beta';
   rank: Rank;
   description: string;
+  effectLines?: string[];
+  aiSummary?: string;
+  sixDimBonuses?: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>>;
+  conversionRateBonus?: number;
+  recoveryRateBonus?: number;
   forgeProfile?: ForgeProfile;
 }
 
@@ -38,6 +46,44 @@ export interface ClothingProfile {
   sourceLabel?: string;
 }
 
+export type ItemEconomyCategory =
+  | 'food_basic'
+  | 'housing_basic'
+  | 'transit_basic'
+  | 'daily_apparel'
+  | 'status_apparel'
+  | 'public_tech'
+  | 'medical_basic'
+  | 'nightlife_service'
+  | 'black_market'
+  | 'general_service';
+
+export type ItemRarity = '常见' | '少见' | '稀有' | '珍稀' | '传说';
+
+export interface ItemCommodityProfile {
+  rarity: ItemRarity;
+  basePrice: number;
+  marketCategory: ItemEconomyCategory;
+  sourceRace?: string;
+  sourceRegion?: string;
+  sourceKind?: '种族分泌物' | '种族素材' | '灵能凝质' | '加工药物' | '黑市成品' | '地区制品' | '常规制品';
+  legalStatus?: '合法' | '灰市' | '违禁';
+  marketTier?: 'street' | 'standard' | 'premium' | 'elite';
+  weightKg?: number;
+  deliveryMethods?: string[];
+  activeComponents?: string[];
+  traitTags?: string[];
+  noteLines?: string[];
+}
+
+export interface SpeciesTrait {
+  id: string;
+  name: string;
+  summary: string;
+  sourceType?: '生理' | '代谢' | '感官' | '灵能' | '社会';
+  tags?: string[];
+}
+
 export interface Item {
   id: string;
   name: string;
@@ -50,6 +96,7 @@ export interface Item {
   sourceShopId?: string;
   sourceShopLabel?: string;
   forgeProfile?: ForgeProfile;
+  commodityProfile?: ItemCommodityProfile;
 }
 
 export interface Message {
@@ -66,13 +113,29 @@ export interface Skill {
   id: string;
   name: string;
   level: number;
+  displayLevelLabel?: string;
   description: string;
   effectLines?: string[];
+  aiSummary?: string;
+  familyId?: string;
+  slotHints?: string[];
+  poolOrigin?: 'common' | 'female_common' | 'male_common' | 'species' | 'human_female' | 'human_male' | 'rare';
+  raceLocks?: string[];
+  genderLocks?: Array<'male' | 'female'>;
+  breakUnlocks?: Array<{
+    label: string;
+    raceLocks?: string[];
+    genderLocks?: Array<'male' | 'female'>;
+    note?: string;
+  }>;
   sixDimBonuses?: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>>;
   conversionRateBonus?: number;
   recoveryRateBonus?: number;
   rank?: Rank;
   isCustom?: boolean;
+  mountType?: 'lingshu' | 'core';
+  npcPool?: NpcSkillPool;
+  minNpcRank?: Rank;
   rankColor?: 'red' | 'gold' | 'purple' | 'blue' | 'white'; // Added for special highlighting
 }
 
@@ -729,6 +792,7 @@ export interface NPC {
   id: string;
   name: string;
   gender: 'female' | 'male';
+  npcTier?: NpcTier;
   race?: string; // e.g. 人类 / 灵族_花妖 / 灵族_史莱姆
   raceClass?: string; // e.g. 灵族-植物种 / 灵族-液态种
   statusTags?: string[]; // e.g. ['催眠侵入', '灵核游移']
@@ -1181,6 +1245,7 @@ export interface CareerTrack {
 export interface GameConfig {
     name: string;
     gender: 'male' | 'female';
+    race?: string;
     citizenId: string;
     startCredits: number;
     startPsionicRank: Rank;
@@ -1197,6 +1262,7 @@ export interface GameConfig {
     hasRedString: boolean; // Special Male Trait
     startSixDim?: SixDimStats;
     selectedLingshu: LingshuPart[];
+    selectedCoreSkills: Skill[];
     neuralProtocol?: 'none' | 'beta';
     careerTracks?: CareerTrack[];
 }
@@ -1217,3 +1283,4 @@ export interface LingshuPart {
     maxSkillSlots?: number;
     maxEquipSlots?: number;
 }
+

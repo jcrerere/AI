@@ -1,5 +1,7 @@
 
 import { Rank, NPC, Message, Item, Chip, Quest, Zone, BodyPart, PlayerCivilianStatus, Skill, PlayerStats, FormStatus, PlayerFaction, FactionTask, FactionIndustry, FactionMember, FactionGroup, FactionRelation, FactionEconomy } from './types';
+import { materializeSpeciesItem } from './data/speciesCatalog';
+import { materializeRegionalGood } from './data/regionalGoodsCatalog';
 
 // Rank Color Mapping - Updated: White -> Blue -> Purple -> Gold -> Red
 export const getRankColor = (rank: Rank): string => {
@@ -90,34 +92,38 @@ export const MOCK_PLAYER_STATS: PlayerStats = {
 const generateSkills = (count: number): Skill[] => {
     return Array.from({length: count}).map((_, i) => ({
         id: `skill_${Math.random()}`,
-        name: i === 0 ? '灵弦：神经超载' : '灵弦：痛觉迟钝',
-        level: Math.floor(Math.random() * 5) + 1,
-        description: '消耗大量灵能，在短时间内大幅提升神经传导速度，副作用是理智值下降。'
+        name: i === 0 ? '神经超载' : '痛觉迟钝',
+        level: i === 0 ? 1 : Math.floor(Math.random() * 5) + 1,
+        displayLevelLabel: i === 0 ? '无级' : undefined,
+        slotHints: ['brain'],
+        description: i === 0
+          ? '短时间强提神经反应与动作输出，具体负荷、后劲和失稳表现交由对戏过程决定。'
+          : '压低痛觉反馈，提升持续作战时的承受能力。'
     }));
 }
 
 // Pool for Resonance (Gacha)
 export const MOCK_SKILL_POOL: Record<Rank, Skill[]> = {
     [Rank.Lv1]: [
-        { id: 'rp_1', name: '灵弦：微光视觉', level: 1, description: '在完全黑暗中也能看清轮廓。' },
-        { id: 'rp_2', name: '灵弦：静电触碰', level: 1, description: '指尖可以产生微弱的麻痹电流。' },
-        { id: 'rp_3', name: '灵弦：心跳感知', level: 1, description: '感知近距离生物的心跳频率。' }
+        { id: 'rp_1', name: '微光视觉', level: 1, description: '在完全黑暗中也能看清轮廓。' },
+        { id: 'rp_2', name: '静电触碰', level: 1, description: '指尖可以产生微弱的麻痹电流。' },
+        { id: 'rp_3', name: '心跳感知', level: 1, description: '感知近距离生物的心跳频率。' }
     ],
     [Rank.Lv2]: [
-        { id: 'rp_4', name: '灵弦：情绪共鸣', level: 2, description: '能够模糊感知对方的情绪波动。' },
-        { id: 'rp_5', name: '灵弦：痛觉反馈', level: 2, description: '将自身受到的伤害以痛觉形式返还给攻击者。' }
+        { id: 'rp_4', name: '情绪共鸣', level: 2, description: '能够模糊感知对方的情绪波动。' },
+        { id: 'rp_5', name: '痛觉反馈', level: 2, description: '将自身受到的伤害以痛觉形式返还给攻击者。' }
     ],
     [Rank.Lv3]: [
-        { id: 'rp_6', name: '灵弦：思维窃取', level: 3, description: '读取目标当前最强烈的表层念头。' },
-        { id: 'rp_7', name: '灵弦：灵能护盾', level: 3, description: '在体表凝聚一层高密度的灵子护盾。' }
+        { id: 'rp_6', name: '思维窃取', level: 3, description: '读取目标当前最强烈的表层念头。' },
+        { id: 'rp_7', name: '灵能护盾', level: 3, description: '在体表凝聚一层高密度的灵子护盾。' }
     ],
     [Rank.Lv4]: [
-        { id: 'rp_8', name: '灵弦：记忆篡改', level: 4, description: '强制修改目标最近5分钟的记忆。' },
-        { id: 'rp_9', name: '灵弦：空间折叠', level: 4, description: '短距离瞬间移动。' }
+        { id: 'rp_8', name: '记忆篡改', level: 4, description: '强制修改目标最近5分钟的记忆。' },
+        { id: 'rp_9', name: '空间折叠', level: 4, description: '短距离瞬间移动。' }
     ],
     [Rank.Lv5]: [
-        { id: 'rp_10', name: '灵弦：神威', level: 5, description: '释放巨大的灵压，使周围低等级生物强制昏迷。' },
-        { id: 'rp_11', name: '灵弦：灵魂吞噬', level: 5, description: '直接将目标的灵魂扯出体外并作为养料。' }
+        { id: 'rp_10', name: '神威', level: 5, description: '释放巨大的灵压，使周围低等级生物强制昏迷。' },
+        { id: 'rp_11', name: '灵魂吞噬', level: 5, description: '直接将目标的灵魂扯出体外并作为养料。' }
     ]
 };
 
@@ -170,14 +176,6 @@ if(ariaBodyParts[0].key === 'core') {
 export const MOCK_CHIPS: Chip[] = [
   { id: 'chip_beta_civilian', name: 'Beta: 公民协议', type: 'beta', rank: Rank.Lv5, description: '接入夜之城公民管理系统的核心凭证。包含信誉分与税务接口。' }, // BETA CHIP
   { id: 'chip_board_1', name: '军用级神经主板', type: 'board', rank: Rank.Lv3, description: '荒坂公司标准配发的神经接口扩展板，可承载中等负荷。' }, // MOTHERBOARD
-  { id: 'c1', name: '神经加速 I', type: 'active', rank: Rank.Lv2, description: '提升 15% 反应速度，增加 SAN 值消耗。' },
-  { id: 'c2', name: '疼痛阻断', type: 'passive', rank: Rank.Lv3, description: '忽略轻度伤势惩罚，但在重伤时直接昏迷。' },
-  { id: 'c3', name: '黑客协议: 幽灵', type: 'process', rank: Rank.Lv4, description: '短时间内隐匿自身数字签名。' },
-  { id: 'c4', name: '语言模块: 街头', type: 'passive', rank: Rank.Lv1, description: '理解帮派黑话与暗号。' },
-  { id: 'c5', name: '视觉增强', type: 'active', rank: Rank.Lv2, description: '提供微光夜视与热成像功能。' },
-  { id: 'c6', name: '交易算法', type: 'process', rank: Rank.Lv2, description: '在黑市交易时自动优化报价。' },
-  { id: 'c7', name: '运动辅助', type: 'passive', rank: Rank.Lv1, description: '修正跑步姿态。' },
-  { id: 'c8', name: '记忆扩展', type: 'passive', rank: Rank.Lv2, description: '增加短期记忆缓存。' },
 ];
 
 export const MOCK_NPCS: NPC[] = [
@@ -328,14 +326,10 @@ export const MOCK_NPCS: NPC[] = [
         gasMask: { current: 100, max: 100 }
     },
     spiritSkills: [
-        { id: 'j_sk1', name: '灵弦：重火器精通', level: 2, description: '使用重型武器时后坐力减少，命中率提升。' },
-        { id: 'j_sk2', name: '灵弦：钢铁意志', level: 3, description: '免疫恐惧状态，在濒死时战斗力不减反增。' }
+        { id: 'j_sk1', name: '重火器精通', level: 2, description: '使用重型武器时后坐力减少，命中率提升。' },
+        { id: 'j_sk2', name: '钢铁意志', level: 3, description: '免疫恐惧状态，在濒死时战斗力不减反增。' }
     ],
-    chips: [
-        MOCK_CHIPS[2], // Active
-        MOCK_CHIPS[3], // Passive
-        MOCK_CHIPS[5], // Process
-    ],
+    chips: [],
     inventory: [
         { id: 'ni4', name: '动能左轮', quantity: 1, icon: '🔫', description: '大口径，停止作用力极强。', category: 'equipment', rank: Rank.Lv3 }
     ],
@@ -377,11 +371,21 @@ export const MOCK_NPCS: NPC[] = [
 ];
 
 // Chips in storage (not equipped)
-export const MOCK_STORAGE_CHIPS: Chip[] = [
-    { id: 'c_store_1', name: '防火墙 V1', type: 'passive', rank: Rank.Lv1, description: '基础的网络防御协议。' },
-    { id: 'c_store_2', name: '瞄准辅助', type: 'active', rank: Rank.Lv2, description: '与智能武器连接，提高命中率。' },
-    { id: 'c_store_3', name: '情感抑制', type: 'process', rank: Rank.Lv3, description: '在极端压力下保持冷静。' },
-];
+export const MOCK_STORAGE_CHIPS: Chip[] = [];
+
+const SPECIES_SAMPLE_ITEMS: Item[] = [
+  materializeSpeciesItem('liquid_charm_gas', { id: 'i7_species_liquid_charm' }),
+  materializeSpeciesItem('succubus_saliva', { id: 'i8_species_succubus_saliva' }),
+  materializeSpeciesItem('succubus_urine', { id: 'i9_species_succubus_urine' }),
+  materializeSpeciesItem('siren_blackwater_salt', { id: 'i10_species_siren_salt' }),
+  materializeSpeciesItem('moonlight_bloodfruit', { id: 'i11_species_moonlight_bloodfruit' }),
+  materializeSpeciesItem('fox_spirit_thread', { id: 'i12_species_fox_thread' }),
+  materializeSpeciesItem('fox_asmr_reel', { id: 'i13_species_fox_asmr' }),
+  materializeSpeciesItem('fox_thrall_bd', { id: 'i14_species_fox_bd' }),
+  materializeRegionalGood('xiyu_tidal_bath_salt', { id: 'i15_regional_xiyu_salt' }),
+  materializeRegionalGood('xiyu_tidemirror_dreamchip', { id: 'i16_regional_xiyu_dreamchip' }),
+  materializeSpeciesItem('xiyu_breeding_tag', { id: 'i17_species_xiyu_tag' }),
+].filter((item): item is Item => Boolean(item));
 
 export const MOCK_INVENTORY: Item[] = [
   { id: 'i1', name: '高能营养液', quantity: 3, icon: '💊', description: '快速回复少量生命值。', category: 'consumable', rank: Rank.Lv1 },
@@ -390,6 +394,7 @@ export const MOCK_INVENTORY: Item[] = [
   { id: 'i4', name: '合成烟草', quantity: 12, icon: '🚬', description: '缓解精神压力的消耗品。', category: 'consumable', rank: Rank.Lv1 },
   { id: 'i5', name: '单分子线', quantity: 1, icon: '🎗️', description: '极度锋利的暗杀武器。', category: 'equipment', rank: Rank.Lv3 },
   { id: 'i6', name: '钛金骨架', quantity: 2, icon: '🦴', description: '用于升级义体的基础材料。', category: 'material', rank: Rank.Lv3 },
+  ...SPECIES_SAMPLE_ITEMS,
 ];
 
 export const MOCK_MESSAGES: Message[] = [
@@ -505,11 +510,7 @@ export const MOCK_AVAILABLE_FACTIONS = [
     { id: 'f_nomad', name: '流浪者 (Nomad)', desc: '来自城外的废土，重视家族与自由。擅长机械维修与载具驾驶。', location: '恶土边缘' }
 ];
 
-export const MOCK_STARTER_CHIPS: Chip[] = [
-    { id: 'sc1', name: '基础骇入', type: 'active', rank: Rank.Lv1, description: '简单的电子门锁破解协议。' },
-    { id: 'sc2', name: '初级义眼光学', type: 'passive', rank: Rank.Lv1, description: '稍微提高视觉缩放倍率。' },
-    { id: 'sc3', name: '肾上腺素增强', type: 'process', rank: Rank.Lv1, description: '战斗时略微提高反应速度。' }
-];
+export const MOCK_STARTER_CHIPS: Chip[] = [];
 
 export const MOCK_STARTER_ITEMS: Item[] = [
     { id: 'si1', name: '急救包', quantity: 2, icon: '🩹', category: 'consumable', rank: Rank.Lv1, description: '止血并回复少量生命。' },

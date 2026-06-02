@@ -16,3 +16,4 @@ Suggested workflow:
 3. Ensure the model outputs status tags and optional `<npcdata>` exactly as defined in `variables_output_format.yaml`.
 4. During play, use reputation/resources/scene context as your gate rules.
 5. Let the worldbook decide NPC structure; let the frontend only parse and render it.
+6. Let the frontend cache discovered NPC projections into `stat_data.npc_runtime`; avoid bulk-regenerating the whole registry every turn.

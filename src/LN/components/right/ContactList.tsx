@@ -1,8 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { NPC } from '../../types';
 import { resolveNpcCodexAccessState } from '../../utils/npcCodex';
-import { ChevronRight, ChevronDown, Plus, Trash2, Edit2, Check, UserPlus, MoreHorizontal, Radar, X, History, UserMinus } from 'lucide-react';
+import {
+  ChevronRight,
+  ChevronDown,
+  Plus,
+  Trash2,
+  Edit2,
+  Check,
+  UserPlus,
+  MoreHorizontal,
+  Radar,
+  X,
+  History,
+  UserMinus,
+} from 'lucide-react';
 import ImageLightbox from '../ui/ImageLightbox';
+import PersistentImage from '../ui/PersistentImage';
 
 interface Props {
   npcs: NPC[];
@@ -14,7 +28,15 @@ interface Props {
   currentLocation: string;
 }
 
-const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onUpdateGroups, onDeleteGroup, currentLocation }) => {
+const ContactList: React.FC<Props> = ({
+  npcs,
+  onSelect,
+  onUpdateNpc,
+  groups,
+  onUpdateGroups,
+  onDeleteGroup,
+  currentLocation,
+}) => {
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
   const [isNearbyOpen, setIsNearbyOpen] = useState(true);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -24,7 +46,11 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
   const [actionMenuNpcId, setActionMenuNpcId] = useState<string | null>(null);
   const [previewNpc, setPreviewNpc] = useState<NPC | null>(null);
 
-  const nearbyNPCs = npcs.filter(npc => !npc.isContact && (npc.location === currentLocation || npc.location.includes(currentLocation.split(' ')[0]) || npc.temporaryStatus));
+  const nearbyNPCs = npcs.filter(
+    npc =>
+      !npc.isContact &&
+      (npc.location === currentLocation || npc.location.includes(currentLocation.split(' ')[0]) || npc.temporaryStatus),
+  );
   const contactNPCs = npcs.filter(npc => npc.isContact);
 
   useEffect(() => {
@@ -62,7 +88,10 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
   const handleDeleteGroup = (event: React.MouseEvent, groupName: string) => {
     event.stopPropagation();
     const npcCount = npcs.filter(npc => npc.isContact && npc.group === groupName).length;
-    if (npcCount === 0 || window.confirm(`确定删除分组“${groupName}”吗？\n\n组内的 ${npcCount} 名人物会回到周围人物。`)) {
+    if (
+      npcCount === 0 ||
+      window.confirm(`确定删除分组“${groupName}”吗？\n\n组内的 ${npcCount} 名人物会回到周围人物。`)
+    ) {
       onDeleteGroup(groupName);
     }
   };
@@ -127,7 +156,7 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
       className={className}
       title={`查看 ${displayName(npc)} 图片`}
     >
-      <img src={npc.avatarUrl} alt={displayName(npc)} className={imageClassName} />
+      <PersistentImage src={npc.avatarUrl} alt={displayName(npc)} className={imageClassName} />
     </button>
   );
 
@@ -144,13 +173,19 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-green-600 font-mono">{nearbyNPCs.length} 信号</span>
-            {isNearbyOpen ? <ChevronDown className="w-3 h-3 text-green-600" /> : <ChevronRight className="w-3 h-3 text-green-600" />}
+            {isNearbyOpen ? (
+              <ChevronDown className="w-3 h-3 text-green-600" />
+            ) : (
+              <ChevronRight className="w-3 h-3 text-green-600" />
+            )}
           </div>
         </div>
 
         {isNearbyOpen && (
           <div className="p-1 space-y-1 max-h-[150px] overflow-y-auto custom-scrollbar">
-            {nearbyNPCs.length === 0 && <div className="text-[10px] text-green-800 text-center py-2 font-mono">-- 无可识别信号 --</div>}
+            {nearbyNPCs.length === 0 && (
+              <div className="text-[10px] text-green-800 text-center py-2 font-mono">-- 无可识别信号 --</div>
+            )}
             {nearbyNPCs.map(npc => (
               <div
                 key={npc.id}
@@ -186,8 +221,13 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                     <UserPlus className="w-4 h-4" />
                   </button>
                   {actionMenuNpcId === npc.id && (
-                    <div className="absolute right-0 top-6 z-20 bg-black border border-green-500/50 rounded shadow-xl w-32 animate-in fade-in zoom-in-95" onClick={event => event.stopPropagation()}>
-                      <div className="text-[9px] text-green-600 px-2 py-1 bg-green-950/30 font-bold uppercase">加入分组</div>
+                    <div
+                      className="absolute right-0 top-6 z-20 bg-black border border-green-500/50 rounded shadow-xl w-32 animate-in fade-in zoom-in-95"
+                      onClick={event => event.stopPropagation()}
+                    >
+                      <div className="text-[9px] text-green-600 px-2 py-1 bg-green-950/30 font-bold uppercase">
+                        加入分组
+                      </div>
                       {groups.map(group => (
                         <button
                           key={group}
@@ -209,7 +249,10 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
       <div className="flex-1 overflow-y-auto pr-1 space-y-2 custom-scrollbar">
         <div className="flex justify-between items-center mb-2 px-1">
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">标记人物</span>
-          <button onClick={() => setIsCreatingGroup(true)} className="text-[10px] flex items-center gap-1 text-cyan-500 hover:text-cyan-300 transition-colors">
+          <button
+            onClick={() => setIsCreatingGroup(true)}
+            className="text-[10px] flex items-center gap-1 text-cyan-500 hover:text-cyan-300 transition-colors"
+          >
             <Plus className="w-3 h-3" /> 新建分组
           </button>
         </div>
@@ -240,8 +283,15 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
           return (
             <div key={group} className="mb-2">
               <div className="flex items-center justify-between px-2 py-1.5 bg-slate-900/40 border-b border-white/5 hover:bg-slate-800 group/header relative">
-                <div className="flex items-center gap-2 flex-1 cursor-pointer select-none" onClick={() => !isEditing && toggleGroup(group)}>
-                  {openGroups[group] ? <ChevronDown className="w-3 h-3 text-slate-500" /> : <ChevronRight className="w-3 h-3 text-slate-500" />}
+                <div
+                  className="flex items-center gap-2 flex-1 cursor-pointer select-none"
+                  onClick={() => !isEditing && toggleGroup(group)}
+                >
+                  {openGroups[group] ? (
+                    <ChevronDown className="w-3 h-3 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3 text-slate-500" />
+                  )}
                   {isEditing ? (
                     <input
                       type="text"
@@ -260,19 +310,36 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                 <div className="flex items-center gap-2 z-20 relative">
                   {isEditing ? (
                     <>
-                      <button onClick={event => handleRenameGroup(event, group)} className="text-green-500 hover:text-green-300 p-1">
+                      <button
+                        onClick={event => handleRenameGroup(event, group)}
+                        className="text-green-500 hover:text-green-300 p-1"
+                      >
                         <Check className="w-3 h-3" />
                       </button>
-                      <button onClick={() => { setEditingGroupId(null); setEditGroupName(''); }} className="text-slate-500 hover:text-white p-1">
+                      <button
+                        onClick={() => {
+                          setEditingGroupId(null);
+                          setEditGroupName('');
+                        }}
+                        className="text-slate-500 hover:text-white p-1"
+                      >
                         <X className="w-3 h-3" />
                       </button>
                     </>
                   ) : (
                     <>
-                      <button onClick={event => startEditing(event, group)} className="text-slate-500 hover:text-cyan-400 p-1.5 transition-colors cursor-pointer" title="重命名">
+                      <button
+                        onClick={event => startEditing(event, group)}
+                        className="text-slate-500 hover:text-cyan-400 p-1.5 transition-colors cursor-pointer"
+                        title="重命名"
+                      >
                         <Edit2 className="w-3 h-3" />
                       </button>
-                      <button onClick={event => handleDeleteGroup(event, group)} className="text-slate-500 hover:text-red-500 p-1.5 transition-colors cursor-pointer" title="删除分组">
+                      <button
+                        onClick={event => handleDeleteGroup(event, group)}
+                        className="text-slate-500 hover:text-red-500 p-1.5 transition-colors cursor-pointer"
+                        title="删除分组"
+                      >
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </>
@@ -294,11 +361,17 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                         'w-full h-full object-cover',
                       )}
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs text-slate-300 truncate group-hover/npc:text-white">{displayName(npc)}</div>
+                        <div className="text-xs text-slate-300 truncate group-hover/npc:text-white">
+                          {displayName(npc)}
+                        </div>
                         <div className="text-[8px] text-slate-500 truncate">{displayMeta(npc)}</div>
                       </div>
 
-                      <button onClick={event => handleRemoveContact(event, npc)} className="text-slate-600 hover:text-red-500 p-1.5 transition-opacity z-10 cursor-pointer" title="移除">
+                      <button
+                        onClick={event => handleRemoveContact(event, npc)}
+                        className="text-slate-600 hover:text-red-500 p-1.5 transition-opacity z-10 cursor-pointer"
+                        title="移除"
+                      >
                         <UserMinus className="w-3 h-3" />
                       </button>
 
@@ -314,13 +387,24 @@ const ContactList: React.FC<Props> = ({ npcs, onSelect, onUpdateNpc, groups, onU
                       </button>
 
                       {actionMenuNpcId === npc.id && (
-                        <div className="absolute right-0 top-8 z-50 bg-black border border-slate-700 rounded shadow-xl w-32 animate-in fade-in zoom-in-95" onClick={event => event.stopPropagation()}>
-                          <div className="text-[9px] text-slate-500 px-2 py-1 bg-slate-900/50 uppercase font-bold">移动至</div>
-                          {groups.filter(item => item !== group).map(item => (
-                            <button key={item} onClick={() => handleMoveGroup(npc, item)} className="w-full text-left px-2 py-1.5 text-[10px] text-slate-300 hover:bg-slate-800 hover:text-white block">
-                              {item}
-                            </button>
-                          ))}
+                        <div
+                          className="absolute right-0 top-8 z-50 bg-black border border-slate-700 rounded shadow-xl w-32 animate-in fade-in zoom-in-95"
+                          onClick={event => event.stopPropagation()}
+                        >
+                          <div className="text-[9px] text-slate-500 px-2 py-1 bg-slate-900/50 uppercase font-bold">
+                            移动至
+                          </div>
+                          {groups
+                            .filter(item => item !== group)
+                            .map(item => (
+                              <button
+                                key={item}
+                                onClick={() => handleMoveGroup(npc, item)}
+                                className="w-full text-left px-2 py-1.5 text-[10px] text-slate-300 hover:bg-slate-800 hover:text-white block"
+                              >
+                                {item}
+                              </button>
+                            ))}
                           {groups.length <= 1 && <div className="p-2 text-[9px] text-slate-600 italic">无其他分组</div>}
                         </div>
                       )}

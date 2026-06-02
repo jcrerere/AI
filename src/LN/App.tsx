@@ -1,6 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, Suspense, lazy  } from 'react';
 import CyberPanel from './components/ui/CyberPanel';
-import { Suspense, lazy } from 'react';
 import PlayerStatePanel from './components/left/PlayerStatePanel';
 import ChipPanel from './components/left/ChipPanel';
 import PsionicEconomyPanel from './components/left/PsionicEconomyPanel';
@@ -8,6 +7,7 @@ import StatusPenaltyPanel from './components/left/StatusPenaltyPanel';
 import LingshuStatusPanel from './components/left/LingshuStatusPanel';
 import CityRuntimePanel from './components/left/CityRuntimePanel';
 import SpiritNexus from './components/right/SpiritNexus';
+import NodeMapEditor from './components/right/NodeMapEditor';
 import type { SocialImportDraft } from './components/right/LingnetPhonePanel';
 import NarrativeFeed from './components/center/NarrativeFeed';
 import ItemDetailView from './components/ui/ItemDetailView';
@@ -34,6 +34,7 @@ import {
   PlayerFaction,
   Rank,
   Skill,
+  NpcTier,
   PlayerCivilianStatus,
   BetaTask,
   CareerTrack,
@@ -71,7 +72,16 @@ import {
   WardrobeRecord,
   WardrobeSummary,
 } from './types';
-import { buildPseudoLayer, buildPseudoLayerFromParts, hasPseudoLayer, parsePseudoLayer, replaceMaintext, replaceNpcData, replaceSum, replaceUiActions } from './utils/pseudoLayer';
+import {
+  buildPseudoLayer,
+  buildPseudoLayerFromParts,
+  hasPseudoLayer,
+  parsePseudoLayer,
+  replaceMaintext,
+  replaceNpcData,
+  replaceSum,
+  replaceUiActions,
+} from './utils/pseudoLayer';
 import {
   MOCK_MESSAGES,
   MOCK_CHIPS,
@@ -82,16 +92,55 @@ import {
   MOCK_STORAGE_CHIPS,
   RANK_CONFIG,
 } from './constants';
-import { mergeWorldNodeMap, normalizeWorldNodeMap, tryParseMapFromText, tryParseMapPatchFromText } from './utils/mapData';
+import {
+  mergeWorldNodeMap,
+  normalizeWorldNodeMap,
+  tryParseMapFromText,
+  tryParseMapPatchFromText,
+} from './utils/mapData';
 import { createEmptyWorldMap, isWorldMapEmpty, loadDefaultQilingMap } from './utils/mapLoader';
 import { pullPseudoLayerMessagesFromTavern, resolveTavernChatBridge } from './utils/tavernChat';
 import { buildDefaultSetupPack, cloneCareerTracks, cloneChipList } from './data/setupPack';
-import { applyNpcCodexOverlay, buildNpcDirectorPrompt, getNpcDirectorKeepAliveTurns, getNpcDirectorLookupTokens } from './data/npcCodex';
+import {
+  applyNpcCodexOverlay,
+  buildNpcDirectorPrompt,
+  getNpcDirectorKeepAliveTurns,
+  getNpcDirectorLookupTokens,
+} from './data/npcCodex';
+import {
+  DEFAULT_PLAYER_RACE,
+  buildSpiritSkillAccessLabel,
+  buildSpiritSkillSourceLabel,
+  canonicalizeSpiritSkillCard,
+  enrichMountedSkillFromLibrary,
+  findSpiritSkillCard,
+  resolveSpiritSkillAccess,
+  resolveSpiritSkillNpcAccess,
+} from './data/spiritSkillPool';
+import { buildSpeciesBlackMarketEntries } from './data/speciesCatalog';
 import { resolveNpcCodexAccessState } from './utils/npcCodex';
+import {
+  buildNpcRuntimePromptSupplement,
+  buildNpcRuntimeState,
+  consumeNpcRuntimeLingnetRefresh,
+  consumeNpcRuntimeOffscreen,
+  createEmptyNpcRuntimeState,
+  getNpcLingnetRuntimeHint,
+  markNpcRuntimeLingnetDirty,
+  mergeNpcListWithRuntimeSnapshots,
+  parseNpcRuntimeState,
+  rememberNpcRuntimeMemory,
+} from './utils/npcRuntime';
 import { resolveLocationJurisdiction } from './utils/locationJurisdiction';
 import { resolveLocationVisualTheme } from './utils/locationTheme';
 import { buildEconomyDigest, buildRegionalRetailPrice } from './utils/economyRuntime';
-import { applyLifeAdvance, buildLifeChangeSummary, buildLifeStateDigest, buildLifeStatusTags, ensurePlayerLifeStats } from './utils/lifeRuntime';
+import {
+  applyLifeAdvance,
+  buildLifeChangeSummary,
+  buildLifeStateDigest,
+  buildLifeStatusTags,
+  ensurePlayerLifeStats,
+} from './utils/lifeRuntime';
 import {
   buildMetroTravelSettlementPlan,
   buildRuntimeMetroNetwork,
@@ -124,8 +173,23 @@ import {
   syncDistrictBurglaryTargets,
   withResidencePreset,
 } from './utils/residenceRuntime';
-import { applyRuntimeRestaurantVisit, applyRuntimeShopPurchase, buildRuntimeShopView, syncRuntimeShopEpoch } from './utils/shopRuntime';
-import { advanceRuntimeTodoTimeline, buildDueTodoDigest, buildOverdueTodoDigest, buildTodoDigest, inferLingnetTodoFromMessage, markAllTodosRead, markTodoRead, updateTodoStatus, upsertRuntimeTodo } from './utils/todoRuntime';
+import {
+  applyRuntimeRestaurantVisit,
+  applyRuntimeShopPurchase,
+  buildRuntimeShopView,
+  syncRuntimeShopEpoch,
+} from './utils/shopRuntime';
+import {
+  advanceRuntimeTodoTimeline,
+  buildDueTodoDigest,
+  buildOverdueTodoDigest,
+  buildTodoDigest,
+  inferLingnetTodoFromMessage,
+  markAllTodosRead,
+  markTodoRead,
+  updateTodoStatus,
+  upsertRuntimeTodo,
+} from './utils/todoRuntime';
 import {
   appendForgeRecord,
   buildForgeDigest,
@@ -138,11 +202,29 @@ import {
   resolveForgeLockSlots,
   resolveForgeOutcome,
 } from './utils/forgeRuntime';
-import { Users, Map as MapIcon, Send, Square, Package, X, Menu, Maximize, Minimize, ChevronLeft, ChevronRight, Settings, Save, Trash2, FolderOpen, Smartphone, ScrollText } from 'lucide-react';
+import {
+  Users,
+  Map as MapIcon,
+  Send,
+  Square,
+  Package,
+  X,
+  Menu,
+  Maximize,
+  Minimize,
+  ChevronLeft,
+  ChevronRight,
+  Settings,
+  Save,
+  Trash2,
+  FolderOpen,
+  Smartphone,
+  ScrollText,
+} from 'lucide-react';
 
 type GameStage = 'start' | 'splash' | 'setup' | 'game';
 type LeftModuleTab = 'chips' | 'economy' | 'lingshu' | 'inventory' | 'city';
-type RightPanelTab = 'contacts' | 'phone' | 'system' | 'settings';
+type RightPanelTab = 'contacts' | 'phone' | 'map' | 'system' | 'settings';
 const LN_ARCHIVES_KEY_PREFIX = 'ln_archives_v2';
 const LN_LAST_ARCHIVE_ID_KEY_PREFIX = 'ln_last_archive_id_v2';
 const LN_API_CONFIG_KEY = 'ln_api_config_v1';
@@ -269,6 +351,7 @@ interface LnSaveData {
   messages: Message[];
   playerStats: PlayerStats;
   playerGender: 'male' | 'female';
+  playerRace?: string;
   playerSkills: Skill[];
   npcs: NPC[];
   contactGroups: string[];
@@ -488,7 +571,10 @@ const buildAirelaFacilityBinding = (district: AirelaTaxDistrict | null): AirelaF
   };
 };
 
-const resolveAirelaFacilityBinding = (options: { districtHint?: string | null; citizenId?: string | null }): AirelaFacilityBinding | null => {
+const resolveAirelaFacilityBinding = (options: {
+  districtHint?: string | null;
+  citizenId?: string | null;
+}): AirelaFacilityBinding | null => {
   const directDistrict = findAirelaTaxDistrict(`${options.districtHint ?? ''}`.trim());
   if (directDistrict) return buildAirelaFacilityBinding(directDistrict);
   if (options.citizenId) return buildAirelaFacilityBinding(pickAirelaTaxDistrict(options.citizenId));
@@ -552,18 +638,9 @@ const resolveAirelaSceneState = (
   };
 };
 
-const BLACK_RACE_VENUES = [
-  '诺丝区·黑赛下注点',
-  '诺丝区·裂帛赛道盘口层',
-  '诺丝区·灵械斗技穹笼外环',
-];
+const BLACK_RACE_VENUES = ['诺丝区·黑赛下注点', '诺丝区·裂帛赛道盘口层', '诺丝区·灵械斗技穹笼外环'];
 
-const BLACK_RACE_MARKET_TITLES = [
-  '夜场灵械黑赛',
-  '灰幕超载对抗',
-  '断路狂奔局',
-  '热砂极限斗场',
-];
+const BLACK_RACE_MARKET_TITLES = ['夜场灵械黑赛', '灰幕超载对抗', '断路狂奔局', '热砂极限斗场'];
 
 const BLACK_RACE_OPTION_POOL: Array<{
   label: string;
@@ -662,18 +739,9 @@ const resolveBlackRaceWinner = (market: BlackRaceMarket) => {
   return weighted[weighted.length - 1]?.option || market.options[0];
 };
 
-const HORSE_RACE_MEET_TITLES = [
-  '霓湾夜赛',
-  '碎金杯',
-  '潮幕快轮',
-  '裂虹追风场',
-];
+const HORSE_RACE_MEET_TITLES = ['霓湾夜赛', '碎金杯', '潮幕快轮', '裂虹追风场'];
 
-const HORSE_RACE_VENUES = [
-  '诺丝区·霓栈赛马馆',
-  '诺丝区·浮灯看台',
-  '诺丝区·潮槽试跑场',
-];
+const HORSE_RACE_VENUES = ['诺丝区·霓栈赛马馆', '诺丝区·浮灯看台', '诺丝区·潮槽试跑场'];
 
 const HORSE_RACE_RUNNER_POOL: Array<{
   label: string;
@@ -684,12 +752,60 @@ const HORSE_RACE_RUNNER_POOL: Array<{
   endurance: number;
   sprint: number;
 }> = [
-  { label: '盐鬃六号', style: '重步耐磨', note: '前段偏慢，后程更稳。', speed: 66, stability: 82, endurance: 86, sprint: 61 },
-  { label: '霓骨', style: '快切爆发', note: '冲刺强，状态波动也大。', speed: 88, stability: 58, endurance: 64, sprint: 92 },
-  { label: '炽潮鬃影', style: '中程拉扯', note: '节奏均衡，适合中赔率。', speed: 78, stability: 73, endurance: 76, sprint: 74 },
-  { label: '黑糖断蹄', style: '赌命前压', note: '起步抢位极凶，后段容易掉速。', speed: 90, stability: 52, endurance: 55, sprint: 89 },
-  { label: '薄雾礼号', style: '慢热追近', note: '越拖越稳，吃长赛道。', speed: 64, stability: 84, endurance: 88, sprint: 66 },
-  { label: '空港红缨', style: '平稳标准', note: '没有明显短板，也没有爆点。', speed: 74, stability: 79, endurance: 72, sprint: 71 },
+  {
+    label: '盐鬃六号',
+    style: '重步耐磨',
+    note: '前段偏慢，后程更稳。',
+    speed: 66,
+    stability: 82,
+    endurance: 86,
+    sprint: 61,
+  },
+  {
+    label: '霓骨',
+    style: '快切爆发',
+    note: '冲刺强，状态波动也大。',
+    speed: 88,
+    stability: 58,
+    endurance: 64,
+    sprint: 92,
+  },
+  {
+    label: '炽潮鬃影',
+    style: '中程拉扯',
+    note: '节奏均衡，适合中赔率。',
+    speed: 78,
+    stability: 73,
+    endurance: 76,
+    sprint: 74,
+  },
+  {
+    label: '黑糖断蹄',
+    style: '赌命前压',
+    note: '起步抢位极凶，后段容易掉速。',
+    speed: 90,
+    stability: 52,
+    endurance: 55,
+    sprint: 89,
+  },
+  {
+    label: '薄雾礼号',
+    style: '慢热追近',
+    note: '越拖越稳，吃长赛道。',
+    speed: 64,
+    stability: 84,
+    endurance: 88,
+    sprint: 66,
+  },
+  {
+    label: '空港红缨',
+    style: '平稳标准',
+    note: '没有明显短板，也没有爆点。',
+    speed: 74,
+    stability: 79,
+    endurance: 72,
+    sprint: 71,
+  },
 ];
 
 const sampleHorseRaceRunners = () => {
@@ -701,11 +817,7 @@ const sampleHorseRaceRunners = () => {
     picked.push(runner);
   }
   return picked.map((runner, index) => {
-    const baseScore =
-      runner.speed * 0.36
-      + runner.stability * 0.24
-      + runner.endurance * 0.2
-      + runner.sprint * 0.2;
+    const baseScore = runner.speed * 0.36 + runner.stability * 0.24 + runner.endurance * 0.2 + runner.sprint * 0.2;
     const impliedOdds = Math.max(1.35, 4.8 - baseScore / 24 + Math.random() * 0.35);
     return {
       id: `horse_runner_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 5)}`,
@@ -735,11 +847,11 @@ const resolveHorseRaceWinner = (meet: HorseRaceMeet) => {
   const scored = meet.runners.map(runner => {
     const volatility = Math.max(4, 18 - runner.stability / 6);
     const performance =
-      runner.speed * 0.35
-      + runner.stability * 0.2
-      + runner.endurance * 0.2
-      + runner.sprint * 0.25
-      + (Math.random() - 0.5) * volatility;
+      runner.speed * 0.35 +
+      runner.stability * 0.2 +
+      runner.endurance * 0.2 +
+      runner.sprint * 0.25 +
+      (Math.random() - 0.5) * volatility;
     return { runner, performance };
   });
   scored.sort((a, b) => b.performance - a.performance);
@@ -786,18 +898,72 @@ const RED_LIGHT_VENUE_POOL = [
 ];
 
 const RED_LIGHT_PROVIDER_POOL = [
-  { label: '雾绫', role: '头牌陪侍', style: '冷艳慢热', summary: '擅长把距离感维持到最后一刻。', tags: ['高价', '包厢', '慢热'] },
-  { label: '折灯', role: '点单主持', style: '公开调情', summary: '控场能力强，善于把气氛推高。', tags: ['秀台', '公开', '流量'] },
-  { label: '白礁', role: '夜场陪伴', style: '温柔收口', summary: '适合长谈、陪酒和柔性安抚。', tags: ['陪酒', '长谈', '包厢'] },
-  { label: '鸦骨', role: '私约侍应', style: '锋利挑逗', summary: '更适合短促而昂贵的刺激消费。', tags: ['私约', '刺激', '短单'] },
-  { label: '软刃', role: '留夜招牌', style: '耐心拉扯', summary: '擅长维持整晚的情绪和依赖感。', tags: ['留夜', '情绪', '高价'] },
+  {
+    label: '雾绫',
+    role: '头牌陪侍',
+    style: '冷艳慢热',
+    summary: '擅长把距离感维持到最后一刻。',
+    tags: ['高价', '包厢', '慢热'],
+  },
+  {
+    label: '折灯',
+    role: '点单主持',
+    style: '公开调情',
+    summary: '控场能力强，善于把气氛推高。',
+    tags: ['秀台', '公开', '流量'],
+  },
+  {
+    label: '白礁',
+    role: '夜场陪伴',
+    style: '温柔收口',
+    summary: '适合长谈、陪酒和柔性安抚。',
+    tags: ['陪酒', '长谈', '包厢'],
+  },
+  {
+    label: '鸦骨',
+    role: '私约侍应',
+    style: '锋利挑逗',
+    summary: '更适合短促而昂贵的刺激消费。',
+    tags: ['私约', '刺激', '短单'],
+  },
+  {
+    label: '软刃',
+    role: '留夜招牌',
+    style: '耐心拉扯',
+    summary: '擅长维持整晚的情绪和依赖感。',
+    tags: ['留夜', '情绪', '高价'],
+  },
 ];
 
 const RED_LIGHT_SERVICE_POOL = [
-  { label: '包厢陪侍', category: 'escort' as const, basePrice: 320, summary: '入包厢、陪酒、近距互动。', note: '适合刚接触诺丝红灯区时试水。 ' },
-  { label: '点单表演', category: 'performance' as const, basePrice: 260, summary: '在公开或半公开区域完成指定表演。', note: '更看重气氛和台面，不一定最私密。' },
-  { label: '私约房', category: 'private_room' as const, basePrice: 540, summary: '转入封闭小房间，按时段结算。', note: '价格高，细节容易被账本记住。' },
-  { label: '留夜单', category: 'overnight' as const, basePrice: 980, summary: '以整晚为单位的高价服务。', note: '往往伴随额外关系和后续纠缠。' },
+  {
+    label: '包厢陪侍',
+    category: 'escort' as const,
+    basePrice: 320,
+    summary: '入包厢、陪酒、近距互动。',
+    note: '适合刚接触诺丝红灯区时试水。 ',
+  },
+  {
+    label: '点单表演',
+    category: 'performance' as const,
+    basePrice: 260,
+    summary: '在公开或半公开区域完成指定表演。',
+    note: '更看重气氛和台面，不一定最私密。',
+  },
+  {
+    label: '私约房',
+    category: 'private_room' as const,
+    basePrice: 540,
+    summary: '转入封闭小房间，按时段结算。',
+    note: '价格高，细节容易被账本记住。',
+  },
+  {
+    label: '留夜单',
+    category: 'overnight' as const,
+    basePrice: 980,
+    summary: '以整晚为单位的高价服务。',
+    note: '往往伴随额外关系和后续纠缠。',
+  },
 ];
 
 const resolveRedLightBaseFactor = (locationLabel: string) => {
@@ -808,10 +974,13 @@ const resolveRedLightBaseFactor = (locationLabel: string) => {
   return 1.0;
 };
 
-const buildRedLightVenue = (locationLabel = '诺丝区·红绡馆', authored: Array<{ id: string; name: string; location?: string }> = []): RedLightVenue => {
+const buildRedLightVenue = (
+  locationLabel = '诺丝区·红绡馆',
+  authored: Array<{ id: string; name: string; location?: string }> = [],
+): RedLightVenue => {
   const venueSeed =
-    RED_LIGHT_VENUE_POOL.find(entry => locationLabel.includes(entry.title))
-    || RED_LIGHT_VENUE_POOL[Math.floor(Math.random() * RED_LIGHT_VENUE_POOL.length)];
+    RED_LIGHT_VENUE_POOL.find(entry => locationLabel.includes(entry.title)) ||
+    RED_LIGHT_VENUE_POOL[Math.floor(Math.random() * RED_LIGHT_VENUE_POOL.length)];
   const factor = resolveRedLightBaseFactor(locationLabel || venueSeed.title);
   const runtimeProviders = [...RED_LIGHT_PROVIDER_POOL]
     .sort(() => Math.random() - 0.5)
@@ -902,36 +1071,72 @@ const NORTH_BLACK_MARKET_ITEM_POOL: Array<{
     riskLabel: '身份敏感',
     summary: '不能公开陈列的高仿制服，适合伪装与临时过门。',
     note: '做工够骗过外行，但会被真正熟手盯住细节。',
-    item: { name: '夜莺制服高仿', icon: '🜂', description: '黑市流通的高仿机构制服。', category: 'equipment', rank: Rank.Lv4 },
+    item: {
+      name: '夜莺制服高仿',
+      icon: '🜂',
+      description: '黑市流通的高仿机构制服。',
+      category: 'equipment',
+      rank: Rank.Lv4,
+    },
   },
   {
     label: '匿名签章卡',
     riskLabel: '灰链流通',
     summary: '帮你把一次身份链写得更干净，但来源不明。',
     note: '适合短期过渡，不适合长时间挂在身上。',
-    item: { name: '匿名签章卡', icon: '🪪', description: '灰色渠道身份辅助件。', category: 'equipment', rank: Rank.Lv3 },
+    item: {
+      name: '匿名签章卡',
+      icon: '🪪',
+      description: '灰色渠道身份辅助件。',
+      category: 'equipment',
+      rank: Rank.Lv3,
+    },
   },
   {
     label: '深梦雾剂组',
     riskLabel: '高波动',
     summary: '夜场和黑赛圈流动最快的高风险雾剂。',
     note: '账上不会承认这批货存在。',
-    item: { name: '深梦雾剂组', icon: '🌫️', description: '黑市高风险雾剂组合。', category: 'consumable', rank: Rank.Lv4 },
+    item: {
+      name: '深梦雾剂组',
+      icon: '🌫️',
+      description: '黑市高风险雾剂组合。',
+      category: 'consumable',
+      rank: Rank.Lv4,
+    },
   },
   {
     label: '零位拆机件',
     riskLabel: '拆机来源',
     summary: '从样机环库外流出来的拆机零件，性能好但路子脏。',
     note: '更像半成品与素材包，不适合拿去公开保修。',
-    item: { name: '零位拆机件', icon: '🧩', description: '样机拆出的高规格零件。', category: 'material', rank: Rank.Lv3 },
+    item: {
+      name: '零位拆机件',
+      icon: '🧩',
+      description: '样机拆出的高规格零件。',
+      category: 'material',
+      rank: Rank.Lv3,
+    },
   },
   {
     label: '灰链礼服',
     riskLabel: '场合挑人',
     summary: '礼序圈里不该外流的高定礼服，来路敏感。',
     note: '更贵的不是面料，是它代表的圈层关系。',
-    item: { name: '灰链礼服', icon: '👗', description: '灰色渠道流出的高定礼服。', category: 'equipment', rank: Rank.Lv4 },
+    item: {
+      name: '灰链礼服',
+      icon: '👗',
+      description: '灰色渠道流出的高定礼服。',
+      category: 'equipment',
+      rank: Rank.Lv4,
+    },
   },
+  ...buildSpeciesBlackMarketEntries('魅魔'),
+  ...buildSpeciesBlackMarketEntries('戈尔贡'),
+  ...buildSpeciesBlackMarketEntries('塞壬'),
+  ...buildSpeciesBlackMarketEntries('月光精灵'),
+  ...buildSpeciesBlackMarketEntries('狐魅'),
+  ...buildSpeciesBlackMarketEntries('汐屿族'),
 ];
 
 const DOGTOWN_BLACK_MARKET_ITEM_POOL: Array<{
@@ -946,21 +1151,39 @@ const DOGTOWN_BLACK_MARKET_ITEM_POOL: Array<{
     riskLabel: '边线专用',
     summary: '只在狗镇小圈子里有点面子的挂签，不出镇就贬值。',
     note: '能走几道门，全看今天谁在看岗。',
-    item: { name: '狗镇通关挂签', icon: '🏷️', description: '狗镇边线通关挂签。', category: 'equipment', rank: Rank.Lv3 },
+    item: {
+      name: '狗镇通关挂签',
+      icon: '🏷️',
+      description: '狗镇边线通关挂签。',
+      category: 'equipment',
+      rank: Rank.Lv3,
+    },
   },
   {
     label: '荒道急救包',
     riskLabel: '粗暴耐用',
     summary: '给荒地跑线人准备的急救组合，耐用但难看。',
     note: '卖得好不是因为精细，是因为扛造。',
-    item: { name: '荒道急救包', icon: '🩹', description: '荒地跑线用急救补给。', category: 'consumable', rank: Rank.Lv2 },
+    item: {
+      name: '荒道急救包',
+      icon: '🩹',
+      description: '荒地跑线用急救补给。',
+      category: 'consumable',
+      rank: Rank.Lv2,
+    },
   },
   {
     label: '裂口样机碎片',
     riskLabel: '来源混乱',
     summary: '拼不出完整样机，但能当工坊素材和敲门砖。',
     note: '谁也说不清它最初是从哪辆车上拆下来的。',
-    item: { name: '裂口样机碎片', icon: '🔩', description: '来源混乱的样机残件。', category: 'material', rank: Rank.Lv3 },
+    item: {
+      name: '裂口样机碎片',
+      icon: '🔩',
+      description: '来源混乱的样机残件。',
+      category: 'material',
+      rank: Rank.Lv3,
+    },
   },
   {
     label: '野路身份带',
@@ -989,7 +1212,7 @@ const buildBlackMarketVenue = (params: {
     label: entry.label,
     channel: isDogtown ? ('dogtown' as const) : ('backroom' as const),
     price: buildRegionalRetailPrice({
-      basePrice: resolveBlackMarketBasePrice(entry.item.rank),
+      basePrice: entry.item.commodityProfile?.basePrice ?? resolveBlackMarketBasePrice(entry.item.rank),
       category: 'black_market',
       districtId,
       locationLabel,
@@ -1009,9 +1232,27 @@ const buildBlackMarketVenue = (params: {
   }));
   const treatments = shuffleWithRng(
     [
-      { label: '急缝止血', intensity: 'light' as const, basePrice: 180, summary: '处理外伤和短期失血，够你继续撑一段。', note: '快、粗、见效，但不走正规记录。' },
-      { label: '稳态压制', intensity: 'standard' as const, basePrice: 320, summary: '压下神经震荡和过载余波，让状态回到可控。', note: '更适合黑赛、夜场或熬夜后的回稳处理。' },
-      { label: '暗室换药', intensity: 'deep' as const, basePrice: 540, summary: '连换药、镇痛和短时观察一起做完，代价更高。', note: '需要更长时间，也会让你今天的行程被压缩。' },
+      {
+        label: '急缝止血',
+        intensity: 'light' as const,
+        basePrice: 180,
+        summary: '处理外伤和短期失血，够你继续撑一段。',
+        note: '快、粗、见效，但不走正规记录。',
+      },
+      {
+        label: '稳态压制',
+        intensity: 'standard' as const,
+        basePrice: 320,
+        summary: '压下神经震荡和过载余波，让状态回到可控。',
+        note: '更适合黑赛、夜场或熬夜后的回稳处理。',
+      },
+      {
+        label: '暗室换药',
+        intensity: 'deep' as const,
+        basePrice: 540,
+        summary: '连换药、镇痛和短时观察一起做完，代价更高。',
+        note: '需要更长时间，也会让你今天的行程被压缩。',
+      },
     ],
     rng,
   )
@@ -1088,7 +1329,10 @@ const normalizeResidenceState = (
   );
   const stashRecords = Array.from(
     new Map(
-      [...(Array.isArray(fallback?.stashRecords) ? fallback!.stashRecords : []), ...(Array.isArray(rawState?.stashRecords) ? rawState!.stashRecords : [])]
+      [
+        ...(Array.isArray(fallback?.stashRecords) ? fallback!.stashRecords : []),
+        ...(Array.isArray(rawState?.stashRecords) ? rawState!.stashRecords : []),
+      ]
         .filter(record => record && typeof record.residenceId === 'string')
         .map(record => [
           record.residenceId,
@@ -1107,7 +1351,10 @@ const normalizeResidenceState = (
   );
   const burglaryTargets = Array.from(
     new Map(
-      [...(Array.isArray(fallback?.burglaryTargets) ? fallback!.burglaryTargets : []), ...(Array.isArray(rawState?.burglaryTargets) ? rawState!.burglaryTargets : [])]
+      [
+        ...(Array.isArray(fallback?.burglaryTargets) ? fallback!.burglaryTargets : []),
+        ...(Array.isArray(rawState?.burglaryTargets) ? rawState!.burglaryTargets : []),
+      ]
         .filter(target => target && typeof target.id === 'string')
         .map(target => [
           target.id,
@@ -1154,7 +1401,9 @@ const normalizeWardrobeState = (rawState: Partial<PlayerWardrobeState> | null | 
             categoryLabel: record.profile?.categoryLabel || '常服',
             quality: record.profile?.quality || '标准',
             silhouette: record.profile?.silhouette || '日常利落',
-            impressionTags: Array.isArray(record.profile?.impressionTags) ? record.profile.impressionTags.filter(Boolean) : [],
+            impressionTags: Array.isArray(record.profile?.impressionTags)
+              ? record.profile.impressionTags.filter(Boolean)
+              : [],
             sceneTags: Array.isArray(record.profile?.sceneTags) ? record.profile.sceneTags.filter(Boolean) : [],
             cautionTags: Array.isArray(record.profile?.cautionTags) ? record.profile.cautionTags.filter(Boolean) : [],
             sourceLabel: record.profile?.sourceLabel || '',
@@ -1163,164 +1412,191 @@ const normalizeWardrobeState = (rawState: Partial<PlayerWardrobeState> | null | 
     : [],
 });
 
-const buildFallbackResidenceProfile = (residence: PlayerResidenceState, districtLabel: string): ResidenceProfile | null => {
+const buildFallbackResidenceProfile = (
+  residence: PlayerResidenceState,
+  districtLabel: string,
+): ResidenceProfile | null => {
   if (!residence.currentResidenceId && !residence.currentResidenceLabel) return null;
-  return withResidencePreset({
-    id: residence.currentResidenceId || `legacy_residence_${hashText(residence.currentResidenceLabel || 'fallback')}`,
-    label: residence.currentResidenceLabel || residence.currentResidenceId,
-    kind: 'temporary',
-    source: 'fallback',
-    districtLabel: districtLabel || '未登记分区',
-    summary: '旧档案或剧情里留下的住处记录，尚未进入结构化住所目录。',
-    safety: 'Medium',
-    privacy: 'Medium',
-    curfew: '跟随当地法域',
-    monthlyCost: 0,
-    switchCost: 0,
-    restMinutes: 360,
-    hpRestore: 12,
-    mpRestore: 24,
-    sanityRestore: 10,
-    note: '建议后续迁入结构化住处，避免月结和住册信息脱节。',
-  }, buildResidencePreset('transit_pod', 6, 'Basic'));
+  return withResidencePreset(
+    {
+      id: residence.currentResidenceId || `legacy_residence_${hashText(residence.currentResidenceLabel || 'fallback')}`,
+      label: residence.currentResidenceLabel || residence.currentResidenceId,
+      kind: 'temporary',
+      source: 'fallback',
+      districtLabel: districtLabel || '未登记分区',
+      summary: '旧档案或剧情里留下的住处记录，尚未进入结构化住所目录。',
+      safety: 'Medium',
+      privacy: 'Medium',
+      curfew: '跟随当地法域',
+      monthlyCost: 0,
+      switchCost: 0,
+      restMinutes: 360,
+      hpRestore: 12,
+      mpRestore: 24,
+      sanityRestore: 10,
+      note: '建议后续迁入结构化住处，避免月结和住册信息脱节。',
+    },
+    buildResidencePreset('transit_pod', 6, 'Basic'),
+  );
 };
 
 const buildJurisdictionResidenceProfile = (location: string, districtLabel: string): ResidenceProfile => {
   const jurisdiction = resolveLocationJurisdiction(location);
   switch (jurisdiction.key) {
     case 'aerila':
-      return withResidencePreset({
-        id: 'airela_civic_capsule',
-        label: `${districtLabel || '艾瑞拉区'}·民政夜栖舱`,
-        kind: 'rental',
-        source: 'civic',
-        districtLabel: districtLabel || '艾瑞拉区法域',
-        summary: '首都法域下的标准化夜栖舱，手续快，但监控和宵禁都更重。',
-        safety: 'High',
-        privacy: 'Low',
-        curfew: '严格',
-        monthlyCost: 180,
-        switchCost: 120,
-        restMinutes: 420,
-        hpRestore: 16,
-        mpRestore: 32,
-        sanityRestore: 8,
-        note: '适合保信用和保通行，但不适合做隐蔽会面。',
-      }, buildResidencePreset('registry_capsule', 10, 'Comfortable'));
+      return withResidencePreset(
+        {
+          id: 'airela_civic_capsule',
+          label: `${districtLabel || '艾瑞拉区'}·民政夜栖舱`,
+          kind: 'rental',
+          source: 'civic',
+          districtLabel: districtLabel || '艾瑞拉区法域',
+          summary: '首都法域下的标准化夜栖舱，手续快，但监控和宵禁都更重。',
+          safety: 'High',
+          privacy: 'Low',
+          curfew: '严格',
+          monthlyCost: 180,
+          switchCost: 120,
+          restMinutes: 420,
+          hpRestore: 16,
+          mpRestore: 32,
+          sanityRestore: 8,
+          note: '适合保信用和保通行，但不适合做隐蔽会面。',
+        },
+        buildResidencePreset('registry_capsule', 10, 'Comfortable'),
+      );
     case 'cuiling':
-      return withResidencePreset({
-        id: 'cuiling_shift_dorm',
-        label: '淬灵区·轮班宿舍',
-        kind: 'rental',
-        source: 'industrial',
-        districtLabel: districtLabel || '淬灵区法域',
-        summary: '工序区配套宿舍，成本低、恢复稳定，但生活节奏被排班绑定。',
-        safety: 'Medium',
-        privacy: 'Low',
-        curfew: '常规',
-        monthlyCost: 110,
-        switchCost: 70,
-        restMinutes: 420,
-        hpRestore: 14,
-        mpRestore: 28,
-        sanityRestore: 10,
-        note: '适合做长期周转住处，不适合高强度藏匿。',
-      }, buildResidencePreset('workshop_dorm', 8, 'Basic'));
+      return withResidencePreset(
+        {
+          id: 'cuiling_shift_dorm',
+          label: '淬灵区·轮班宿舍',
+          kind: 'rental',
+          source: 'industrial',
+          districtLabel: districtLabel || '淬灵区法域',
+          summary: '工序区配套宿舍，成本低、恢复稳定，但生活节奏被排班绑定。',
+          safety: 'Medium',
+          privacy: 'Low',
+          curfew: '常规',
+          monthlyCost: 110,
+          switchCost: 70,
+          restMinutes: 420,
+          hpRestore: 14,
+          mpRestore: 28,
+          sanityRestore: 10,
+          note: '适合做长期周转住处，不适合高强度藏匿。',
+        },
+        buildResidencePreset('workshop_dorm', 8, 'Basic'),
+      );
     case 'xiyu':
-      return withResidencePreset({
-        id: 'xiyu_port_hostel',
-        label: '汐屿区·港务旅舍',
-        kind: 'rental',
-        source: 'port',
-        districtLabel: districtLabel || '汐屿区法域',
-        summary: '港区流动人口旅舍，手续弹性高，适合短期停泊和中转。',
-        safety: 'Medium',
-        privacy: 'Medium',
-        curfew: '港巡时段',
-        monthlyCost: 150,
-        switchCost: 100,
-        restMinutes: 360,
-        hpRestore: 12,
-        mpRestore: 26,
-        sanityRestore: 12,
-        note: '边检友好，但消费记录会留痕。',
-      }, buildResidencePreset('harbor_hostel', 9, 'Comfortable'));
+      return withResidencePreset(
+        {
+          id: 'xiyu_port_hostel',
+          label: '汐屿区·港务旅舍',
+          kind: 'rental',
+          source: 'port',
+          districtLabel: districtLabel || '汐屿区法域',
+          summary: '港区流动人口旅舍，手续弹性高，适合短期停泊和中转。',
+          safety: 'Medium',
+          privacy: 'Medium',
+          curfew: '港巡时段',
+          monthlyCost: 150,
+          switchCost: 100,
+          restMinutes: 360,
+          hpRestore: 12,
+          mpRestore: 26,
+          sanityRestore: 12,
+          note: '边检友好，但消费记录会留痕。',
+        },
+        buildResidencePreset('harbor_hostel', 9, 'Comfortable'),
+      );
     case 'north':
-      return withResidencePreset({
-        id: 'north_silk_suite',
-        label: '诺丝区·灰幕套间',
-        kind: 'safehouse',
-        source: 'market',
-        districtLabel: districtLabel || '诺丝区法域',
-        summary: '灰产地带的短租套间，隐匿性高，但维持费和灰色抽成都更重。',
-        safety: 'Medium',
-        privacy: 'High',
-        curfew: '宽松',
-        monthlyCost: 240,
-        switchCost: 160,
-        restMinutes: 360,
-        hpRestore: 14,
-        mpRestore: 30,
-        sanityRestore: 16,
-        note: '适合会面和藏匿，但会抬高月维持费。',
-      }, buildResidencePreset('market_suite', 14, 'Premium'));
+      return withResidencePreset(
+        {
+          id: 'north_silk_suite',
+          label: '诺丝区·灰幕套间',
+          kind: 'safehouse',
+          source: 'market',
+          districtLabel: districtLabel || '诺丝区法域',
+          summary: '灰产地带的短租套间，隐匿性高，但维持费和灰色抽成都更重。',
+          safety: 'Medium',
+          privacy: 'High',
+          curfew: '宽松',
+          monthlyCost: 240,
+          switchCost: 160,
+          restMinutes: 360,
+          hpRestore: 14,
+          mpRestore: 30,
+          sanityRestore: 16,
+          note: '适合会面和藏匿，但会抬高月维持费。',
+        },
+        buildResidencePreset('market_suite', 14, 'Premium'),
+      );
     case 'holy':
-      return withResidencePreset({
-        id: 'holy_parish_bed',
-        label: '圣教区·教律宿床',
-        kind: 'temporary',
-        source: 'parish',
-        districtLabel: districtLabel || '圣教区法域',
-        summary: '教区宿床成本低，但规训高、公开审查强。',
-        safety: 'High',
-        privacy: 'Low',
-        curfew: '严密',
-        monthlyCost: 90,
-        switchCost: 40,
-        restMinutes: 480,
-        hpRestore: 18,
-        mpRestore: 24,
-        sanityRestore: 6,
-        note: '只适合守规矩的停留，不适合带灰色状态久住。',
-      }, buildResidencePreset('parish_cell', 5, 'Basic'));
+      return withResidencePreset(
+        {
+          id: 'holy_parish_bed',
+          label: '圣教区·教律宿床',
+          kind: 'temporary',
+          source: 'parish',
+          districtLabel: districtLabel || '圣教区法域',
+          summary: '教区宿床成本低，但规训高、公开审查强。',
+          safety: 'High',
+          privacy: 'Low',
+          curfew: '严密',
+          monthlyCost: 90,
+          switchCost: 40,
+          restMinutes: 480,
+          hpRestore: 18,
+          mpRestore: 24,
+          sanityRestore: 6,
+          note: '只适合守规矩的停留，不适合带灰色状态久住。',
+        },
+        buildResidencePreset('parish_cell', 5, 'Basic'),
+      );
     case 'borderland':
-      return withResidencePreset({
-        id: 'borderland_safe_camp',
-        label: '交界地·加固营位',
-        kind: 'safehouse',
-        source: 'frontier',
-        districtLabel: districtLabel || '交界地法域',
-        summary: '边地营位更像生存据点，隐匿好，但安全和恢复都不稳定。',
-        safety: 'Low',
-        privacy: 'High',
-        curfew: '无统一',
-        monthlyCost: 130,
-        switchCost: 80,
-        restMinutes: 300,
-        hpRestore: 10,
-        mpRestore: 18,
-        sanityRestore: 8,
-        note: '适合躲风险，不适合长期恢复。',
-      }, buildResidencePreset('container_safehouse', 12, 'Comfortable'));
+      return withResidencePreset(
+        {
+          id: 'borderland_safe_camp',
+          label: '交界地·加固营位',
+          kind: 'safehouse',
+          source: 'frontier',
+          districtLabel: districtLabel || '交界地法域',
+          summary: '边地营位更像生存据点，隐匿好，但安全和恢复都不稳定。',
+          safety: 'Low',
+          privacy: 'High',
+          curfew: '无统一',
+          monthlyCost: 130,
+          switchCost: 80,
+          restMinutes: 300,
+          hpRestore: 10,
+          mpRestore: 18,
+          sanityRestore: 8,
+          note: '适合躲风险，不适合长期恢复。',
+        },
+        buildResidencePreset('container_safehouse', 12, 'Comfortable'),
+      );
     default:
-      return withResidencePreset({
-        id: 'civic_transit_pod',
-        label: '区域·中转舱位',
-        kind: 'temporary',
-        source: 'fallback',
-        districtLabel: districtLabel || '未锁定法域',
-        summary: '临时中转床位，能应急，但不适合长期绑定。',
-        safety: 'Medium',
-        privacy: 'Low',
-        curfew: '跟随当地法域',
-        monthlyCost: 100,
-        switchCost: 60,
-        restMinutes: 300,
-        hpRestore: 10,
-        mpRestore: 18,
-        sanityRestore: 8,
-        note: '更适合作为过渡住处。',
-      }, buildResidencePreset('transit_pod', 6, 'Basic'));
+      return withResidencePreset(
+        {
+          id: 'civic_transit_pod',
+          label: '区域·中转舱位',
+          kind: 'temporary',
+          source: 'fallback',
+          districtLabel: districtLabel || '未锁定法域',
+          summary: '临时中转床位，能应急，但不适合长期绑定。',
+          safety: 'Medium',
+          privacy: 'Low',
+          curfew: '跟随当地法域',
+          monthlyCost: 100,
+          switchCost: 60,
+          restMinutes: 300,
+          hpRestore: 10,
+          mpRestore: 18,
+          sanityRestore: 8,
+          note: '更适合作为过渡住处。',
+        },
+        buildResidencePreset('transit_pod', 6, 'Basic'),
+      );
   }
 };
 
@@ -1332,35 +1608,47 @@ const buildResidenceProfiles = (params: {
   status: PlayerCivilianStatus;
   residence: PlayerResidenceState;
 }): ResidenceProfile[] => {
-  const districtLabel = params.status.assignedDistrict || resolveLocationJurisdiction(params.location).regionLabel || '未锁定法域';
+  const districtLabel =
+    params.status.assignedDistrict || resolveLocationJurisdiction(params.location).regionLabel || '未锁定法域';
   const inAirelaZone = isAirelaResidenceZone(params.location);
   const officialBinding =
-    params.hasOfficialControl && (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
+    params.hasOfficialControl &&
+    (params.status.assignedDistrict || params.status.assignedHXDormLabel || params.status.citizenId)
       ? resolveAirelaFacilityBinding({
           districtHint: params.status.assignedDistrict || params.status.assignedHXDormLabel || '',
           citizenId: params.status.citizenId || '',
         })
       : null;
   const profiles: ResidenceProfile[] = [];
-  if (inAirelaZone && params.hasOfficialControl && params.status.assignedHXDormId && params.status.assignedHXDormLabel) {
-    profiles.push(withResidencePreset({
-      id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
-      label: params.status.assignedHXDormLabel,
-      kind: 'official',
-      source: 'beta',
-      districtLabel: params.status.assignedDistrict || '艾瑞拉区·官方分区',
-      summary: 'Beta 管理链登记宿位，通行与税务最稳定，但夜禁、点名和监管都会更密。',
-      safety: 'High',
-      privacy: 'Low',
-      curfew: '严格',
-      monthlyCost: 90,
-      switchCost: 0,
-      restMinutes: 420,
-      hpRestore: 18,
-      mpRestore: 36,
-      sanityRestore: 12,
-      note: '官方宿位始终保留，不会因切换民间住处而丢失住册。',
-    }, buildResidencePreset('registry_capsule', 12, 'Official')));
+  if (
+    inAirelaZone &&
+    params.hasOfficialControl &&
+    params.status.assignedHXDormId &&
+    params.status.assignedHXDormLabel
+  ) {
+    profiles.push(
+      withResidencePreset(
+        {
+          id: officialBinding?.residenceId || `airela_${params.status.assignedHXDormId.toLowerCase()}`,
+          label: params.status.assignedHXDormLabel,
+          kind: 'official',
+          source: 'beta',
+          districtLabel: params.status.assignedDistrict || '艾瑞拉区·官方分区',
+          summary: 'Beta 管理链登记宿位，通行与税务最稳定，但夜禁、点名和监管都会更密。',
+          safety: 'High',
+          privacy: 'Low',
+          curfew: '严格',
+          monthlyCost: 90,
+          switchCost: 0,
+          restMinutes: 420,
+          hpRestore: 18,
+          mpRestore: 36,
+          sanityRestore: 12,
+          note: '官方宿位始终保留，不会因切换民间住处而丢失住册。',
+        },
+        buildResidencePreset('registry_capsule', 12, 'Official'),
+      ),
+    );
   }
   profiles.push(buildJurisdictionResidenceProfile(params.location, districtLabel));
   const fallback = buildFallbackResidenceProfile(params.residence, districtLabel);
@@ -1415,7 +1703,9 @@ const ensurePseudoLayerOnLoad = (
   if (hasAnyPseudo) return loadedMessages;
 
   const latestPlayer = [...loadedMessages].reverse().find(msg => msg.sender === 'Player');
-  const latestSystem = [...loadedMessages].reverse().find(msg => msg.sender === 'System' && typeof msg.content === 'string');
+  const latestSystem = [...loadedMessages]
+    .reverse()
+    .find(msg => msg.sender === 'System' && typeof msg.content === 'string');
   const gameTime = formatGameTime(context.elapsedMinutes || 0);
   const dayPhase = getDayPhase(context.elapsedMinutes || 0);
   const sceneHint = getSceneHintByPhase(dayPhase);
@@ -1458,7 +1748,13 @@ const levelToRank = (level: number): Rank => {
   return Rank.Lv5;
 };
 
-const LINGSHU_BODY_PART_TEMPLATE: Array<{ key: string; name: string; level: number; description: string; aliases?: string[] }> = [
+const LINGSHU_BODY_PART_TEMPLATE: Array<{
+  key: string;
+  name: string;
+  level: number;
+  description: string;
+  aliases?: string[];
+}> = [
   { key: 'brain', name: '大脑', level: 3, description: '认知中枢与灵能感知核心。', aliases: ['core'] },
   { key: 'eyes', name: '双眼', level: 3, description: '视觉神经与深度数据处理单元。' },
   { key: 'face', name: '面部', level: 2, description: '感官伪装与表情模组接口。' },
@@ -1511,7 +1807,7 @@ const getExchangeRegionFactor = (location: string, gender: 'male' | 'female'): n
 };
 
 const LCOIN_BUCKET_KEYS = ['lv1', 'lv2', 'lv3', 'lv4', 'lv5'] as const;
-type LcoinBucketKey = typeof LCOIN_BUCKET_KEYS[number];
+type LcoinBucketKey = (typeof LCOIN_BUCKET_KEYS)[number];
 const RANK_TO_LCOIN_KEY: Record<Rank, LcoinBucketKey> = {
   [Rank.Lv1]: 'lv1',
   [Rank.Lv2]: 'lv2',
@@ -1619,15 +1915,16 @@ const buildLocationControlProfile = (
     creditScore <= 40 || (/艾瑞拉区/.test(text) && protocol === 'none' && gender === 'male')
       ? 'danger'
       : /诺丝|圣教/.test(text)
-      ? 'watch'
-      : 'safe';
+        ? 'watch'
+        : 'safe';
   const regionFactor = getExchangeRegionFactor(text, gender);
-  const exchangeText =
-    regionFactor === null ? '本地禁兑' : `官方倍率 ${(regionFactor || 1).toFixed(2)}x`;
+  const exchangeText = regionFactor === null ? '本地禁兑' : `官方倍率 ${(regionFactor || 1).toFixed(2)}x`;
   const hints = [sceneHint];
 
   if (/艾瑞拉区/.test(text)) {
-    hints.push(protocol === 'beta' ? '首都毒素已被协议抑制，但夜间检查更严。' : '首都存在男性毒素环境，无协议将持续承压。');
+    hints.push(
+      protocol === 'beta' ? '首都毒素已被协议抑制，但夜间检查更严。' : '首都存在男性毒素环境，无协议将持续承压。',
+    );
     if (phase === '夜晚' || phase === '深夜') hints.push('夜间居住与出行更容易触发证件抽查。');
   } else if (/淬灵/.test(text)) {
     hints.push('这里是压缩与分解中枢，跨级换币更适合在官方设施完成。');
@@ -1699,7 +1996,11 @@ const estimateActionMinutes = (text: string): number => {
 };
 
 const inferActionLifeMode = (text: string): 'dialogue' | 'travel' => {
-  if (/(鎴樻枟|鍑绘潃|鏂╂潃|澶勫喅|杩藉嚮|閫冭窇|绉诲姩|鍓嶅線|璧跺線|瀵艰埅|宸￠€粅鎺㈢储|璧剁彮杞?鐧讳笂鍒楄溅|蹇€熻浆绉?)/i.test(text)) {
+  if (
+    /(鎴樻枟|鍑绘潃|鏂╂潃|澶勫喅|杩藉嚮|閫冭窇|绉诲姩|鍓嶅線|璧跺線|瀵艰埅|宸￠€粅鎺㈢储|璧剁彮杞?鐧讳笂鍒楄溅|蹇€熻浆绉?)/i.test(
+      text,
+    )
+  ) {
     return 'travel';
   }
   return 'dialogue';
@@ -1727,16 +2028,33 @@ const ensurePlayerStatsSixDim = (stats: PlayerStats): PlayerStats => ({
 
 const sanitizeAiMaintext = (raw: string): string => {
   if (!raw) return '';
-  return raw.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return raw
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 };
 
 const HIDDEN_CONTINUE_REQUEST = '请基于已有聊天记录直接给出下一条回复，不要复述本句。';
+const NPCDATA_RESPONSE_RULES = [
+  '如 NPC 的灵弦、芯片、部位装备、魂数或结构化状态发生变化，可额外输出 <npcdata>JSON数组</npcdata>。',
+  'npcdata 里每个对象至少包含 name；未填写的字段默认保持该 NPC 当前状态不变。',
+  '支持字段：npc_tier, gender, affiliation, position, location, race, psionic_rank, perception, status_tags, chip_modules, spirit_skills, body_parts。',
+  'body_parts 为数组，每项支持 key/name、spirit_strings、equipments。',
+  'spirit_skills 与 spirit_strings 可写字符串数组，也可写对象数组；对象支持 name、level、displayLevelLabel、description、effectLines、aiSummary、familyId、isCustom。',
+  'npc_tier 可写 authored / runtime_rare / runtime_common；未写时，新建结构化 NPC 默认按 runtime_rare 处理，自动识别路人默认按 runtime_common 处理。',
+  '灵弦分配同时受 NPC 级别、种族/性别限制与灵能等级约束；runtime_common 只写普通池，runtime_rare 可写普通池与稀有共享池，exclusive 只留给 authored。',
+  '优先复用已有灵弦名；runtime_common 不要自行生成传说级、灵核级或专属灵弦，runtime_rare 也不要调用 exclusive 或自定义灵弦。',
+  '只有命名人物、明确剧情突破或用户明确指定时，才可写 displayLevelLabel="传说" / "灵核" 或创建全新自定义灵弦。',
+  '创建新灵弦时，至少提供 name + description；最好同时提供 aiSummary 与 effectLines。',
+].join('\n');
+
 const PSEUDO_LAYER_RESPONSE_RULES = [
   '【输出格式要求】',
-  '只输出以下两个模块，禁止输出额外标题、解释、代码块或 Markdown 包裹：',
+  '只输出以下模块，禁止输出额外标题、解释、代码块或 Markdown 包裹：',
   '<maintext>...</maintext>',
   '<sum>...</sum>',
   '如场景明确进入购物 / 黑赛下注 / 地铁线路，可额外输出可选模块 <ui_actions>shop|black_race_bet|metro_route</ui_actions>。',
+  NPCDATA_RESPONSE_RULES,
   'maintext 只写正文推进与对白，不要在开头重复时间、地点、时段，不要输出选项。',
   'sum 只写本层小总结，保持单行，尽量包含“地点 / 时间 / 状态”三个字段。',
 ].join('\n');
@@ -1746,6 +2064,7 @@ const resolveGenerateRequestInput = (raw: string): string => {
   return clean || HIDDEN_CONTINUE_REQUEST;
 };
 
+/* eslint-disable no-useless-escape */
 const isStatusLikeMaintextLine = (rawLine: string): boolean => {
   const line = sanitizeAiMaintext(rawLine);
   if (!line) return false;
@@ -1755,14 +2074,13 @@ const isStatusLikeMaintextLine = (rawLine: string): boolean => {
   if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?:\s*[\|｜/／].*)?$/i.test(line)) return true;
   if (/^[^\n]{1,40}[,，]\s*\d{1,2}:\d{2}[。.]?$/.test(line)) return true;
   if (
-    /^[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,20}$/.test(line)
-    && /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(line)
+    /^[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,40}\s*[\|｜/／]\s*[^\n]{1,20}$/.test(line) &&
+    /\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(line)
   ) {
     return true;
   }
   return false;
 };
-
 const stripLeadingStatusLinesFromMaintext = (raw: string): string => {
   const clean = sanitizeAiMaintext(raw);
   if (!clean) return '';
@@ -1898,7 +2216,9 @@ const isLingshuEquipableItem = (item: Item): boolean => {
   if (item.category === 'equipment') return true;
   const text = `${item.name || ''} ${item.description || ''}`.toLowerCase();
   if (/\[(?:灵枢可装配|可装配|equipable|lingshu_equip)\]/i.test(text)) return true;
-  if (/(纹身|手套|护具|衣|饰品|挂件|玩具|武器|模块|插件|tattoo|glove|armor|gear|wearable|implant|toy|weapon)/i.test(text)) {
+  if (
+    /(纹身|手套|护具|衣|饰品|挂件|玩具|武器|模块|插件|tattoo|glove|armor|gear|wearable|implant|toy|weapon)/i.test(text)
+  ) {
     return true;
   }
   return false;
@@ -1983,10 +2303,15 @@ const normalizeDarknetRecord = (npc: NPC, record: NpcDarknetRecord, index: numbe
       ? record.risk
       : 'low',
   kind:
-    record?.kind === 'contract' || record?.kind === 'leak' || record?.kind === 'sighting' || record?.kind === 'transaction'
+    record?.kind === 'contract' ||
+    record?.kind === 'leak' ||
+    record?.kind === 'sighting' ||
+    record?.kind === 'transaction'
       ? record.kind
       : 'intel',
-  unlockLevel: Number.isFinite(record?.unlockLevel) ? Math.min(4, Math.max(1, Math.floor(Number(record.unlockLevel)))) : 2,
+  unlockLevel: Number.isFinite(record?.unlockLevel)
+    ? Math.min(4, Math.max(1, Math.floor(Number(record.unlockLevel))))
+    : 2,
   tags: normalizeUniqueStrings(record?.tags),
   image: record?.image?.trim() || undefined,
 });
@@ -1997,10 +2322,16 @@ const normalizeDarknetService = (service: NpcDarknetService, index: number): Npc
   summary: `${service?.summary || ''}`.trim() || '该服务未返回说明。',
   price: Number.isFinite(service?.price) ? Math.max(1, Math.floor(Number(service.price))) : 100,
   kind:
-    service?.kind === 'bounty' || service?.kind === 'intel' || service?.kind === 'medical' || service?.kind === 'rewrite' || service?.kind === 'smuggling'
+    service?.kind === 'bounty' ||
+    service?.kind === 'intel' ||
+    service?.kind === 'medical' ||
+    service?.kind === 'rewrite' ||
+    service?.kind === 'smuggling'
       ? service.kind
       : 'intel',
-  unlockLevel: Number.isFinite(service?.unlockLevel) ? Math.min(4, Math.max(1, Math.floor(Number(service.unlockLevel)))) : 2,
+  unlockLevel: Number.isFinite(service?.unlockLevel)
+    ? Math.min(4, Math.max(1, Math.floor(Number(service.unlockLevel))))
+    : 2,
   risk:
     service?.risk === 'sealed' || service?.risk === 'high' || service?.risk === 'medium' || service?.risk === 'low'
       ? service.risk
@@ -2024,7 +2355,10 @@ const normalizeDarknetProfile = (npc: NPC, profile: NpcDarknetProfile | undefine
     riskRating: clampDarknetRiskRating(profile?.riskRating, fallback.riskRating || 2),
     bounty: profile?.bounty?.trim() || fallback.bounty,
     tags: normalizeUniqueStrings([...(fallback.tags || []), ...((profile?.tags || []) as string[])]),
-    knownAssociates: normalizeUniqueStrings([...(fallback.knownAssociates || []), ...((profile?.knownAssociates || []) as string[])]),
+    knownAssociates: normalizeUniqueStrings([
+      ...(fallback.knownAssociates || []),
+      ...((profile?.knownAssociates || []) as string[]),
+    ]),
     lastSeen: profile?.lastSeen?.trim() || fallback.lastSeen,
     intelRecords: sourceRecords
       .map((record, index) => normalizeDarknetRecord(npc, record, index))
@@ -2076,8 +2410,7 @@ const buildPurchasedDarknetServiceRecord = (
   id: `darknet_service_record_${npc.id}_${service.id}_${Date.now()}`,
   title: `${service.title} · 已交割`,
   content:
-    service.delivery
-    || `${npc.name} 已通过暗网节点交付「${service.title}」，相关影响将在后续剧情与系统互动中兑现。`,
+    service.delivery || `${npc.name} 已通过暗网节点交付「${service.title}」，相关影响将在后续剧情与系统互动中兑现。`,
   timestamp,
   source: npc.darknetProfile?.handle || `${npc.name} 暗网节点`,
   location: fallbackLocation || npc.darknetProfile?.lastSeen || npc.location || '暗网节点',
@@ -2133,11 +2466,15 @@ const normalizeDirectMessage = (message: DirectMessage, index: number): DirectMe
 const normalizeNpcForUi = (npc: NPC): NPC => {
   const mergedNpc = applyNpcCodexOverlay(npc);
   const normalizedUnlockState = normalizeNpcUnlockState(mergedNpc);
-  const normalizedDarknetProfile = normalizeDarknetProfile({ ...mergedNpc, unlockState: normalizedUnlockState }, mergedNpc.darknetProfile);
+  const normalizedDarknetProfile = normalizeDarknetProfile(
+    { ...mergedNpc, unlockState: normalizedUnlockState },
+    mergedNpc.darknetProfile,
+  );
 
   if (isAutoNearbyNpc(mergedNpc) || (mergedNpc.statusTags || []).includes('自动识别')) {
     return {
       ...mergedNpc,
+      npcTier: mergedNpc.npcTier || 'runtime_common',
       stats: ensurePlayerStatsSixDim(mergedNpc.stats || MOCK_PLAYER_STATS),
       bodyParts: Array.isArray(mergedNpc.bodyParts) ? mergedNpc.bodyParts : [],
       chips: Array.isArray(mergedNpc.chips) ? mergedNpc.chips : [],
@@ -2147,7 +2484,8 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
       dossierSections: Array.isArray(mergedNpc.dossierSections) ? mergedNpc.dossierSections : [],
       gallery: Array.isArray(mergedNpc.gallery) ? mergedNpc.gallery : [],
       socialHandle: mergedNpc.socialHandle?.trim() || `@${buildSocialHandleSeed(mergedNpc)}`,
-      socialBio: mergedNpc.socialBio?.trim() || `${mergedNpc.affiliation || '未知来源'} · ${mergedNpc.position || '待识别人物'}`,
+      socialBio:
+        mergedNpc.socialBio?.trim() || `${mergedNpc.affiliation || '未知来源'} · ${mergedNpc.position || '待识别人物'}`,
       playerFollows: !!mergedNpc.playerFollows,
       followsPlayer: !!mergedNpc.followsPlayer,
       followerCount: Number.isFinite(mergedNpc.followerCount) ? Math.max(0, Number(mergedNpc.followerCount)) : 0,
@@ -2156,12 +2494,16 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
       unlockState: normalizedUnlockState,
       darknetProfile: normalizedDarknetProfile,
       dmThread: Array.isArray(mergedNpc.dmThread) ? mergedNpc.dmThread.map(normalizeDirectMessage) : [],
-      socialFeed: Array.isArray(mergedNpc.socialFeed) ? mergedNpc.socialFeed.map((post, index) => normalizeSocialPost(mergedNpc, post, index)) : [],
+      socialFeed: Array.isArray(mergedNpc.socialFeed)
+        ? mergedNpc.socialFeed.map((post, index) => normalizeSocialPost(mergedNpc, post, index))
+        : [],
     };
   }
 
   const fallbackBoard = MOCK_CHIPS.find(chip => chip.type === 'board');
-  const fallbackNormals = MOCK_CHIPS.filter(chip => chip.type === 'active' || chip.type === 'passive' || chip.type === 'process');
+  const fallbackNormals = MOCK_CHIPS.filter(
+    chip => chip.type === 'active' || chip.type === 'passive' || chip.type === 'process',
+  );
   const sourceChips = Array.isArray(mergedNpc.chips) ? mergedNpc.chips : [];
   const normalizedChips =
     sourceChips.length > 0
@@ -2190,7 +2532,11 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
       const part = source[i];
       const text = `${part.name || ''} ${part.key || ''}`.toLowerCase();
       if (tpl.key === 'brain' && (text.includes('脑') || text.includes('core'))) return i;
-      if (tpl.key === 'genital' && (text.includes('阴') || text.includes('裆') || text.includes('groin') || text.includes('genital'))) return i;
+      if (
+        tpl.key === 'genital' &&
+        (text.includes('阴') || text.includes('裆') || text.includes('groin') || text.includes('genital'))
+      )
+        return i;
       if (tpl.key === 'hip' && (text.includes('臀') || text.includes('hip'))) return i;
       if (tpl.key === 'axilla' && (text.includes('腋') || text.includes('axilla'))) return i;
     }
@@ -2231,21 +2577,31 @@ const normalizeNpcForUi = (npc: NPC): NPC => {
   const normalizedNpc: NPC = { ...mergedNpc, bodyParts: [...normalized, ...extras], chips: normalizedChips };
   return {
     ...normalizedNpc,
+    npcTier: normalizedNpc.npcTier || 'authored',
     chipSummary: Array.isArray(normalizedNpc.chipSummary) ? normalizedNpc.chipSummary : [],
     clueNotes: Array.isArray(normalizedNpc.clueNotes) ? normalizedNpc.clueNotes : [],
     dossierSections: Array.isArray(normalizedNpc.dossierSections) ? normalizedNpc.dossierSections : [],
     gallery: Array.isArray(normalizedNpc.gallery) ? normalizedNpc.gallery : [],
     socialHandle: normalizedNpc.socialHandle?.trim() || `@${buildSocialHandleSeed(normalizedNpc)}`,
-    socialBio: normalizedNpc.socialBio?.trim() || `${normalizedNpc.affiliation || '未知来源'} · ${normalizedNpc.position || '灵网账号'}`,
+    socialBio:
+      normalizedNpc.socialBio?.trim() ||
+      `${normalizedNpc.affiliation || '未知来源'} · ${normalizedNpc.position || '灵网账号'}`,
     playerFollows: !!normalizedNpc.playerFollows,
     followsPlayer: normalizedNpc.followsPlayer ?? !!normalizedNpc.isContact,
-    followerCount: Number.isFinite(normalizedNpc.followerCount) ? Math.max(0, Number(normalizedNpc.followerCount)) : 120 + (hashText(normalizedNpc.id) % 900),
-    followingCount: Number.isFinite(normalizedNpc.followingCount) ? Math.max(0, Number(normalizedNpc.followingCount)) : 20 + (hashText(`${normalizedNpc.id}_f`) % 180),
-    walletTag: normalizedNpc.walletTag?.trim() || `LPAY-${buildSocialHandleSeed(normalizedNpc).slice(0, 10).toUpperCase()}`,
+    followerCount: Number.isFinite(normalizedNpc.followerCount)
+      ? Math.max(0, Number(normalizedNpc.followerCount))
+      : 120 + (hashText(normalizedNpc.id) % 900),
+    followingCount: Number.isFinite(normalizedNpc.followingCount)
+      ? Math.max(0, Number(normalizedNpc.followingCount))
+      : 20 + (hashText(`${normalizedNpc.id}_f`) % 180),
+    walletTag:
+      normalizedNpc.walletTag?.trim() || `LPAY-${buildSocialHandleSeed(normalizedNpc).slice(0, 10).toUpperCase()}`,
     unlockState: normalizedUnlockState,
     darknetProfile: normalizedDarknetProfile,
     dmThread: Array.isArray(normalizedNpc.dmThread) ? normalizedNpc.dmThread.map(normalizeDirectMessage) : [],
-    socialFeed: Array.isArray(normalizedNpc.socialFeed) ? normalizedNpc.socialFeed.map((post, index) => normalizeSocialPost(normalizedNpc, post, index)) : [],
+    socialFeed: Array.isArray(normalizedNpc.socialFeed)
+      ? normalizedNpc.socialFeed.map((post, index) => normalizeSocialPost(normalizedNpc, post, index))
+      : [],
   };
 };
 
@@ -2319,11 +2675,14 @@ const NEARBY_NPC_OBJECT_WORDS = [
   '巷子',
 ];
 
-const NEARBY_SOUND_LIKE_NAME_RE = /^(?:哈|啊|呀|哒|啪|咔|咚|呜|哼|嘿|呵|啧|噗|嘭|铛|叮|滴|答|吱|呲|咻|呼|嗯|哦|嗷|喵|汪|哐|砰|咣){1,4}$/;
-const NEARBY_HUMAN_CUE_RE = /(她|他|女性|男性|女子|男人|少女|女士|小姐|先生|夜莺|修女|巡逻者|税务官|猎手|特工|佣兵|队长|警员|主人)/;
+const NEARBY_SOUND_LIKE_NAME_RE =
+  /^(?:哈|啊|呀|哒|啪|咔|咚|呜|哼|嘿|呵|啧|噗|嘭|铛|叮|滴|答|吱|呲|咻|呼|嗯|哦|嗷|喵|汪|哐|砰|咣){1,4}$/;
+const NEARBY_HUMAN_CUE_RE =
+  /(她|他|女性|男性|女子|男人|少女|女士|小姐|先生|夜莺|修女|巡逻者|税务官|猎手|特工|佣兵|队长|警员|主人)/;
 const NEARBY_FEMALE_CUE_RE = /(她|女性|女子|女人|少女|女士|小姐|夜莺|修女)/;
 const NEARBY_MALE_CUE_RE = /(他|男性|男子|男人|先生)/;
-const NEARBY_ACTION_CUE_RE = /(停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手)/;
+const NEARBY_ACTION_CUE_RE =
+  /(停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手)/;
 
 const isSoundEffectLikeName = (name: string): boolean => {
   const compact = name.replace(/[「」“”"'`·•\s，。、！？!?,.~\-]/g, '');
@@ -2331,6 +2690,7 @@ const isSoundEffectLikeName = (name: string): boolean => {
   return compact.length <= 4 && NEARBY_SOUND_LIKE_NAME_RE.test(compact);
 };
 
+/* eslint-enable no-useless-escape */
 const stripNpcTitlePrefix = (rawName: string): { name: string; affiliation?: string; position?: string } => {
   const clean = rawName.trim();
   if (clean.startsWith('夜莺') && clean.length > 2) {
@@ -2460,6 +2820,7 @@ const buildAutoNearbyNpcFromSeed = (location: string, seed: NearbyNpcSeed, index
     id: npcId,
     name: seed.name,
     gender,
+    npcTier: current?.npcTier || 'runtime_common',
     group: current?.group || '',
     position: seed.position || current?.position || '待识别人物',
     affiliation: seed.affiliation || current?.affiliation || '待识别来源',
@@ -2467,8 +2828,8 @@ const buildAutoNearbyNpcFromSeed = (location: string, seed: NearbyNpcSeed, index
     isContact: current?.isContact || false,
     temporaryStatus: current?.temporaryStatus,
     stats,
-    affection: gender === 'female' ? current?.affection ?? 12 : undefined,
-    trust: gender === 'male' ? current?.trust ?? 12 : undefined,
+    affection: gender === 'female' ? (current?.affection ?? 12) : undefined,
+    trust: gender === 'male' ? (current?.trust ?? 12) : undefined,
     bodyParts: gender === 'female' ? buildAutoNearbyNpcBodyParts(npcId) : [],
     spiritSkills: gender === 'male' ? [] : undefined,
     chips: buildAutoNearbyNpcChips(npcId, gender),
@@ -2510,7 +2871,11 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
     if (!normalizedName || isRejectedNpcName(cleanName)) return;
     if (seeds.some(seed => normalizeNpcNameKey(seed.name) === normalizedName)) return;
     const detailText = `${cleanName} ${position || ''} ${sourceText || ''} ${contextText || ''}`.trim();
-    if (!NEARBY_HUMAN_CUE_RE.test(detailText) && !/(名叫|叫做|名为|称作)/.test(sourceText || '') && !NEARBY_ACTION_CUE_RE.test(detailText)) {
+    if (
+      !NEARBY_HUMAN_CUE_RE.test(detailText) &&
+      !/(名叫|叫做|名为|称作)/.test(sourceText || '') &&
+      !NEARBY_ACTION_CUE_RE.test(detailText)
+    ) {
       return;
     }
     const affiliation = titled.affiliation || inferNearbyAffiliation(detailText);
@@ -2523,10 +2888,19 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
   };
 
   const patterns: Array<{ regex: RegExp; nameIdx: number; posIdx?: number }> = [
-    { regex: /(?:名叫|叫做|叫|名为|称作)\s*[「“]?([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]?(?:的)?(?:一名|一个)?([\u4e00-\u9fa5]{2,12})?/g, nameIdx: 1, posIdx: 2 },
+    {
+      regex:
+        /(?:名叫|叫做|叫|名为|称作)\s*[「“]?([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})[」”]?(?:的)?(?:一名|一个)?([\u4e00-\u9fa5]{2,12})?/g,
+      nameIdx: 1,
+      posIdx: 2,
+    },
     { regex: /([「“]?[\u4e00-\u9fa5A-Za-z0-9_-]{2,10}[」”]?)[:：]/g, nameIdx: 1 },
     { regex: /([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})\s*[（(]([^)）]{2,12})[)）]/g, nameIdx: 1, posIdx: 2 },
-    { regex: /(?:^|[，。！？；\s])([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})(?=(?:停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手))/g, nameIdx: 1 },
+    {
+      regex:
+        /(?:^|[，。！？；\s])([\u4e00-\u9fa5A-Za-z0-9·_-]{2,16})(?=(?:停了下来|停下|停住|开口|说道|说|低声|冷笑|俯身|逼近|走来|走近|靠近|抬手|举起|看向|盯着|命令|追来|站定|转过身|挥手))/g,
+      nameIdx: 1,
+    },
   ];
 
   patterns.forEach(({ regex, nameIdx, posIdx }) => {
@@ -2547,7 +2921,12 @@ const inferNearbyNpcSeedsFromMaintext = (maintext: string): NearbyNpcSeed[] => {
   return seeds.slice(0, 4);
 };
 
-const collectNearbyNpcSeeds = (texts: string[], existingNpcs: NPC[], currentLocation: string, factionName: string): NearbyNpcSeed[] => {
+const collectNearbyNpcSeeds = (
+  texts: string[],
+  existingNpcs: NPC[],
+  currentLocation: string,
+  factionName: string,
+): NearbyNpcSeed[] => {
   const locationKey = normalizeNpcNameKey(currentLocation);
   const factionKey = normalizeNpcNameKey(factionName);
   const merged: NearbyNpcSeed[] = [];
@@ -2580,25 +2959,52 @@ const buildAutoNearbyNpcsFromSeeds = (location: string, seeds: NearbyNpcSeed[]):
   return seeds.slice(0, 6).map((seed, index) => buildAutoNearbyNpcFromSeed(loc, seed, index));
 };
 
+type NearbyNpcSkillRecord = {
+  name: string;
+  level?: number;
+  displayLevelLabel?: string;
+  description?: string;
+  effectLines?: string[];
+  aiSummary?: string;
+  familyId?: string;
+  poolOrigin?: Skill['poolOrigin'];
+  isCustom?: boolean;
+};
+
+type NearbyNpcChipRecord = {
+  name: string;
+  type?: Chip['type'];
+  rank?: Rank;
+  description?: string;
+  effectLines?: string[];
+  aiSummary?: string;
+  sixDimBonuses?: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>>;
+  conversionRateBonus?: number;
+  recoveryRateBonus?: number;
+  isCustom?: boolean;
+};
+
 type NearbyNpcRecordBodyPart = {
   key: string;
-  spiritStrings: string[];
-  equipments: string[];
+  spiritStrings?: NearbyNpcSkillRecord[];
+  equipments?: string[];
 };
 
 type NearbyNpcRecord = {
   name: string;
-  gender: NPC['gender'];
-  affiliation: string;
-  position: string;
+  npcTier?: NpcTier;
+  gender?: NPC['gender'];
+  affiliation?: string;
+  position?: string;
   location?: string;
   race?: string;
-  psionicRank: Rank;
+  psionicRank?: Rank;
   perception?: number;
-  chipModules: string[];
-  bodyParts: NearbyNpcRecordBodyPart[];
+  chipModules?: any[];
+  bodyParts?: NearbyNpcRecordBodyPart[];
+  coreSkills?: NearbyNpcSkillRecord[];
   storedSouls?: number;
-  statusTags: string[];
+  statusTags?: string[];
 };
 
 const coerceRankFromValue = (value: unknown, fallback: Rank = Rank.Lv1): Rank => {
@@ -2618,24 +3024,241 @@ const coerceRankFromValue = (value: unknown, fallback: Rank = Rank.Lv1): Rank =>
   return fallback;
 };
 
-const coerceNearbyGender = (value: unknown, coreType?: unknown): NPC['gender'] => {
+const coerceNearbyNpcTier = (value: unknown): NpcTier | undefined => {
+  const text = `${value ?? ''}`.trim().toLowerCase();
+  if (!text) return undefined;
+  if (['authored', 'named', 'named_npc', 'worldbook', '剧情', '命名', '作者'].includes(text)) return 'authored';
+  if (['runtime_rare', 'rare', '稀有', '稀有npc', '稀有_npc'].includes(text)) return 'runtime_rare';
+  if (['runtime_common', 'common', '路人', '路人npc', '普通', '普通npc'].includes(text)) return 'runtime_common';
+  return undefined;
+};
+
+const coerceNearbyGender = (value: unknown, coreType?: unknown): NPC['gender'] | undefined => {
   const text = `${value || ''}`.trim().toLowerCase();
   if (text === 'female' || text === '女' || text === '女性') return 'female';
   if (text === 'male' || text === '男' || text === '男性') return 'male';
   const coreText = `${coreType || ''}`.trim();
   if (coreText.includes('奇点')) return 'female';
-  return 'male';
+  return undefined;
 };
 
 const pickStringArray = (value: unknown): string[] => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
   if (!Array.isArray(value)) return [];
-  return Array.from(
-    new Set(
-      value
-        .map(entry => `${entry || ''}`.trim())
-        .filter(Boolean),
-    ),
+  return Array.from(new Set(value.map(entry => `${entry || ''}`.trim()).filter(Boolean)));
+};
+
+const readFirstDefined = (record: Record<string, unknown>, keys: string[]): unknown => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) return record[key];
+  }
+  return undefined;
+};
+
+const coerceNearbyDisplayLevelLabel = (value: unknown, forceLegendary = false): string | undefined => {
+  if (forceLegendary) return '传说';
+  const text = `${value ?? ''}`.trim();
+  if (!text) return undefined;
+  if (/^(core|灵核)$/i.test(text)) return '灵核';
+  if (/^(legendary|传说)$/i.test(text)) return '传说';
+  const levelMatch = text.match(/lv\.?\s*([1-5])/i) || text.match(/^([1-5])$/);
+  if (levelMatch) return `Lv${levelMatch[1]}`;
+  return text;
+};
+
+const coerceNearbySkillLevel = (value: unknown, displayLevelLabel?: string): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(1, Math.min(5, Math.floor(value)));
+  }
+  const text = `${value ?? ''}`.trim();
+  if (text) {
+    return rankToLevel(coerceRankFromValue(text, Rank.Lv1));
+  }
+  if (['传说', '灵核'].includes((displayLevelLabel || '').trim())) return 5;
+  return undefined;
+};
+
+const normalizeNearbyPoolOrigin = (value: unknown): Skill['poolOrigin'] | undefined => {
+  const text = `${value ?? ''}`.trim();
+  if (
+    text === 'common' ||
+    text === 'female_common' ||
+    text === 'male_common' ||
+    text === 'species' ||
+    text === 'human_female' ||
+    text === 'human_male' ||
+    text === 'rare'
+  ) {
+    return text;
+  }
+  return undefined;
+};
+
+const cloneNearbySkill = (skill: Skill): Skill => ({
+  ...skill,
+  effectLines: skill.effectLines ? [...skill.effectLines] : undefined,
+  slotHints: skill.slotHints ? [...skill.slotHints] : undefined,
+  raceLocks: skill.raceLocks ? [...skill.raceLocks] : undefined,
+  genderLocks: skill.genderLocks ? [...skill.genderLocks] : undefined,
+  breakUnlocks: skill.breakUnlocks
+    ? skill.breakUnlocks.map(rule => ({
+        ...rule,
+        raceLocks: rule.raceLocks ? [...rule.raceLocks] : undefined,
+        genderLocks: rule.genderLocks ? [...rule.genderLocks] : undefined,
+      }))
+    : undefined,
+  sixDimBonuses: skill.sixDimBonuses ? { ...skill.sixDimBonuses } : undefined,
+});
+
+const cloneNearbyBodyPart = (part: BodyPart): BodyPart => ({
+  ...part,
+  skills: (part.skills || []).map(cloneNearbySkill),
+  equippedItems: (part.equippedItems || []).map(item => ({ ...item })),
+  statusAffixes: (part.statusAffixes || []).map(affix => ({ ...affix })),
+  capturedSouls: (part.capturedSouls || []).map(soul => ({
+    ...soul,
+    retainedSkills: (soul.retainedSkills || []).map(cloneNearbySkill),
+  })),
+  reserveMp: part.reserveMp ? { ...part.reserveMp } : undefined,
+});
+
+const cloneNearbyChip = (chip: Chip): Chip => ({
+  ...chip,
+  effectLines: chip.effectLines ? [...chip.effectLines] : undefined,
+  sixDimBonuses: chip.sixDimBonuses ? { ...chip.sixDimBonuses } : undefined,
+  forgeProfile: chip.forgeProfile ? { ...chip.forgeProfile } : undefined,
+});
+
+const parseNearbySkillRecord = (value: unknown): NearbyNpcSkillRecord | null => {
+  if (typeof value === 'string') {
+    const name = value.trim();
+    if (!name) return null;
+    return { name };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const name = `${readFirstDefined(row, ['name', 'skill', 'title']) ?? ''}`.trim();
+  if (!name) return null;
+  const displayLevelLabel = coerceNearbyDisplayLevelLabel(
+    readFirstDefined(row, ['display_level_label', 'displayLevelLabel', 'tier_label', 'tierLabel']),
+    row.legendary === true || row.isLegendary === true,
   );
+  const effectSource = readFirstDefined(row, ['effect_lines', 'effectLines', 'effects']);
+  return {
+    name,
+    level: coerceNearbySkillLevel(readFirstDefined(row, ['level', 'rank', 'grade']), displayLevelLabel),
+    displayLevelLabel,
+    description: `${readFirstDefined(row, ['description', 'desc']) ?? ''}`.trim() || undefined,
+    effectLines: Array.isArray(effectSource)
+      ? effectSource
+          .map(entry => `${entry ?? ''}`.trim())
+          .filter(Boolean)
+          .slice(0, 6)
+      : undefined,
+    aiSummary: `${readFirstDefined(row, ['ai_summary', 'aiSummary']) ?? ''}`.trim() || undefined,
+    familyId: `${readFirstDefined(row, ['family_id', 'familyId']) ?? ''}`.trim() || undefined,
+    poolOrigin: normalizeNearbyPoolOrigin(readFirstDefined(row, ['pool_origin', 'poolOrigin'])),
+    isCustom:
+      row.isCustom === true || row.is_custom === true || row.custom === true
+        ? true
+        : row.isCustom === false || row.is_custom === false || row.custom === false
+          ? false
+          : undefined,
+  };
+};
+
+const parseNearbySkillArray = (value: unknown): NearbyNpcSkillRecord[] | undefined => {
+  if (value === undefined) return undefined;
+  const source = Array.isArray(value) ? value : [value];
+  const dedup = new Map<string, NearbyNpcSkillRecord>();
+  source.forEach(entry => {
+    const parsed = parseNearbySkillRecord(entry);
+    if (!parsed) return;
+    const key = `${parsed.name}|${parsed.displayLevelLabel || ''}|${parsed.level || ''}`;
+    if (!dedup.has(key)) dedup.set(key, parsed);
+  });
+  return Array.from(dedup.values());
+};
+
+const parseNearbySixDimBonuses = (
+  value: unknown,
+): Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>> | undefined => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const row = value as Record<string, unknown>;
+  const dims: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = ['力量', '敏捷', '体质', '感知', '意志', '魅力'];
+  const next: Partial<Record<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number>> = {};
+  dims.forEach(dim => {
+    const raw = readFirstDefined(row, [dim]);
+    const parsed = raw !== undefined ? Number(raw) : NaN;
+    if (Number.isFinite(parsed) && parsed > 0) next[dim] = Math.max(0, Math.floor(parsed));
+  });
+  return Object.keys(next).length > 0 ? next : undefined;
+};
+
+const normalizeNearbyChipType = (value: unknown): Chip['type'] | undefined => {
+  const text = `${value || ''}`.trim().toLowerCase();
+  if (!text) return undefined;
+  if (text === 'active' || text === '主动') return 'active';
+  if (text === 'passive' || text === '被动') return 'passive';
+  if (text === 'process' || text === '进程') return 'process';
+  if (text === 'board' || text === '主板' || text === '母板') return 'board';
+  if (text === 'beta') return 'beta';
+  return undefined;
+};
+
+const parseNearbyChipRecord = (value: unknown): NearbyNpcChipRecord | null => {
+  if (typeof value === 'string') {
+    const name = value.trim();
+    if (!name) return null;
+    return { name };
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const name = `${readFirstDefined(row, ['name', 'chip', 'title']) ?? ''}`.trim();
+  if (!name) return null;
+  const effectSource = readFirstDefined(row, ['effect_lines', 'effectLines', 'effects']);
+  const conversionRaw = readFirstDefined(row, ['conversion_rate_bonus', 'conversionRateBonus']);
+  const recoveryRaw = readFirstDefined(row, ['recovery_rate_bonus', 'recoveryRateBonus']);
+  return {
+    name,
+    type: normalizeNearbyChipType(readFirstDefined(row, ['type', 'chip_type', 'chipType'])),
+    rank: coerceRankFromValue(readFirstDefined(row, ['rank', 'level', 'grade']), Rank.Lv1),
+    description: `${readFirstDefined(row, ['description', 'desc']) ?? ''}`.trim() || undefined,
+    effectLines: Array.isArray(effectSource)
+      ? effectSource
+          .map(entry => `${entry ?? ''}`.trim())
+          .filter(Boolean)
+          .slice(0, 6)
+      : undefined,
+    aiSummary: `${readFirstDefined(row, ['ai_summary', 'aiSummary']) ?? ''}`.trim() || undefined,
+    sixDimBonuses: parseNearbySixDimBonuses(
+      readFirstDefined(row, ['six_dim_bonuses', 'sixDimBonuses', 'six_dim', 'sixDim']),
+    ),
+    conversionRateBonus: Number.isFinite(Number(conversionRaw)) ? Number(conversionRaw) : undefined,
+    recoveryRateBonus: Number.isFinite(Number(recoveryRaw)) ? Number(recoveryRaw) : undefined,
+    isCustom:
+      row.isCustom === true || row.is_custom === true || row.custom === true
+        ? true
+        : row.isCustom === false || row.is_custom === false || row.custom === false
+          ? false
+          : undefined,
+  };
+};
+
+const parseNearbyChipArray = (value: unknown): NearbyNpcChipRecord[] | undefined => {
+  if (value === undefined) return undefined;
+  const source = Array.isArray(value) ? value : [value];
+  const dedup = new Map<string, NearbyNpcChipRecord>();
+  source.forEach(entry => {
+    const parsed = parseNearbyChipRecord(entry);
+    if (!parsed) return;
+    const key = `${parsed.name}|${parsed.type || ''}|${parsed.rank || ''}`;
+    if (!dedup.has(key)) dedup.set(key, parsed);
+  });
+  return Array.from(dedup.values());
 };
 
 const resolveNearbyBodyPartKey = (value: unknown): string => {
@@ -2674,13 +3297,139 @@ const classifyNearbyChipType = (name: string): Chip['type'] => {
   return 'passive';
 };
 
-const buildNearbySkill = (name: string, rank: Rank, description?: string): Skill => ({
-  id: `skill_${hashText(`${name}_${rank}_${description || ''}_${Date.now()}`)}`,
-  name: name.startsWith('灵弦') ? name : `灵弦：${name}`,
-  level: rankToLevel(rank),
-  description: description || '由结构化 NPC 数据写入的灵弦。',
-  rank,
-});
+const DEFAULT_RUNTIME_CHIP_LIBRARY = [
+  ...buildDefaultSetupPack().boardOptions,
+  ...buildDefaultSetupPack().availableChips,
+];
+
+const findNearbyChipCard = (name: string): Chip | null => {
+  const target = name.trim().toLowerCase();
+  if (!target) return null;
+  return DEFAULT_RUNTIME_CHIP_LIBRARY.find(chip => chip.name.trim().toLowerCase() === target) || null;
+};
+
+const buildNearbySkill = (
+  source: NearbyNpcSkillRecord | string,
+  rank: Rank,
+  npcTier: NpcTier,
+  race: string | undefined,
+  gender: NPC['gender'],
+  slotKey?: string,
+): Skill | null => {
+  const sourceRecord = typeof source === 'string' ? { name: source, level: rankToLevel(rank) } : source;
+  const normalizedName = `${sourceRecord.name || ''}`.trim().replace(/^灵弦[:：]\s*/, '') || '未命名灵弦';
+  const requestedLevel = Number.isFinite(sourceRecord.level)
+    ? Math.max(1, Math.min(5, Math.floor(sourceRecord.level!)))
+    : rankToLevel(rank);
+  const level = Math.min(requestedLevel, npcTier === 'authored' ? 5 : rankToLevel(rank));
+  const displayLevelLabel = `${sourceRecord.displayLevelLabel || ''}`.trim() || undefined;
+  const skillProbe: Skill = {
+    id: 'nearby_probe',
+    name: normalizedName,
+    level: requestedLevel,
+    description: sourceRecord.description || '',
+    familyId: sourceRecord.familyId,
+  };
+  const familyProbe = findSpiritSkillCard(skillProbe, undefined, slotKey);
+  if (!familyProbe) {
+    if (npcTier !== 'authored') return null;
+    const finalDescription = `${sourceRecord.description || ''}`.trim() || '由结构化 NPC 数据写入的灵弦。';
+    const effectLines = sourceRecord.effectLines && sourceRecord.effectLines.length > 0 ? [...sourceRecord.effectLines] : [];
+    return {
+      id: `skill_${hashText(`${normalizedName}_${level}_${finalDescription}_${Date.now()}`)}`,
+      name: normalizedName,
+      level,
+      displayLevelLabel: requestedLevel === level ? displayLevelLabel : undefined,
+      description: finalDescription,
+      effectLines,
+      aiSummary: `${sourceRecord.aiSummary || ''}`.trim() || undefined,
+      familyId: sourceRecord.familyId,
+      slotHints: slotKey ? [slotKey] : undefined,
+      poolOrigin: sourceRecord.poolOrigin,
+      isCustom: true,
+      npcPool: 'exclusive',
+      rank: levelToRank(level),
+      rankColor: level >= 5 ? 'gold' : level >= 4 ? 'purple' : level >= 3 ? 'blue' : 'white',
+    };
+  }
+  if (!resolveSpiritSkillAccess(familyProbe, race || '', gender).available) return null;
+  if (!resolveSpiritSkillNpcAccess(familyProbe, npcTier, rank).available) return null;
+  const matched =
+    findSpiritSkillCard(skillProbe, level, slotKey) ||
+    (`${familyProbe.displayLevelLabel || ''}`.trim() ? findSpiritSkillCard(familyProbe, familyProbe.level, slotKey) : null);
+  if (!matched) return null;
+  const effectiveLevel = Number.isFinite(matched.level) ? matched.level : level;
+  const effectiveDisplayLevelLabel =
+    `${matched.displayLevelLabel || ''}`.trim() || (requestedLevel === level ? displayLevelLabel : undefined);
+  const enriched = enrichMountedSkillFromLibrary(
+    {
+      id: 'nearby_enrich',
+      name: normalizedName,
+      level: effectiveLevel,
+      description: sourceRecord.description || '',
+      displayLevelLabel: effectiveDisplayLevelLabel,
+      effectLines: sourceRecord.effectLines,
+      aiSummary: sourceRecord.aiSummary,
+      familyId: sourceRecord.familyId,
+      isCustom: false,
+    },
+    slotKey,
+  );
+  const finalDescription =
+    `${sourceRecord.description || ''}`.trim() || enriched.description || '由结构化 NPC 数据写入的灵弦。';
+  const effectLines =
+    sourceRecord.effectLines && sourceRecord.effectLines.length > 0
+      ? [...sourceRecord.effectLines]
+      : enriched.effectLines || [];
+  return {
+    ...enriched,
+    id: `skill_${hashText(`${normalizedName}_${effectiveLevel}_${finalDescription}_${Date.now()}`)}`,
+    name: normalizedName,
+    level: effectiveLevel,
+    displayLevelLabel: effectiveDisplayLevelLabel || enriched.displayLevelLabel,
+    description: finalDescription,
+    effectLines,
+    aiSummary: `${sourceRecord.aiSummary || ''}`.trim() || enriched.aiSummary,
+    familyId: sourceRecord.familyId || enriched.familyId,
+    poolOrigin: enriched.poolOrigin,
+    slotHints: enriched.slotHints || (slotKey ? [slotKey] : undefined),
+    isCustom: false,
+    rank: levelToRank(effectiveLevel),
+    rankColor:
+      enriched.rankColor ||
+      (['传说', '灵核'].includes((effectiveDisplayLevelLabel || '').trim())
+        ? 'gold'
+        : effectiveLevel >= 5
+          ? 'gold'
+          : effectiveLevel >= 4
+            ? 'purple'
+            : effectiveLevel >= 3
+              ? 'blue'
+              : 'white'),
+  };
+};
+
+const sanitizeRuntimeSpiritSkill = (skill: Skill, slotKey?: string): Skill | null => {
+  return canonicalizeSpiritSkillCard(skill, slotKey);
+};
+
+const sanitizeRuntimeSpiritSkillList = (skills: Skill[], slotKey?: string): Skill[] =>
+  (skills || [])
+    .map(skill => sanitizeRuntimeSpiritSkill(skill, slotKey))
+    .filter((skill): skill is Skill => Boolean(skill));
+
+const sanitizeRuntimeLingshuParts = (parts: GameConfig['selectedLingshu']): GameConfig['selectedLingshu'] =>
+  (parts || []).map(part => {
+    const sanitizedSkills = sanitizeRuntimeSpiritSkillList(
+      part.spiritSkills ?? (part.spiritSkill ? [part.spiritSkill] : []),
+      part.key,
+    ).slice(0, part.maxSkillSlots || 3);
+    return {
+      ...part,
+      spiritSkill: sanitizedSkills[0] || null,
+      spiritSkills: sanitizedSkills,
+    };
+  });
 
 const buildNearbyEquipItem = (npcId: string, partKey: string, name: string, rank: Rank) => ({
   id: `${npcId}_${partKey}_equip_${hashText(name)}`,
@@ -2700,12 +3449,28 @@ const buildNearbyCapturedSouls = (npcId: string, count: number, rank: Rank) =>
     status: 'intact' as const,
   }));
 
-const buildStructuredNpcStats = (record: NearbyNpcRecord, seedKey: string): PlayerStats => {
-  const isFemale = record.gender === 'female';
-  const level = rankToLevel(record.psionicRank);
-  const maxMp = getMaxMpByGenderAndRank(record.gender, record.psionicRank);
+const buildStructuredNpcStats = (
+  record: NearbyNpcRecord,
+  seedKey: string,
+  resolvedGender: NPC['gender'],
+  resolvedRank: Rank,
+  current?: PlayerStats,
+): PlayerStats => {
+  if (!record.psionicRank && !Number.isFinite(record.perception) && current) {
+    return ensurePlayerStatsSixDim(current);
+  }
+  const isFemale = resolvedGender === 'female';
+  const level = rankToLevel(resolvedRank);
+  const maxMp = getMaxMpByGenderAndRank(resolvedGender, resolvedRank);
   const maxHp = 150 + level * 45 + (isFemale ? 15 : 0);
-  const perception = Math.max(6, Math.min(99, Number(record.perception || (isFemale ? 14 : 12))));
+  const currentPerception = Number(current?.sixDim?.感知);
+  const perception = Math.max(
+    6,
+    Math.min(
+      99,
+      Number(record.perception ?? (Number.isFinite(currentPerception) ? currentPerception : isFemale ? 14 : 12)),
+    ),
+  );
   const baseHash = hashText(seedKey);
   return ensurePlayerStatsSixDim({
     hp: { current: maxHp, max: maxHp },
@@ -2713,9 +3478,9 @@ const buildStructuredNpcStats = (record: NearbyNpcRecord, seedKey: string): Play
     formStability: 72 + (baseHash % 16),
     formStatus: MOCK_PLAYER_STATS.formStatus,
     psionic: {
-      level: record.psionicRank,
+      level: resolvedRank,
       xp: 0,
-      maxXp: RANK_CONFIG[record.psionicRank].maxXp,
+      maxXp: RANK_CONFIG[resolvedRank].maxXp,
       conversionRate: isFemale ? 80 + level * 6 : 38 + level * 10,
       recoveryRate: isFemale ? 42 + level * 4 : 96 + level * 10,
     },
@@ -2738,33 +3503,111 @@ const buildStructuredNpcStats = (record: NearbyNpcRecord, seedKey: string): Play
   });
 };
 
-const buildStructuredNpcBodyParts = (npcId: string, record: NearbyNpcRecord): BodyPart[] => {
-  const rank = record.psionicRank;
-  const baseParts = buildAutoNearbyNpcBodyParts(npcId).map(part => ({ ...part, rank }));
+const buildStructuredNpcBodyParts = (
+  npcId: string,
+  record: NearbyNpcRecord,
+  resolvedRank: Rank,
+  resolvedNpcTier: NpcTier,
+  resolvedRace: string | undefined,
+  resolvedGender: NPC['gender'],
+  current?: BodyPart[],
+): BodyPart[] => {
+  const baseParts =
+    current && current.length > 0
+      ? current.map(cloneNearbyBodyPart)
+      : buildAutoNearbyNpcBodyParts(npcId).map(part => ({ ...part, rank: resolvedRank }));
   const partMap = new Map(baseParts.map(part => [part.key, part]));
-  record.bodyParts.forEach(partRecord => {
+  (record.bodyParts || []).forEach(partRecord => {
     const target = partMap.get(partRecord.key);
     if (!target) return;
-    target.skills = partRecord.spiritStrings.map(name => buildNearbySkill(name, rank));
-    target.equippedItems = partRecord.equipments.map(name => buildNearbyEquipItem(npcId, partRecord.key, name, rank));
+    if (partRecord.spiritStrings !== undefined) {
+      target.skills = partRecord.spiritStrings
+        .map(skill => buildNearbySkill(skill, resolvedRank, resolvedNpcTier, resolvedRace, resolvedGender, partRecord.key))
+        .filter((skill): skill is Skill => !!skill);
+    }
+    if (partRecord.equipments !== undefined) {
+      target.equippedItems = partRecord.equipments.map(name =>
+        buildNearbyEquipItem(npcId, partRecord.key, name, resolvedRank),
+      );
+    }
   });
-  if (record.gender === 'female' && (record.storedSouls || 0) > 0) {
+  if (resolvedGender === 'female' && record.storedSouls !== undefined) {
     const corePart = partMap.get('brain');
     if (corePart) {
-      corePart.capturedSouls = buildNearbyCapturedSouls(npcId, record.storedSouls || 0, rank);
+      corePart.capturedSouls =
+        record.storedSouls > 0 ? buildNearbyCapturedSouls(npcId, record.storedSouls, resolvedRank) : [];
     }
   }
   return Array.from(partMap.values());
 };
 
-const buildStructuredNpcChips = (npcId: string, record: NearbyNpcRecord): Chip[] =>
-  record.chipModules.map((name, index) => ({
+const buildStructuredNpcChips = (
+  npcId: string,
+  record: NearbyNpcRecord,
+  resolvedRank: Rank,
+  resolvedGender: NPC['gender'],
+  current?: Chip[],
+): Chip[] => {
+  if (record.chipModules === undefined) {
+    if (current && current.length > 0) return current.map(cloneNearbyChip);
+    return buildAutoNearbyNpcChips(npcId, resolvedGender).map(cloneNearbyChip);
+  }
+  return record.chipModules.map((name, index) => ({
     id: `${npcId}_chip_${index + 1}_${hashText(name)}`,
     name,
     type: classifyNearbyChipType(name),
-    rank: record.psionicRank,
+    rank: resolvedRank,
     description: '由结构化 NPC 数据写入的芯片模组。',
   }));
+};
+
+const buildStructuredNpcRuntimeChips = (
+  npcId: string,
+  record: NearbyNpcRecord,
+  resolvedRank: Rank,
+  resolvedGender: NPC['gender'],
+  current?: Chip[],
+): Chip[] => {
+  if (record.chipModules === undefined) {
+    if (current && current.length > 0) return current.map(cloneNearbyChip);
+    return buildAutoNearbyNpcChips(npcId, resolvedGender).map(cloneNearbyChip);
+  }
+  return (record.chipModules as NearbyNpcChipRecord[]).map((chipRecord, index) => {
+    const baseName = chipRecord.name || `未命名芯片${index + 1}`;
+    const matched = findNearbyChipCard(baseName);
+    return {
+      id: `${npcId}_chip_runtime_${index + 1}_${hashText(baseName)}`,
+      name: baseName,
+      type: chipRecord.type || matched?.type || classifyNearbyChipType(baseName),
+      rank: chipRecord.rank || matched?.rank || resolvedRank,
+      description: chipRecord.description || matched?.description || '剧情获得的运行时芯片，尚未录入正式芯片池。',
+      effectLines: chipRecord.effectLines || matched?.effectLines || undefined,
+      aiSummary: chipRecord.aiSummary || matched?.aiSummary || undefined,
+      sixDimBonuses: chipRecord.sixDimBonuses || matched?.sixDimBonuses || undefined,
+      conversionRateBonus: chipRecord.conversionRateBonus ?? matched?.conversionRateBonus,
+      recoveryRateBonus: chipRecord.recoveryRateBonus ?? matched?.recoveryRateBonus,
+    };
+  });
+};
+
+const buildStructuredNpcCoreSkills = (
+  record: NearbyNpcRecord,
+  resolvedRank: Rank,
+  resolvedNpcTier: NpcTier,
+  resolvedRace: string | undefined,
+  resolvedGender: NPC['gender'],
+  current?: Skill[],
+): Skill[] | undefined => {
+  if (record.coreSkills !== undefined) {
+    return record.coreSkills
+      .map(skill => buildNearbySkill(skill, resolvedRank, resolvedNpcTier, resolvedRace, resolvedGender))
+      .filter((skill): skill is Skill => !!skill);
+  }
+  if (current && current.length > 0) {
+    return current.map(cloneNearbySkill);
+  }
+  return undefined;
+};
 
 const extractNpcDataCandidate = (raw: string): { found: boolean; text: string } => {
   const clean = sanitizeAiMaintext(raw);
@@ -2814,73 +3657,96 @@ const parseNearbyNpcRecordsFromText = (raw: string): { records: NearbyNpcRecord[
     const name = titled.name.trim();
     if (isRejectedNpcName(name)) return;
 
-    const rawCore = row.core && typeof row.core === 'object' && !Array.isArray(row.core) ? (row.core as Record<string, unknown>) : {};
-    const gender = coerceNearbyGender(row.gender, rawCore.type || row.core_type);
-    const rank = coerceRankFromValue(
-      row.psionic_rank || row.psionicRank || row.rank || row.psionic_level || rawCore.rank,
-      Rank.Lv1,
+    const rawCore =
+      row.core && typeof row.core === 'object' && !Array.isArray(row.core) ? (row.core as Record<string, unknown>) : {};
+    const npcTier = coerceNearbyNpcTier(readFirstDefined(row, ['npc_tier', 'npcTier', 'tier']));
+    const gender = coerceNearbyGender(
+      readFirstDefined(row, ['gender']),
+      readFirstDefined(row, ['core_type']) ?? readFirstDefined(rawCore, ['type']),
     );
-    const bodyPartRows = Array.isArray(row.body_parts)
-      ? row.body_parts
-      : Array.isArray(row.bodyParts)
-        ? row.bodyParts
-        : [];
+    const rankValue =
+      readFirstDefined(row, ['psionic_rank', 'psionicRank', 'rank', 'psionic_level']) ??
+      readFirstDefined(rawCore, ['rank']);
+    const rank =
+      rankValue !== undefined && `${rankValue ?? ''}`.trim() !== ''
+        ? coerceRankFromValue(rankValue, Rank.Lv1)
+        : undefined;
+    const bodyPartRowsSource = readFirstDefined(row, ['body_parts', 'bodyParts']);
+    const bodyPartRows = Array.isArray(bodyPartRowsSource) ? bodyPartRowsSource : [];
     const mergedParts = new Map<string, NearbyNpcRecordBodyPart>();
     bodyPartRows.forEach(partEntry => {
       if (!partEntry || typeof partEntry !== 'object' || Array.isArray(partEntry)) return;
       const partRow = partEntry as Record<string, unknown>;
-      const key = resolveNearbyBodyPartKey(partRow.key || partRow.part || partRow.name);
-      const current = mergedParts.get(key) || { key, spiritStrings: [], equipments: [] };
-      current.spiritStrings = Array.from(
-        new Set([
-          ...current.spiritStrings,
-          ...pickStringArray(partRow.spirit_strings || partRow.spiritStrings || partRow.strings),
-        ]),
-      ).slice(0, 5);
-      current.equipments = Array.from(
-        new Set([
-          ...current.equipments,
-          ...pickStringArray(partRow.equipments || partRow.equipment || partRow.items),
-        ]),
-      ).slice(0, 4);
+      const key = resolveNearbyBodyPartKey(readFirstDefined(partRow, ['key', 'part', 'name']));
+      const current = mergedParts.get(key) || { key };
+      const spiritSource = readFirstDefined(partRow, ['spirit_strings', 'spiritStrings', 'strings']);
+      if (spiritSource !== undefined) {
+        current.spiritStrings = (parseNearbySkillArray(spiritSource) || []).slice(0, 5);
+      }
+      const equipmentSource = readFirstDefined(partRow, ['equipments', 'equipment', 'items']);
+      if (equipmentSource !== undefined) {
+        current.equipments = pickStringArray(equipmentSource).slice(0, 4);
+      }
       mergedParts.set(key, current);
     });
 
-    const chipModules = pickStringArray(row.chip_modules || row.chipModules || row.chips).slice(0, 8);
-    const storedSoulsRaw = Number(
-      rawCore.stored_souls || rawCore.storedSouls || rawCore.soul_count || rawCore.soulCount || row.stored_souls || row.storedSouls || 0,
-    );
-    const storedSouls = gender === 'female' && Number.isFinite(storedSoulsRaw) ? Math.max(0, Math.min(10, storedSoulsRaw)) : 0;
-    const perceptionRaw = Number(row.perception || row.perception_value || row.sense || row.sense_value);
-    const perception = Number.isFinite(perceptionRaw) ? Math.max(6, Math.min(99, perceptionRaw)) : undefined;
+    const chipSource = readFirstDefined(row, ['chip_modules', 'chipModules', 'chips']);
+    const chipModules = parseNearbyChipArray(chipSource)?.slice(0, 8);
+    const coreSkillsSource = readFirstDefined(row, ['spirit_skills', 'spiritSkills', 'core_skills', 'coreSkills']);
+    const coreSkills = parseNearbySkillArray(coreSkillsSource)?.slice(0, 6);
+    const storedSoulsSource =
+      readFirstDefined(rawCore, ['stored_souls', 'storedSouls', 'soul_count', 'soulCount']) ??
+      readFirstDefined(row, ['stored_souls', 'storedSouls']);
+    const storedSoulsRaw = storedSoulsSource !== undefined ? Number(storedSoulsSource) : undefined;
+    const storedSouls = Number.isFinite(storedSoulsRaw) ? Math.max(0, Math.min(10, Number(storedSoulsRaw))) : undefined;
+    const perceptionSource = readFirstDefined(row, ['perception', 'perception_value', 'sense', 'sense_value']);
+    const perceptionRaw = perceptionSource !== undefined ? Number(perceptionSource) : undefined;
+    const perception = Number.isFinite(perceptionRaw) ? Math.max(6, Math.min(99, Number(perceptionRaw))) : undefined;
     const affiliation =
-      `${row.affiliation || row.faction || row.organization || titled.affiliation || ''}`.trim() || '待识别来源';
-    const position = inferNearbyPosition(
-      `${row.position || row.role || ''} ${affiliation}`.trim(),
-      `${row.position || row.role || titled.position || ''}`.trim(),
-    );
-    const race = `${row.race || row.race_name || ''}`.trim() || undefined;
-    const notes = pickStringArray(rawCore.notes || row.notes);
-    const statusTags = Array.from(
-      new Set([
-        ...pickStringArray(row.status_tags || row.statusTags || row.tags),
-        ...notes,
-        perception ? `感知度 ${perception}` : '',
-        gender === 'female' ? `灵核空间 ${storedSouls} 魂` : '发散型灵核',
-      ].filter(Boolean)),
-    ).slice(0, 8);
+      `${readFirstDefined(row, ['affiliation', 'faction', 'organization']) || titled.affiliation || ''}`.trim() ||
+      undefined;
+    const positionRaw = `${readFirstDefined(row, ['position', 'role']) || titled.position || ''}`.trim();
+    const position =
+      positionRaw || affiliation
+        ? inferNearbyPosition(`${positionRaw} ${affiliation || ''}`.trim(), positionRaw)
+        : undefined;
+    const race = `${readFirstDefined(row, ['race', 'race_name']) || ''}`.trim() || undefined;
+    const notesSource = readFirstDefined(rawCore, ['notes']) ?? readFirstDefined(row, ['notes']);
+    const notes = notesSource !== undefined ? pickStringArray(notesSource) : [];
+    const explicitStatusSource = readFirstDefined(row, ['status_tags', 'statusTags', 'tags']);
+    const explicitStatusTags = explicitStatusSource !== undefined ? pickStringArray(explicitStatusSource) : [];
+    const hasStatusPayload =
+      explicitStatusSource !== undefined ||
+      notesSource !== undefined ||
+      perception !== undefined ||
+      storedSouls !== undefined;
+    const statusTags = hasStatusPayload
+      ? Array.from(
+          new Set(
+            [
+              ...explicitStatusTags,
+              ...notes,
+              perception !== undefined ? `感知度 ${perception}` : '',
+              gender === 'female' && storedSouls !== undefined ? `灵核空间 ${storedSouls} 魂` : '',
+              gender === 'male' ? '发散型灵核' : '',
+            ].filter(Boolean),
+          ),
+        ).slice(0, 8)
+      : undefined;
 
     records.push({
       name,
+      npcTier,
       gender,
       affiliation,
       position,
-      location: `${row.location || ''}`.trim() || undefined,
+      location: `${readFirstDefined(row, ['location']) || ''}`.trim() || undefined,
       race,
       psionicRank: rank,
       perception,
       chipModules,
-      bodyParts: Array.from(mergedParts.values()),
+      bodyParts: bodyPartRowsSource !== undefined ? Array.from(mergedParts.values()) : undefined,
+      coreSkills,
       storedSouls,
       statusTags,
     });
@@ -2895,31 +3761,58 @@ const buildStructuredNearbyNpc = (location: string, record: NearbyNpcRecord, ind
   const fallbackSeed: NearbyNpcSeed = {
     name: record.name,
     gender: record.gender,
-    position: record.position,
-    affiliation: record.affiliation,
+    position: record.position || current?.position,
+    affiliation: record.affiliation || current?.affiliation,
   };
   const base = buildAutoNearbyNpcFromSeed(location, fallbackSeed, index, current);
   const npcId = current?.id || base.id;
-  const stats = buildStructuredNpcStats(record, `${location}_${record.name}_${index}`);
-  const bodyParts = buildStructuredNpcBodyParts(npcId, record);
-  const chips = buildStructuredNpcChips(npcId, record);
-  const spiritSkills = record.gender === 'male' ? bodyParts.flatMap(part => part.skills || []).slice(0, 6) : [];
+  const resolvedNpcTier =
+    record.npcTier ||
+    current?.npcTier ||
+    ((current && !isAutoNearbyNpc(current) && !(current.statusTags || []).includes('自动识别')) ? 'authored' : 'runtime_rare');
+  const resolvedGender = record.gender || current?.gender || base.gender;
+  const resolvedRace = record.race || current?.race || base.race;
+  const resolvedRank = record.psionicRank || current?.stats?.psionic?.level || base.stats.psionic.level || Rank.Lv1;
+  const stats = buildStructuredNpcStats(
+    record,
+    `${location}_${record.name}_${index}`,
+    resolvedGender,
+    resolvedRank,
+    current?.stats,
+  );
+  const bodyParts = buildStructuredNpcBodyParts(
+    npcId,
+    record,
+    resolvedRank,
+    resolvedNpcTier,
+    resolvedRace,
+    resolvedGender,
+    current?.bodyParts,
+  );
+  const chips = buildStructuredNpcRuntimeChips(npcId, record, resolvedRank, resolvedGender, current?.chips);
+  const spiritSkills =
+    buildStructuredNpcCoreSkills(record, resolvedRank, resolvedNpcTier, resolvedRace, resolvedGender, current?.spiritSkills) ||
+    (resolvedGender === 'male' ? bodyParts.flatMap(part => part.skills || []).slice(0, 6) : current?.spiritSkills);
+  const mergedStatusTags = Array.from(
+    new Set([...(current?.statusTags || []), '自动识别', ...(record.statusTags || [])]),
+  );
   return normalizeNpcForUi({
     ...base,
     ...current,
     id: npcId,
     name: record.name,
-    gender: record.gender,
-    position: record.position,
-    affiliation: record.affiliation,
-    location: record.location || location,
-    race: record.race,
+    gender: resolvedGender,
+    npcTier: resolvedNpcTier,
+    position: record.position || current?.position || base.position || '待识别人物',
+    affiliation: record.affiliation || current?.affiliation || base.affiliation || '待识别来源',
+    location: record.location || current?.location || location,
+    race: resolvedRace,
     isContact: current?.isContact || false,
     temporaryStatus: undefined,
     stats,
-    statusTags: Array.from(new Set([...(current?.statusTags || []), '自动识别', ...record.statusTags])),
-    affection: record.gender === 'female' ? current?.affection ?? 12 : undefined,
-    trust: record.gender === 'male' ? current?.trust ?? 12 : undefined,
+    statusTags: mergedStatusTags,
+    affection: resolvedGender === 'female' ? (current?.affection ?? 12) : undefined,
+    trust: resolvedGender === 'male' ? (current?.trust ?? 12) : undefined,
     bodyParts,
     spiritSkills,
     chips,
@@ -3039,7 +3932,14 @@ const parseRuntimeBonusFromText = (text: string): ParsedRuntimeBonus => {
   if (!text) return { ...EMPTY_RUNTIME_BONUS, sixDim: {} };
   const raw = text.replace(/\s+/g, '');
   const next: ParsedRuntimeBonus = { ...EMPTY_RUNTIME_BONUS, sixDim: {} };
-  const dims: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = ['力量', '敏捷', '体质', '感知', '意志', '魅力'];
+  const dims: Array<'力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力'> = [
+    '力量',
+    '敏捷',
+    '体质',
+    '感知',
+    '意志',
+    '魅力',
+  ];
 
   const readBonus = (name: string) => {
     const m1 = raw.match(new RegExp(`${name}[+＋](\\d{1,3})`, 'i'));
@@ -3054,10 +3954,12 @@ const parseRuntimeBonusFromText = (text: string): ParsedRuntimeBonus => {
   });
   next.charisma = readBonus('魅力');
 
-  const conversion = raw.match(/(?:转化率|conversionrate)[+＋](\d{1,3}(?:\.\d+)?)/i)
-    || raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:转化率|conversionrate)/i);
-  const recovery = raw.match(/(?:回复率|恢复率|recoveryrate)[+＋](\d{1,3}(?:\.\d+)?)/i)
-    || raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:回复率|恢复率|recoveryrate)/i);
+  const conversion =
+    raw.match(/(?:转化率|conversionrate)[+＋](\d{1,3}(?:\.\d+)?)/i) ||
+    raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:转化率|conversionrate)/i);
+  const recovery =
+    raw.match(/(?:回复率|恢复率|recoveryrate)[+＋](\d{1,3}(?:\.\d+)?)/i) ||
+    raw.match(/[+＋](\d{1,3}(?:\.\d+)?)%?(?:回复率|恢复率|recoveryrate)/i);
   const conversionValue = Number(conversion?.[1]);
   const recoveryValue = Number(recovery?.[1]);
   if (Number.isFinite(conversionValue)) next.conversion = conversionValue;
@@ -3133,8 +4035,10 @@ const extractTaggedTextFromApiOutput = (raw: string, tags: string[]): string | n
   return null;
 };
 
-const extractSumFromApiOutput = (raw: string): string | null => extractTaggedTextFromApiOutput(raw, ['sum', 'summary', 'recap']);
-const extractUiActionsFromApiOutput = (raw: string): string | null => extractTaggedTextFromApiOutput(raw, ['ui_actions']);
+const extractSumFromApiOutput = (raw: string): string | null =>
+  extractTaggedTextFromApiOutput(raw, ['sum', 'summary', 'recap']);
+const extractUiActionsFromApiOutput = (raw: string): string | null =>
+  extractTaggedTextFromApiOutput(raw, ['ui_actions']);
 
 type VariablePatchOperation =
   | { op: 'replace'; path: string; value: unknown }
@@ -3202,7 +4106,9 @@ const createEmptyLcoinBuckets = (): Record<LcoinBucketKey, number> => ({
   lv5: 0,
 });
 
-const readLcoinBucketsFromStat = (raw: unknown): {
+const readLcoinBucketsFromStat = (
+  raw: unknown,
+): {
   buckets: Record<LcoinBucketKey, number>;
   total: number;
   hasAny: boolean;
@@ -3281,7 +4187,7 @@ const normalizeRuntimeAffixList = (raw: unknown, prefix: string): RuntimeAffix[]
         stacks: Math.max(1, Math.round(toFiniteNumber(record.stacks) ?? 1)),
       };
     })
-    .filter((entry): entry is RuntimeAffix => !!entry);
+    .filter(Boolean) as RuntimeAffix[];
 };
 
 const toStatAffixRecord = (affix: RuntimeAffix) => ({
@@ -3316,7 +4222,7 @@ const normalizeStatLingshuParts = (raw: unknown): GameConfig['selectedLingshu'] 
         spiritSkills: [],
       };
     })
-    .filter((entry): entry is GameConfig['selectedLingshu'][number] => !!entry);
+    .filter(Boolean) as GameConfig['selectedLingshu'];
 };
 
 const toStatLingshuPartRecord = (part: GameConfig['selectedLingshu'][number], index: number) => ({
@@ -3494,10 +4400,9 @@ const parseApiOutputPayload = (raw: string): ParsedApiOutput => {
   const clean = sanitizeAiMaintext(raw);
   const extractedMaintext = extractMaintextFromApiOutput(clean);
   const finalMaintext = sanitizeAiMaintext(extractedMaintext);
-  const maintext =
-    /<\/?(?:html|body|script)\b/i.test(finalMaintext)
-      ? extractedMaintext || null
-      : finalMaintext || extractedMaintext || null;
+  const maintext = /<\/?(?:html|body|script)\b/i.test(finalMaintext)
+    ? extractedMaintext || null
+    : finalMaintext || extractedMaintext || null;
   const npcDataParsed = parseNearbyNpcRecordsFromText(clean);
   const { operations, error } = parsePatchOperationsFromText(clean);
   return {
@@ -3517,16 +4422,9 @@ const isObjectRecord = (value: unknown): value is Record<string, any> =>
 const isArrayIndexToken = (token: string): boolean => /^\d+$/.test(token);
 const parseArrayIndexToken = (token: string): number | null => (isArrayIndexToken(token) ? Number(token) : null);
 const toPointerTokens = (path: string): string[] =>
-  normalizePatchPath(path)
-    .replace(/^\/+/, '')
-    .split('/')
-    .filter(Boolean)
-    .map(decodeJsonPointerToken);
+  normalizePatchPath(path).replace(/^\/+/, '').split('/').filter(Boolean).map(decodeJsonPointerToken);
 
-const readValueByPointer = (
-  root: Record<string, any>,
-  tokens: string[],
-): { exists: boolean; value: unknown } => {
+const readValueByPointer = (root: Record<string, any>, tokens: string[]): { exists: boolean; value: unknown } => {
   if (tokens.length === 0) return { exists: true, value: root };
   let current: unknown = root;
   for (const token of tokens) {
@@ -3542,12 +4440,7 @@ const readValueByPointer = (
   return { exists: true, value: current };
 };
 
-const writeValueByPointer = (
-  root: Record<string, any>,
-  tokens: string[],
-  value: unknown,
-  mode: WriteMode,
-): boolean => {
+const writeValueByPointer = (root: Record<string, any>, tokens: string[], value: unknown, mode: WriteMode): boolean => {
   if (tokens.length === 0) return false;
   let current: unknown = root;
   for (let i = 0; i < tokens.length - 1; i += 1) {
@@ -3602,10 +4495,7 @@ const writeValueByPointer = (
   return true;
 };
 
-const removeValueByPointer = (
-  root: Record<string, any>,
-  tokens: string[],
-): { removed: boolean; value: unknown } => {
+const removeValueByPointer = (root: Record<string, any>, tokens: string[]): { removed: boolean; value: unknown } => {
   if (tokens.length === 0) return { removed: false, value: undefined };
   let current: unknown = root;
   for (let i = 0; i < tokens.length - 1; i += 1) {
@@ -3810,17 +4700,17 @@ const resolveTavernVariableBridge = (): {
   }
   return {
     getVariables:
-      bindHostFunction<TavernGetVariablesFn>(runtime, 'getVariables')
-      || bindHostFunction<TavernGetVariablesFn>(directTavernHelper, 'getVariables')
-      || bindHostFunction<TavernGetVariablesFn>(runtime.TavernHelper, 'getVariables')
-      || bindHostFunction<TavernGetVariablesFn>(parentRuntime, 'getVariables')
-      || bindHostFunction<TavernGetVariablesFn>(parentRuntime?.TavernHelper, 'getVariables'),
+      bindHostFunction<TavernGetVariablesFn>(runtime, 'getVariables') ||
+      bindHostFunction<TavernGetVariablesFn>(directTavernHelper, 'getVariables') ||
+      bindHostFunction<TavernGetVariablesFn>(runtime.TavernHelper, 'getVariables') ||
+      bindHostFunction<TavernGetVariablesFn>(parentRuntime, 'getVariables') ||
+      bindHostFunction<TavernGetVariablesFn>(parentRuntime?.TavernHelper, 'getVariables'),
     replaceVariables:
-      bindHostFunction<TavernReplaceVariablesFn>(runtime, 'replaceVariables')
-      || bindHostFunction<TavernReplaceVariablesFn>(directTavernHelper, 'replaceVariables')
-      || bindHostFunction<TavernReplaceVariablesFn>(runtime.TavernHelper, 'replaceVariables')
-      || bindHostFunction<TavernReplaceVariablesFn>(parentRuntime, 'replaceVariables')
-      || bindHostFunction<TavernReplaceVariablesFn>(parentRuntime?.TavernHelper, 'replaceVariables'),
+      bindHostFunction<TavernReplaceVariablesFn>(runtime, 'replaceVariables') ||
+      bindHostFunction<TavernReplaceVariablesFn>(directTavernHelper, 'replaceVariables') ||
+      bindHostFunction<TavernReplaceVariablesFn>(runtime.TavernHelper, 'replaceVariables') ||
+      bindHostFunction<TavernReplaceVariablesFn>(parentRuntime, 'replaceVariables') ||
+      bindHostFunction<TavernReplaceVariablesFn>(parentRuntime?.TavernHelper, 'replaceVariables'),
   };
 };
 
@@ -3884,6 +4774,83 @@ const textMatchesNpcLookupToken = (text: string, token: string): boolean => {
   return source.includes(normalizedToken);
 };
 
+const resolveBodyPartDisplayName = (part?: Partial<BodyPart> | null): string => {
+  if (!part) return '未知部位';
+  if (`${part.name || ''}`.trim()) return `${part.name}`.trim();
+  const key = `${part.key || ''}`.trim().toLowerCase();
+  if (!key) return '未知部位';
+  return LINGSHU_BODY_PART_TEMPLATE.find(template => template.key === key)?.name || key;
+};
+
+const formatMountedSkillPromptLine = (
+  skill: Skill,
+  context?: { slotKey?: string; race?: string; gender?: 'male' | 'female' },
+): string => {
+  const enriched = enrichMountedSkillFromLibrary(skill, context?.slotKey);
+  const levelText =
+    `${enriched.displayLevelLabel || ''}`.trim() || (Number.isFinite(enriched.level) ? `Lv${enriched.level}` : 'Lv?');
+  const accessLabel =
+    context?.race && context?.gender
+      ? buildSpiritSkillAccessLabel(enriched, context.race, context.gender)
+      : buildSpiritSkillSourceLabel(enriched);
+  const detail = [
+    enriched.aiSummary,
+    enriched.description,
+    ...(Array.isArray(enriched.effectLines) ? enriched.effectLines : []),
+  ]
+    .map(value => `${value || ''}`.trim())
+    .filter(Boolean)
+    .join('；');
+  return `- ${enriched.name} ${levelText}【${accessLabel}】${detail ? `：${detail}` : ''}`;
+};
+
+const buildNpcMountedSkillPrompt = (npc: NPC): string => {
+  const blocks: string[] = [];
+  const npcRace = `${npc.race || ''}`.trim();
+  const npcGender = npc.gender === 'female' ? 'female' : npc.gender === 'male' ? 'male' : undefined;
+  const bodyPartLines = (npc.bodyParts || [])
+    .map(part => {
+      const skills = (part.skills || []).filter(skill => `${skill.name || ''}`.trim());
+      if (skills.length === 0) return '';
+      return [
+        `部位：${resolveBodyPartDisplayName(part)}`,
+        ...skills.map(skill =>
+          formatMountedSkillPromptLine(skill, {
+            slotKey: `${part.key || ''}`.trim().toLowerCase(),
+            race: npcRace || undefined,
+            gender: npcGender,
+          }),
+        ),
+      ].join('\n');
+    })
+    .filter(Boolean);
+  if (bodyPartLines.length > 0) {
+    blocks.push(['【当前挂载灵弦】', ...bodyPartLines].join('\n'));
+  }
+
+  const coreSkills = (npc.spiritSkills || []).filter(skill => `${skill.name || ''}`.trim());
+  if (coreSkills.length > 0) {
+    blocks.push(
+      [
+        '【灵核/非部位灵弦】',
+        ...coreSkills.map(skill =>
+          formatMountedSkillPromptLine(skill, {
+            race: npcRace || undefined,
+            gender: npcGender,
+          }),
+        ),
+      ].join('\n'),
+    );
+  }
+
+  if (blocks.length === 0) return '';
+  return [
+    '以下灵弦说明来自前端当前挂载状态与灵弦卡池摘要。',
+    '若已提供部位、等级、来源池与描述，则以这些说明为准，不要仅凭灵弦名字臆测效果或锁定来源。',
+    ...blocks,
+  ].join('\n');
+};
+
 const App: React.FC = () => {
   const [gameStage, setGameStage] = useState<GameStage>('start');
   const [messages, setMessages] = useState<Message[]>([]);
@@ -3909,8 +4876,9 @@ const App: React.FC = () => {
   const [playerStats, setPlayerStats] = useState<PlayerStats>(MOCK_PLAYER_STATS);
   const [playerName, setPlayerName] = useState<string>(LN_DEFAULT_PLAYER_NAME);
   const [playerGender, setPlayerGender] = useState<'male' | 'female'>('male');
+  const [playerRace, setPlayerRace] = useState<string>(DEFAULT_PLAYER_RACE);
   const [playerSkills, setPlayerSkills] = useState<Skill[]>([
-    { id: 'ps1', name: '灵弦：野性直觉', level: 1, description: '被动增强感知能力。' },
+    { id: 'ps1', name: '野性直觉', level: 1, description: '被动增强感知能力。' },
   ]);
   const [isSpiritCoreModalOpen, setIsSpiritCoreModalOpen] = useState(false);
 
@@ -3937,7 +4905,13 @@ const App: React.FC = () => {
     [Rank.Lv5]: 0,
   });
   const [playerCoreAffixes, setPlayerCoreAffixes] = useState<RuntimeAffix[]>([
-    { id: 'core_affix_0', name: '状态：回路自检', description: '维持核心回路稳定，减少异常波动。', type: 'neutral', source: '初始' },
+    {
+      id: 'core_affix_0',
+      name: '状态：回路自检',
+      description: '维持核心回路稳定，减少异常波动。',
+      type: 'neutral',
+      source: '初始',
+    },
   ]);
   const [playerFaction, setPlayerFaction] = useState<PlayerFaction>(MOCK_PLAYER_FACTION);
   const [leftModuleTab, setLeftModuleTab] = useState<LeftModuleTab>('chips');
@@ -3950,7 +4924,12 @@ const App: React.FC = () => {
   const [isEditPlayerMessageOpen, setIsEditPlayerMessageOpen] = useState(false);
   const [editPlayerMessageId, setEditPlayerMessageId] = useState<string | null>(null);
   const [editPlayerMessageDraft, setEditPlayerMessageDraft] = useState('');
-  const [layerMenu, setLayerMenu] = useState<{ x: number; y: number; messageId: string; sender: 'Player' | 'System' } | null>(null);
+  const [layerMenu, setLayerMenu] = useState<{
+    x: number;
+    y: number;
+    messageId: string;
+    sender: 'Player' | 'System';
+  } | null>(null);
   const [isLayerPickerOpen, setIsLayerPickerOpen] = useState(false);
   const [archiveSlots, setArchiveSlots] = useState<ArchiveSlot[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState<string>('');
@@ -4013,15 +4992,22 @@ const App: React.FC = () => {
   const [blackMarketVenue, setBlackMarketVenue] = useState<BlackMarketVenue | null>(null);
   const [blackMarketHistory, setBlackMarketHistory] = useState<BlackMarketRecord[]>([]);
   const [slotHistory, setSlotHistory] = useState<SlotSpinRecord[]>([]);
-  const [forgeWorkshopState, setForgeWorkshopState] = useState<ForgeWorkshopState>(() => createEmptyForgeWorkshopState());
+  const [forgeWorkshopState, setForgeWorkshopState] = useState<ForgeWorkshopState>(() =>
+    createEmptyForgeWorkshopState(),
+  );
   const [cityRuntime, setCityRuntime] = useState<CityRuntimeData>(() => createEmptyCityRuntime());
-  const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(null);
+  const [phoneLaunchIntent, setPhoneLaunchIntent] = useState<{ route: 'wallet_black_race'; nonce: number } | null>(
+    null,
+  );
   const [gamblingHubState, setGamblingHubState] = useState<{ initialTab: GamblingHubTab } | null>(null);
   const [blackMarketState, setBlackMarketState] = useState<{ initialTab: BlackMarketHubTab } | null>(null);
   const [forgeWorkshopOpen, setForgeWorkshopOpen] = useState<{ initialTab: ForgeWorkshopTab } | null>(null);
-  const [sceneModal, setSceneModal] = useState<({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null>(null);
+  const [sceneModal, setSceneModal] = useState<
+    ({ mode: 'shop'; shop: ProceduralShop } | { mode: 'metro'; metro: MetroNetwork }) | null
+  >(null);
   const [travelPlannerOpen, setTravelPlannerOpen] = useState(false);
   const [travelSettlement, setTravelSettlement] = useState<TravelSettlementPlan | null>(null);
+  const [lingnetRefreshingNpcId, setLingnetRefreshingNpcId] = useState<string | null>(null);
 
   const [floatingTexts, setFloatingTexts] = useState<FloatingText[]>([]);
   const floatIdCounter = useRef(0);
@@ -4032,12 +5018,22 @@ const App: React.FC = () => {
   const [autoMapSyncEnabled] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const lastProtocolRef = useRef<'none' | 'beta' | null>(null);
+  const npcRuntimeStateRef = useRef(createEmptyNpcRuntimeState());
+  const npcRuntimeConsumedIdsRef = useRef<string[]>([]);
+  const [npcRuntimeRevision, setNpcRuntimeRevision] = useState(0);
+  const lastNpcRuntimePullSignatureRef = useRef('');
   const lastPulledSyncSignatureRef = useRef('');
   const lastPushedSyncSignatureRef = useRef('');
   const lastTavernSyncSignatureRef = useRef('');
   const archiveScopeReloadRef = useRef<string>(archiveScopeId);
-  const archiveStorageKey = useMemo(() => buildScopedStorageKey(LN_ARCHIVES_KEY_PREFIX, archiveScopeId), [archiveScopeId]);
-  const lastArchiveStorageKey = useMemo(() => buildScopedStorageKey(LN_LAST_ARCHIVE_ID_KEY_PREFIX, archiveScopeId), [archiveScopeId]);
+  const archiveStorageKey = useMemo(
+    () => buildScopedStorageKey(LN_ARCHIVES_KEY_PREFIX, archiveScopeId),
+    [archiveScopeId],
+  );
+  const lastArchiveStorageKey = useMemo(
+    () => buildScopedStorageKey(LN_LAST_ARCHIVE_ID_KEY_PREFIX, archiveScopeId),
+    [archiveScopeId],
+  );
 
   const taxOfficerCandidates = useMemo<TaxOfficerCandidate[]>(() => {
     const list = npcs
@@ -4129,7 +5125,11 @@ const App: React.FC = () => {
   }, [isMobileViewport]);
 
   useEffect(() => {
-    setLeftModuleTab(prev => (prev === 'chips' || prev === 'economy' || prev === 'lingshu' || prev === 'inventory' || prev === 'city' ? prev : 'chips'));
+    setLeftModuleTab(prev =>
+      prev === 'chips' || prev === 'economy' || prev === 'lingshu' || prev === 'inventory' || prev === 'city'
+        ? prev
+        : 'chips',
+    );
   }, [playerGender]);
 
   useEffect(() => {
@@ -4144,20 +5144,38 @@ const App: React.FC = () => {
     }
   }, [npcs, selectedNPC]);
 
+  const consumeNpcRuntimePendingPrompts = useCallback(
+    (context: { timeLabel?: string; location?: string; elapsedMinutes?: number }) => {
+      const ids = npcRuntimeConsumedIdsRef.current;
+      npcRuntimeConsumedIdsRef.current = [];
+      if (!ids.length) return;
+      const nextRuntime = consumeNpcRuntimeOffscreen(npcRuntimeStateRef.current, ids, context);
+      if (nextRuntime === npcRuntimeStateRef.current) return;
+      npcRuntimeStateRef.current = nextRuntime;
+      setNpcRuntimeRevision(prev => prev + 1);
+    },
+    [],
+  );
+
   const buildNpcDirectorContextForRequest = useCallback(
     (input: string, dialogueContext: string): string => {
       const searchText = [input, dialogueContext].filter(Boolean).join('\n');
       const matched = new Map<string, NPC>();
+      const runtimeState = npcRuntimeStateRef.current;
+      const hasNpcPrompt = (npc: NPC): boolean =>
+        !!buildNpcDirectorPrompt(npc) ||
+        !!buildNpcMountedSkillPrompt(npc) ||
+        !!buildNpcRuntimePromptSupplement(runtimeState, npc);
 
       if (selectedNPC) {
         const liveSelected = npcs.find(npc => npc.id === selectedNPC.id) || selectedNPC;
-        if (buildNpcDirectorPrompt(liveSelected)) {
+        if (hasNpcPrompt(liveSelected)) {
           matched.set(liveSelected.id, liveSelected);
         }
       }
 
       npcs.forEach(npc => {
-        if (!buildNpcDirectorPrompt(npc)) return;
+        if (!hasNpcPrompt(npc)) return;
         const tokens = getNpcDirectorLookupTokens(npc);
         if (tokens.some(token => textMatchesNpcLookupToken(searchText, token))) {
           matched.set(npc.id, npc);
@@ -4175,7 +5193,7 @@ const App: React.FC = () => {
         picked = activeNpcDirectorCacheRef.current.ids
           .map(id => npcs.find(npc => npc.id === id))
           .filter((npc): npc is NPC => !!npc)
-          .filter(npc => !!buildNpcDirectorPrompt(npc))
+          .filter(hasNpcPrompt)
           .slice(0, 2);
         activeNpcDirectorCacheRef.current = {
           ids: picked.map(npc => npc.id),
@@ -4183,7 +5201,21 @@ const App: React.FC = () => {
         };
       }
 
-      const blocks = picked.map(buildNpcDirectorPrompt).filter(Boolean);
+      const promptConsumedIds = picked
+        .filter(npc => !!buildNpcRuntimePromptSupplement(runtimeState, npc))
+        .map(npc => npc.id);
+      npcRuntimeConsumedIdsRef.current = promptConsumedIds;
+      const blocks = picked
+        .map(npc =>
+          [
+            buildNpcDirectorPrompt(npc),
+            buildNpcMountedSkillPrompt(npc),
+            buildNpcRuntimePromptSupplement(runtimeState, npc),
+          ]
+            .filter(Boolean)
+            .join('\n'),
+        )
+        .filter(Boolean);
       if (blocks.length === 0) return '';
       return [
         '【当前关键人物隐藏参考】',
@@ -4191,7 +5223,7 @@ const App: React.FC = () => {
         blocks.join('\n\n'),
       ].join('\n');
     },
-    [npcs, selectedNPC],
+    [npcs, npcRuntimeRevision, selectedNPC],
   );
 
   useEffect(() => {
@@ -4205,7 +5237,8 @@ const App: React.FC = () => {
       return !playerLingshu.some(part => {
         const text = `${part.name || ''} ${part.key || ''}`.toLowerCase();
         if (req.key === 'brain') return text.includes('脑') || text.includes('brain');
-        if (req.key === 'genital') return text.includes('阴') || text.includes('裆') || text.includes('genital') || text.includes('groin');
+        if (req.key === 'genital')
+          return text.includes('阴') || text.includes('裆') || text.includes('genital') || text.includes('groin');
         if (req.key === 'hip') return text.includes('臀') || text.includes('hip');
         return false;
       });
@@ -4262,7 +5295,13 @@ const App: React.FC = () => {
       const raw = window.localStorage.getItem(archiveStorageKey);
       const parsed = raw ? (JSON.parse(raw) as ArchiveSlot[]) : [];
       const valid = Array.isArray(parsed)
-        ? parsed.filter(slot => slot?.id && slot?.name && slot?.data && (slot.data.version === 1 || slot.data.version === 2 || slot.data.version === undefined))
+        ? parsed.filter(
+            slot =>
+              slot?.id &&
+              slot?.name &&
+              slot?.data &&
+              (slot.data.version === 1 || slot.data.version === 2 || slot.data.version === undefined),
+          )
         : [];
       setArchiveSlots(valid);
 
@@ -4339,7 +5378,9 @@ const App: React.FC = () => {
     setMessages(pulledMessages);
     setFocusedLayerId(prev => {
       if (prev && pulledMessages.some(message => message.id === prev)) return prev;
-      const latestLayer = [...pulledMessages].reverse().find(message => message.sender === 'System' && hasPseudoLayer(message.content));
+      const latestLayer = [...pulledMessages]
+        .reverse()
+        .find(message => message.sender === 'System' && hasPseudoLayer(message.content));
       return latestLayer?.id || null;
     });
     return pulledMessages.some(message => message.sender === 'System' && hasPseudoLayer(message.content));
@@ -4370,11 +5411,13 @@ const App: React.FC = () => {
   const resetCurrentLnRun = useCallback(async () => {
     const latestPulledMessages = pullPseudoLayerMessagesFromTavern() || [];
     const runtimeMessages = [...latestPulledMessages, ...messages];
-    const runtimeChatIds = [...new Set(
-      runtimeMessages
-        .map(message => message.chatMessageId)
-        .filter((messageId): messageId is number => Number.isFinite(messageId)),
-    )];
+    const runtimeChatIds = [
+      ...new Set(
+        runtimeMessages
+          .map(message => message.chatMessageId)
+          .filter((messageId): messageId is number => Number.isFinite(messageId)),
+      ),
+    ];
 
     if (runtimeChatIds.length > 0) {
       try {
@@ -4431,48 +5474,38 @@ const App: React.FC = () => {
     const stat = variables?.stat_data;
     if (!stat || typeof stat !== 'object') return;
 
+    const npcRuntimeState = parseNpcRuntimeState(stat?.npc_runtime);
+    npcRuntimeStateRef.current = npcRuntimeState;
+    const npcRuntimeSignature = JSON.stringify(npcRuntimeState);
+    if (npcRuntimeSignature !== lastNpcRuntimePullSignatureRef.current) {
+      lastNpcRuntimePullSignatureRef.current = npcRuntimeSignature;
+      setNpcRuntimeRevision(prev => prev + 1);
+      setNpcs(prev => {
+        const next = normalizeNpcListForUi(mergeNpcListWithRuntimeSnapshots(prev, npcRuntimeState));
+        return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
+      });
+    }
+
     const worldNode = stat?.world && typeof stat.world === 'object' && !Array.isArray(stat.world) ? stat.world : {};
     const playerNode = stat?.player && typeof stat.player === 'object' ? stat.player : {};
     const identityRaw = playerNode?.identity;
-    const identity =
-      identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw)
-        ? identityRaw
-        : {};
+    const identity = identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw) ? identityRaw : {};
     const coreStatusRaw = playerNode?.core_status;
     const coreStatus =
-      coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw)
-        ? coreStatusRaw
-        : {};
+      coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw) ? coreStatusRaw : {};
     const statusRaw = playerNode?.status;
-    const status =
-      statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw)
-        ? statusRaw
-        : {};
+    const status = statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw) ? statusRaw : {};
     const psionicRaw = playerNode?.psionic;
-    const psionic =
-      psionicRaw && typeof psionicRaw === 'object' && !Array.isArray(psionicRaw)
-        ? psionicRaw
-        : {};
+    const psionic = psionicRaw && typeof psionicRaw === 'object' && !Array.isArray(psionicRaw) ? psionicRaw : {};
     const assetsRaw = playerNode?.assets;
-    const assets =
-      assetsRaw && typeof assetsRaw === 'object' && !Array.isArray(assetsRaw)
-        ? assetsRaw
-        : {};
+    const assets = assetsRaw && typeof assetsRaw === 'object' && !Array.isArray(assetsRaw) ? assetsRaw : {};
     const chipRaw = playerNode?.chip;
-    const chipNode =
-      chipRaw && typeof chipRaw === 'object' && !Array.isArray(chipRaw)
-        ? chipRaw
-        : {};
+    const chipNode = chipRaw && typeof chipRaw === 'object' && !Array.isArray(chipRaw) ? chipRaw : {};
     const residenceRaw = playerNode?.residence;
     const residenceNode =
-      residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw)
-        ? residenceRaw
-        : {};
+      residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw) ? residenceRaw : {};
     const sixDimRaw = playerNode?.six_dim;
-    const sixDim =
-      sixDimRaw && typeof sixDimRaw === 'object' && !Array.isArray(sixDimRaw)
-        ? sixDimRaw
-        : null;
+    const sixDim = sixDimRaw && typeof sixDimRaw === 'object' && !Array.isArray(sixDimRaw) ? sixDimRaw : null;
     const lcoinState = readLcoinBucketsFromStat(assets?.lcoin);
     const rankRaw = `${psionic?.rank ?? playerNode?.psionic_rank ?? ''}`.trim();
     const rankMatch = rankRaw.match(/Lv\.?\s*(\d+)/i);
@@ -4480,6 +5513,7 @@ const App: React.FC = () => {
     const protocolRaw = `${identity?.neural_protocol ?? playerNode?.neural_protocol ?? ''}`.trim().toLowerCase();
     const protocolValue = protocolRaw === 'beta' ? 'beta' : protocolRaw ? 'none' : null;
     const citizenIdValue = `${identity?.citizen_id ?? playerNode?.citizen_id ?? ''}`.trim();
+    const raceValue = `${playerNode?.race ?? identity?.race ?? ''}`.trim();
     const factionValue = `${playerNode?.faction ?? worldNode?.current_faction ?? ''}`.trim();
     const regionValue = `${playerNode?.region ?? worldNode?.current_location ?? ''}`.trim();
     const coreAffixesFromStat = normalizeRuntimeAffixList(playerNode?.core_affixes, 'player_core');
@@ -4512,7 +5546,7 @@ const App: React.FC = () => {
     const hasAirelaBinding =
       protocolValue === 'beta' ||
       chipNode?.beta_equipped === true ||
-      !!(`${chipNode?.tax_officer_id ?? ''}`.trim()) ||
+      !!`${chipNode?.tax_officer_id ?? ''}`.trim() ||
       !!pulledAssignedDistrict ||
       !!pulledAssignedXStationId ||
       !!pulledAssignedHXDormId;
@@ -4542,8 +5576,8 @@ const App: React.FC = () => {
       },
       hasAirelaBinding && isAirelaResidenceZone(regionValue)
         ? {
-          currentResidenceId: derivedBinding?.residenceId || '',
-          currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
+            currentResidenceId: derivedBinding?.residenceId || '',
+            currentResidenceLabel: pulledAssignedHXDormLabel || derivedBinding?.residenceLabel || '',
             unlockedResidenceIds: derivedBinding?.residenceId ? [derivedBinding.residenceId] : [],
           }
         : null,
@@ -4564,10 +5598,22 @@ const App: React.FC = () => {
         toFiniteNumber(psionic?.energy_value?.max) ??
         toFiniteNumber(psionic?.energy_value_max) ??
         null,
-      staminaCurrent: toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.current) ?? null,
-      staminaMax: toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.max) ?? null,
-      satietyCurrent: toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.current) ?? null,
-      satietyMax: toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.max) ?? null,
+      staminaCurrent:
+        toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ??
+        toFiniteNumber((status as Record<string, any>)?.stamina?.current) ??
+        null,
+      staminaMax:
+        toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ??
+        toFiniteNumber((status as Record<string, any>)?.stamina?.max) ??
+        null,
+      satietyCurrent:
+        toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ??
+        toFiniteNumber((status as Record<string, any>)?.satiety?.current) ??
+        null,
+      satietyMax:
+        toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ??
+        toFiniteNumber((status as Record<string, any>)?.satiety?.max) ??
+        null,
       sanityCurrent: toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current) ?? null,
       sanityMax: toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max) ?? null,
       credits: creditsFromStat ?? null,
@@ -4576,6 +5622,7 @@ const App: React.FC = () => {
       conversionRate: statRateToRuntimePercent(psionic?.conversion_rate?.current ?? psionic?.conversion_rate) ?? null,
       recoveryRate: statRateToRuntimePercent(psionic?.recovery_rate?.current ?? psionic?.recovery_rate) ?? null,
       rank: rankRaw || null,
+      race: raceValue || null,
       protocol: protocolValue,
       citizenId: citizenIdValue || null,
       faction: factionValue || null,
@@ -4583,8 +5630,12 @@ const App: React.FC = () => {
       assignedDistrict: pulledAssignedDistrict || null,
       assignedXStationId: pulledAssignedXStationId || null,
       assignedHXDormId: pulledAssignedHXDormId || null,
-      coreAffixes: coreAffixesFromStat.map(affix => [affix.name, affix.description, affix.type, affix.source].join('|')),
-      lingshu: lingshuFromStat.map(part => [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|')),
+      coreAffixes: coreAffixesFromStat.map(affix =>
+        [affix.name, affix.description, affix.type, affix.source].join('|'),
+      ),
+      lingshu: lingshuFromStat.map(part =>
+        [part.key || part.id, part.level || rankToLevel(part.rank), part.rank].join('|'),
+      ),
       taxOfficerId: `${chipNode?.tax_officer_id ?? ''}`.trim() || null,
       taxArrears: toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears) ?? null,
       currentResidenceId: pulledResidence.currentResidenceId || null,
@@ -4596,6 +5647,9 @@ const App: React.FC = () => {
     const syncedPlayerName = `${playerNode?.name ?? playerNode?.display_name ?? ''}`.trim();
     if (syncedPlayerName) {
       setPlayerName(prev => (prev === syncedPlayerName ? prev : syncedPlayerName));
+    }
+    if (raceValue) {
+      setPlayerRace(prev => (prev === raceValue ? prev : raceValue));
     }
     if (protocolValue) {
       setPlayerNeuralProtocol(prev => (prev === protocolValue ? prev : protocolValue));
@@ -4655,10 +5709,18 @@ const App: React.FC = () => {
         toFiniteNumber(status?.mp?.max) ??
         toFiniteNumber(psionic?.energy_value?.max) ??
         toFiniteNumber(psionic?.energy_value_max);
-      const staminaCurrent = toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.current);
-      const staminaMax = toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ?? toFiniteNumber((status as Record<string, any>)?.stamina?.max);
-      const satietyCurrent = toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.current);
-      const satietyMax = toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ?? toFiniteNumber((status as Record<string, any>)?.satiety?.max);
+      const staminaCurrent =
+        toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.current) ??
+        toFiniteNumber((status as Record<string, any>)?.stamina?.current);
+      const staminaMax =
+        toFiniteNumber((coreStatus as Record<string, any>)?.stamina?.max) ??
+        toFiniteNumber((status as Record<string, any>)?.stamina?.max);
+      const satietyCurrent =
+        toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.current) ??
+        toFiniteNumber((status as Record<string, any>)?.satiety?.current);
+      const satietyMax =
+        toFiniteNumber((coreStatus as Record<string, any>)?.satiety?.max) ??
+        toFiniteNumber((status as Record<string, any>)?.satiety?.max);
       const sanityCurrent = toFiniteNumber(coreStatus?.sanity?.current) ?? toFiniteNumber(status?.sanity?.current);
       const sanityMax = toFiniteNumber(coreStatus?.sanity?.max) ?? toFiniteNumber(status?.sanity?.max);
       const conversionRate = statRateToRuntimePercent(psionic?.conversion_rate?.current ?? psionic?.conversion_rate);
@@ -4753,7 +5815,9 @@ const App: React.FC = () => {
       const pulledTaxAmount = toFiniteNumber(chipNode?.tax_amount ?? chipNode?.taxAmount);
       const pulledTaxArrears = toFiniteNumber(chipNode?.tax_arrears ?? chipNode?.taxArrears);
       const nextAssignedDistrict = hasAirelaBinding ? pulledAssignedDistrict || derivedBinding?.districtName || '' : '';
-      const nextAssignedXStationId = hasAirelaBinding ? pulledAssignedXStationId || derivedBinding?.xStationId || '' : '';
+      const nextAssignedXStationId = hasAirelaBinding
+        ? pulledAssignedXStationId || derivedBinding?.xStationId || ''
+        : '';
       const nextAssignedXStationLabel = hasAirelaBinding
         ? pulledAssignedXStationLabel ||
           (nextAssignedXStationId
@@ -4763,7 +5827,9 @@ const App: React.FC = () => {
       const nextAssignedHXDormId = hasAirelaBinding ? pulledAssignedHXDormId || derivedBinding?.hxDormId || '' : '';
       const nextAssignedHXDormLabel = hasAirelaBinding
         ? pulledAssignedHXDormLabel ||
-          (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, derivedBinding?.districtName) : '')
+          (nextAssignedHXDormId
+            ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, derivedBinding?.districtName)
+            : '')
         : '';
 
       const nextOfficialControl = protocolValue === 'beta' && chipNode?.beta_equipped === true;
@@ -4861,10 +5927,7 @@ const App: React.FC = () => {
       try {
         const currentVars = tavernBridge.getVariables({ type: 'chat' }) || {};
         const cloned = deepClonePlainData(currentVars);
-        const nextVars =
-          cloned && typeof cloned === 'object'
-            ? (cloned as Record<string, any>)
-            : {};
+        const nextVars = cloned && typeof cloned === 'object' ? (cloned as Record<string, any>) : {};
         const patchResult = applyPatchOperationsToVariables(nextVars, operations);
         if (patchResult.applied > 0) {
           tavernBridge.replaceVariables(nextVars, { type: 'chat' });
@@ -4903,10 +5966,15 @@ const App: React.FC = () => {
     () => BETA_PROFESSIONS.find(p => p.id === selectedBetaProfessionId) || null,
     [selectedBetaProfessionId],
   );
-  const layerMessages = useMemo(() => messages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)), [messages]);
+  const layerMessages = useMemo(
+    () => messages.filter(msg => msg.sender === 'System' && hasPseudoLayer(msg.content)),
+    [messages],
+  );
   const hasExistingPseudoProgress = layerMessages.length > 0;
   const activeLayerMessage = useMemo(
-    () => (focusedLayerId ? layerMessages.find(layer => layer.id === focusedLayerId) : undefined) || layerMessages[layerMessages.length - 1],
+    () =>
+      (focusedLayerId ? layerMessages.find(layer => layer.id === focusedLayerId) : undefined) ||
+      layerMessages[layerMessages.length - 1],
     [focusedLayerId, layerMessages],
   );
   const currentNarrativeLocation = useMemo(() => {
@@ -4955,10 +6023,7 @@ const App: React.FC = () => {
     () => buildTravelRuleDigest(cityRuntime, currentNarrativeLocation),
     [cityRuntime, currentNarrativeLocation],
   );
-  const lifeStateDigest = useMemo(
-    () => buildLifeStateDigest(playerStats),
-    [playerStats],
-  );
+  const lifeStateDigest = useMemo(() => buildLifeStateDigest(playerStats), [playerStats]);
   const latestPlayerInputForSceneAction = useMemo(() => {
     if (!activeLayerMessage) return '';
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
@@ -4978,7 +6043,13 @@ const App: React.FC = () => {
         layerId: activeLayerMessage?.id || 'scene_idle',
         allowMetroRoute: !!runtimeMetroNetwork?.options.length,
       }),
-    [activeLayerMessage, currentNarrativeLocation, latestPlayerInputForSceneAction, playerFaction.headquarters, runtimeMetroNetwork],
+    [
+      activeLayerMessage,
+      currentNarrativeLocation,
+      latestPlayerInputForSceneAction,
+      playerFaction.headquarters,
+      runtimeMetroNetwork,
+    ],
   );
   const currentLocationJurisdiction = useMemo(
     () => resolveLocationJurisdiction(currentNarrativeLocation || playerFaction.headquarters || ''),
@@ -5004,7 +6075,11 @@ const App: React.FC = () => {
   }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
   const canOpenBlackMarketHub = useMemo(() => {
     if (currentLocationJurisdiction.key === 'borderland') return true;
-    if (currentLocationJurisdiction.key === 'north' && /诺丝区|罪吻|综合娱乐|大学|资本/.test(currentNarrativeLocation || '')) return true;
+    if (
+      currentLocationJurisdiction.key === 'north' &&
+      /诺丝区|罪吻|综合娱乐|大学|资本/.test(currentNarrativeLocation || '')
+    )
+      return true;
     const source = `${currentNarrativeLocation || ''}\n${activeLayerMessage?.content || ''}\n${latestPlayerInputForSceneAction || ''}`;
     return /黑市|灰市|暗柜|黑医|岚针|针市|盲签|走私|代办|狗镇/.test(source);
   }, [activeLayerMessage, currentLocationJurisdiction.key, currentNarrativeLocation, latestPlayerInputForSceneAction]);
@@ -5015,10 +6090,7 @@ const App: React.FC = () => {
     return filtered.slice(0, canOpenGamblingHub ? 1 : 2);
   }, [canOpenGamblingHub, sceneActionState.lifeActions]);
   const forgeChipTargets = useMemo(
-    () =>
-      [...playerChips, ...storageChips].filter(
-        chip => chip.type !== 'board' && chip.type !== 'beta',
-      ),
+    () => [...playerChips, ...storageChips].filter(chip => chip.type !== 'board' && chip.type !== 'beta'),
     [playerChips, storageChips],
   );
   const forgeCyberwareTargets = useMemo(
@@ -5031,14 +6103,14 @@ const App: React.FC = () => {
         .filter(npc => {
           const locationText = `${npc.location || ''}`;
           return (
-            locationText.includes('诺丝')
-            || locationText.includes('罪吻')
-            || locationText.includes('红绡')
-            || locationText.includes('绮债')
-            || locationText.includes('剥光')
+            locationText.includes('诺丝') ||
+            locationText.includes('罪吻') ||
+            locationText.includes('红绡') ||
+            locationText.includes('绮债') ||
+            locationText.includes('剥光')
           );
         })
-        .sort((a, b) => ((b.affection || 0) + (b.trust || 0)) - ((a.affection || 0) + (a.trust || 0)))
+        .sort((a, b) => (b.affection || 0) + (b.trust || 0) - ((a.affection || 0) + (a.trust || 0)))
         .slice(0, 3)
         .map(npc => ({ id: npc.id, name: npc.name, location: npc.location })),
     [npcs],
@@ -5049,7 +6121,9 @@ const App: React.FC = () => {
     setCityRuntime(prev => {
       const ensured = ensureAnchorForLocation(prev, {
         locationLabel,
-        legacyAliases: [/X\d{1,2}/.exec(locationLabel)?.[0], /H\d{1,3}/.exec(locationLabel)?.[0]].filter(Boolean) as string[],
+        legacyAliases: [/X\d{1,2}/.exec(locationLabel)?.[0], /H\d{1,3}/.exec(locationLabel)?.[0]].filter(
+          Boolean,
+        ) as string[],
       });
       return ensured.changed ? ensured.runtime : prev;
     });
@@ -5069,14 +6143,26 @@ const App: React.FC = () => {
     if (!canOpenBlackMarketHub) return;
     const refreshEpoch = Math.max(1, Math.floor((mapRuntime.elapsedMinutes || 0) / (24 * 60)) + 1);
     setBlackMarketVenue(prev => {
-      if (prev && prev.locationLabel === locationLabel && prev.refreshEpoch === refreshEpoch && prev.listings.length > 0) return prev;
+      if (
+        prev &&
+        prev.locationLabel === locationLabel &&
+        prev.refreshEpoch === refreshEpoch &&
+        prev.listings.length > 0
+      )
+        return prev;
       return buildBlackMarketVenue({
         locationLabel,
         districtId: cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(locationLabel).id,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
       });
     });
-  }, [canOpenBlackMarketHub, cityRuntime.currentDistrictId, currentNarrativeLocation, mapRuntime.elapsedMinutes, playerFaction.headquarters]);
+  }, [
+    canOpenBlackMarketHub,
+    cityRuntime.currentDistrictId,
+    currentNarrativeLocation,
+    mapRuntime.elapsedMinutes,
+    playerFaction.headquarters,
+  ]);
   useEffect(() => {
     if (gameStage !== 'game') return;
     if (!latestProgressLayerMessage?.id) return;
@@ -5119,7 +6205,10 @@ const App: React.FC = () => {
     });
   }, [gameStage, latestProgressLayerMessage?.id, latestProgressLocation, mapRuntime.elapsedMinutes]);
   const lingshuRuntimeAffixes = useMemo(
-    () => playerLingshu.flatMap(part => (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name }))),
+    () =>
+      playerLingshu.flatMap(part =>
+        (part.statusAffixes || []).map(affix => ({ ...affix, source: affix.source || part.name })),
+      ),
     [playerLingshu],
   );
   const mergedRuntimeAffixes = useMemo(() => {
@@ -5145,12 +6234,18 @@ const App: React.FC = () => {
       ),
     [mergedRuntimeAffixes, playerStats, betaStatus.warnings],
   );
-  const chipCount = useMemo(() => playerChips.filter(chip => chip.type !== 'board' && chip.type !== 'beta').length, [playerChips]);
+  const chipCount = useMemo(
+    () => playerChips.filter(chip => chip.type !== 'board' && chip.type !== 'beta').length,
+    [playerChips],
+  );
   const spiritStringCount = useMemo(
     () => playerLingshu.reduce((sum, part) => sum + (part.spiritSkills?.length || (part.spiritSkill ? 1 : 0)), 0),
     [playerLingshu],
   );
-  const currentMonthKey = useMemo(() => getMonthKeyFromElapsedMinutes(mapRuntime.elapsedMinutes || 0), [mapRuntime.elapsedMinutes]);
+  const currentMonthKey = useMemo(
+    () => getMonthKeyFromElapsedMinutes(mapRuntime.elapsedMinutes || 0),
+    [mapRuntime.elapsedMinutes],
+  );
   const locationControlProfile = useMemo(
     () =>
       buildLocationControlProfile(
@@ -5161,7 +6256,15 @@ const App: React.FC = () => {
         betaStatus.creditScore,
         gameSceneHint,
       ),
-    [currentNarrativeLocation, playerFaction.headquarters, gameDayPhase, playerNeuralProtocol, playerGender, betaStatus.creditScore, gameSceneHint],
+    [
+      currentNarrativeLocation,
+      playerFaction.headquarters,
+      gameDayPhase,
+      playerNeuralProtocol,
+      playerGender,
+      betaStatus.creditScore,
+      gameSceneHint,
+    ],
   );
   const currentLocationVisualTheme = useMemo(
     () => resolveLocationVisualTheme(currentNarrativeLocation || playerFaction.headquarters || '未知区域'),
@@ -5175,13 +6278,7 @@ const App: React.FC = () => {
         status: betaStatus,
         residence: playerResidence,
       }),
-    [
-      currentNarrativeLocation,
-      playerFaction.headquarters,
-      hasOfficialBetaControl,
-      betaStatus,
-      playerResidence,
-    ],
+    [currentNarrativeLocation, playerFaction.headquarters, hasOfficialBetaControl, betaStatus, playerResidence],
   );
   const officialResidenceBinding = useMemo(
     () =>
@@ -5191,12 +6288,21 @@ const App: React.FC = () => {
             citizenId: betaStatus.citizenId || '',
           })
         : null,
-    [hasOfficialBetaControl, betaStatus.assignedDistrict, betaStatus.assignedHXDormLabel, betaStatus.citizenId, currentNarrativeLocation],
+    [
+      hasOfficialBetaControl,
+      betaStatus.assignedDistrict,
+      betaStatus.assignedHXDormLabel,
+      betaStatus.citizenId,
+      currentNarrativeLocation,
+    ],
   );
   const currentResidenceProfile = useMemo(
     () =>
       residenceProfiles.find(profile => profile.id === playerResidence.currentResidenceId) ||
-      buildFallbackResidenceProfile(playerResidence, betaStatus.assignedDistrict || resolveLocationJurisdiction(currentNarrativeLocation || '').regionLabel),
+      buildFallbackResidenceProfile(
+        playerResidence,
+        betaStatus.assignedDistrict || resolveLocationJurisdiction(currentNarrativeLocation || '').regionLabel,
+      ),
     [residenceProfiles, playerResidence, betaStatus.assignedDistrict, currentNarrativeLocation],
   );
   const currentDistrictProfile = useMemo(
@@ -5224,9 +6330,15 @@ const App: React.FC = () => {
     const pendingMonths = getMonthDiff(checkpointMonth, currentMonthKey);
     const upkeepBase = playerLingshu.length * 18 + playerChips.filter(chip => chip.type !== 'board').length * 12;
     const residenceUpkeep = currentResidenceProfile?.monthlyCost || 0;
-    const debuffCost = mergedRuntimeAffixes.reduce((sum, affix) => sum + (affix.type === 'debuff' ? 18 : affix.type === 'neutral' ? 8 : 0), 0);
+    const debuffCost = mergedRuntimeAffixes.reduce(
+      (sum, affix) => sum + (affix.type === 'debuff' ? 18 : affix.type === 'neutral' ? 8 : 0),
+      0,
+    );
     const warningCost = (betaStatus.warnings || []).length * 25;
-    const economyBaseline = Math.max(0, (playerFaction.economy.monthlyIncome || 0) - (playerFaction.economy.monthlyUpkeep || 0));
+    const economyBaseline = Math.max(
+      0,
+      (playerFaction.economy.monthlyIncome || 0) - (playerFaction.economy.monthlyUpkeep || 0),
+    );
     const baseAllowancePerMonth = Math.max(120, Math.round(economyBaseline * 0.12) + (betaStatus.betaLevel || 1) * 60);
     const bonusPerMonth = betaStatus.creditScore >= 100 ? 120 : betaStatus.creditScore >= 80 ? 40 : 0;
     const baseAllowance = pendingMonths * (baseAllowancePerMonth + bonusPerMonth);
@@ -5253,7 +6365,9 @@ const App: React.FC = () => {
       netDelta,
       notes: [
         `基础津贴由派系月度净收入、Beta 等级和信誉补贴共同决定。`,
-        arrearsDue > 0 ? `当前累计欠缴情形 ${arrearsDue.toLocaleString()} 灵能币，本次会并入应缴税额。` : `当前没有历史欠缴情形，月结只计算本期税额。`,
+        arrearsDue > 0
+          ? `当前累计欠缴情形 ${arrearsDue.toLocaleString()} 灵能币，本次会并入应缴税额。`
+          : `当前没有历史欠缴情形，月结只计算本期税额。`,
         currentResidenceProfile
           ? `当前住所「${currentResidenceProfile.label}」会带来 ${(pendingMonths * residenceUpkeep).toLocaleString()} 灵能币的住处维持费。`
           : `当前还没有稳定住所，月结暂不计入住处维持费。`,
@@ -5325,7 +6439,11 @@ const App: React.FC = () => {
               : record,
           )
         : [...prev.stashRecords, ensuredStash];
-      const nextBurglaryTargets = syncDistrictBurglaryTargets(prev.burglaryTargets, location, mapRuntime.elapsedMinutes || 0);
+      const nextBurglaryTargets = syncDistrictBurglaryTargets(
+        prev.burglaryTargets,
+        location,
+        mapRuntime.elapsedMinutes || 0,
+      );
       const stashChanged =
         nextStashRecords.length !== prev.stashRecords.length ||
         !prev.stashRecords.some(
@@ -5376,9 +6494,7 @@ const App: React.FC = () => {
                 playerFaction.name,
               );
         const targetKeys = new Set(
-          (structuredRecords.length > 0
-            ? structuredRecords.map(record => record.name)
-            : seeds.map(seed => seed.name))
+          (structuredRecords.length > 0 ? structuredRecords.map(record => record.name) : seeds.map(seed => seed.name))
             .map(name => normalizeNpcNameKey(name))
             .filter(Boolean),
         );
@@ -5393,7 +6509,12 @@ const App: React.FC = () => {
             const recordKey = normalizeNpcNameKey(record.name);
             const existingIndex = next.findIndex(npc => normalizeNpcNameKey(npc.name) === recordKey);
             if (existingIndex >= 0) {
-              next[existingIndex] = buildStructuredNearbyNpc(normalizedLocation, record, existingIndex, next[existingIndex]);
+              next[existingIndex] = buildStructuredNearbyNpc(
+                normalizedLocation,
+                record,
+                existingIndex,
+                next[existingIndex],
+              );
               return;
             }
             next = [buildStructuredNearbyNpc(normalizedLocation, record, next.length), ...next];
@@ -5449,10 +6570,14 @@ const App: React.FC = () => {
     const parsedNpcRecords = parseNearbyNpcRecordsFromText(parsedLayer.npcdata || '').records;
     const layerIndex = messages.findIndex(msg => msg.id === activeLayerMessage.id);
     const playerTimeline = layerIndex >= 0 ? messages.slice(0, layerIndex) : messages;
-    const latestPlayerInput =
-      [...playerTimeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
+    const latestPlayerInput = [...playerTimeline].reverse().find(msg => msg.sender === 'Player')?.content || '';
 
-    syncNearbyNpcsFromContext(currentNarrativeLocation || '未知区域', latestPlayerInput, parsedMaintext, parsedNpcRecords);
+    syncNearbyNpcsFromContext(
+      currentNarrativeLocation || '未知区域',
+      latestPlayerInput,
+      parsedMaintext,
+      parsedNpcRecords,
+    );
   }, [gameStage, currentNarrativeLocation, activeLayerMessage, messages, syncNearbyNpcsFromContext]);
 
   const identityLabel = useMemo(
@@ -5464,7 +6589,8 @@ const App: React.FC = () => {
     [stateLock.lockLocation, stateLock.lockedLocation, currentNarrativeLocation],
   );
   const effectiveElapsedMinutes = useMemo(
-    () => (stateLock.lockTime ? stateLock.lockedElapsedMinutes ?? mapRuntime.elapsedMinutes : mapRuntime.elapsedMinutes),
+    () =>
+      stateLock.lockTime ? (stateLock.lockedElapsedMinutes ?? mapRuntime.elapsedMinutes) : mapRuntime.elapsedMinutes,
     [stateLock.lockTime, stateLock.lockedElapsedMinutes, mapRuntime.elapsedMinutes],
   );
   const effectiveGameTimeText = useMemo(() => formatGameTime(effectiveElapsedMinutes || 0), [effectiveElapsedMinutes]);
@@ -5473,6 +6599,61 @@ const App: React.FC = () => {
   const effectiveIdentityLabel = useMemo(
     () => (stateLock.lockIdentity ? stateLock.lockedIdentity || identityLabel : identityLabel),
     [stateLock.lockIdentity, stateLock.lockedIdentity, identityLabel],
+  );
+
+  const markNpcLingnetRuntimeDirty = useCallback(
+    (npcIds: string[], reason: string) => {
+      const nextRuntime = markNpcRuntimeLingnetDirty(npcRuntimeStateRef.current, npcIds, {
+        reason,
+        timeLabel: effectiveGameTimeText,
+        elapsedMinutes: effectiveElapsedMinutes,
+      });
+      if (nextRuntime === npcRuntimeStateRef.current) return;
+      npcRuntimeStateRef.current = nextRuntime;
+      setNpcRuntimeRevision(prev => prev + 1);
+    },
+    [effectiveElapsedMinutes, effectiveGameTimeText],
+  );
+
+  const rememberNpcRuntimeDigest = useCallback(
+    (updates: Array<{ npcId: string; digest: string }>) => {
+      const nextRuntime = rememberNpcRuntimeMemory(npcRuntimeStateRef.current, updates, {
+        timeLabel: effectiveGameTimeText,
+        location: currentNarrativeLocation,
+        elapsedMinutes: effectiveElapsedMinutes,
+      });
+      if (nextRuntime === npcRuntimeStateRef.current) return;
+      npcRuntimeStateRef.current = nextRuntime;
+      setNpcRuntimeRevision(prev => prev + 1);
+    },
+    [currentNarrativeLocation, effectiveElapsedMinutes, effectiveGameTimeText],
+  );
+
+  const lingnetRuntimeHints = useMemo(() => {
+    const runtimeState = npcRuntimeStateRef.current;
+    return npcs.reduce<Record<string, { dirty: boolean; due: boolean; label: string; detail?: string }>>((acc, npc) => {
+      const hint = getNpcLingnetRuntimeHint(runtimeState, npc, effectiveElapsedMinutes);
+      if (hint) acc[npc.id] = hint;
+      return acc;
+    }, {});
+  }, [npcs, effectiveElapsedMinutes, npcRuntimeRevision]);
+
+  const consumeNpcLingnetRefresh = useCallback(
+    (npcIds: string[]) => {
+      const lingnetSettled = consumeNpcRuntimeLingnetRefresh(npcRuntimeStateRef.current, npcIds, {
+        timeLabel: effectiveGameTimeText,
+        elapsedMinutes: effectiveElapsedMinutes,
+      });
+      const nextRuntime = consumeNpcRuntimeOffscreen(lingnetSettled, npcIds, {
+        timeLabel: effectiveGameTimeText,
+        location: currentNarrativeLocation,
+        elapsedMinutes: effectiveElapsedMinutes,
+      });
+      if (nextRuntime === npcRuntimeStateRef.current) return;
+      npcRuntimeStateRef.current = nextRuntime;
+      setNpcRuntimeRevision(prev => prev + 1);
+    },
+    [currentNarrativeLocation, effectiveElapsedMinutes, effectiveGameTimeText],
   );
 
   useEffect(() => {
@@ -5505,19 +6686,39 @@ const App: React.FC = () => {
           citizenId: betaStatus.citizenId || null,
         })
       : null;
-    const nextAssignedDistrict = hasOfficialBetaControl ? `${betaStatus.assignedDistrict ?? ''}`.trim() || airelaBinding?.districtName || '' : '';
-    const nextAssignedXStationId = hasOfficialBetaControl ? `${betaStatus.assignedXStationId ?? ''}`.trim().toUpperCase() || airelaBinding?.xStationId || '' : '';
+    const nextAssignedDistrict = hasOfficialBetaControl
+      ? `${betaStatus.assignedDistrict ?? ''}`.trim() || airelaBinding?.districtName || ''
+      : '';
+    const nextAssignedXStationId = hasOfficialBetaControl
+      ? `${betaStatus.assignedXStationId ?? ''}`.trim().toUpperCase() || airelaBinding?.xStationId || ''
+      : '';
     const nextAssignedXStationLabel = hasOfficialBetaControl
       ? `${betaStatus.assignedXStationLabel ?? ''}`.trim() ||
         (nextAssignedXStationId
           ? formatAirelaSiteLabel('x_station', nextAssignedXStationId, airelaBinding?.districtName)
           : '')
       : '';
-    const nextAssignedHXDormId = hasOfficialBetaControl ? `${betaStatus.assignedHXDormId ?? ''}`.trim().toUpperCase() || airelaBinding?.hxDormId || '' : '';
+    const nextAssignedHXDormId = hasOfficialBetaControl
+      ? `${betaStatus.assignedHXDormId ?? ''}`.trim().toUpperCase() || airelaBinding?.hxDormId || ''
+      : '';
     const nextAssignedHXDormLabel = hasOfficialBetaControl
       ? `${betaStatus.assignedHXDormLabel ?? ''}`.trim() ||
-        (nextAssignedHXDormId ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, airelaBinding?.districtName) : '')
+        (nextAssignedHXDormId
+          ? formatAirelaSiteLabel('hx_dorm', nextAssignedHXDormId, airelaBinding?.districtName)
+          : '')
       : '';
+    const nextNarrativeLocation =
+      effectiveNarrativeLocation || currentNarrativeLocation || playerFaction.headquarters || '鏈煡鍖哄煙';
+    const nextNpcRuntime = buildNpcRuntimeState(
+      npcs,
+      {
+        timeLabel: effectiveGameTimeText,
+        location: nextNarrativeLocation,
+        elapsedMinutes: effectiveElapsedMinutes,
+      },
+      npcRuntimeStateRef.current,
+    );
+    const nextNpcRuntimeSignature = JSON.stringify(nextNpcRuntime);
     const nextSignature = JSON.stringify({
       playerName,
       hpCurrent: playerStats.hp.current,
@@ -5567,6 +6768,7 @@ const App: React.FC = () => {
       lifeStateDigest,
       forgeDigest,
       recentEventSnapshot,
+      npcRuntime: nextNpcRuntimeSignature,
     });
     if (nextSignature === lastPulledSyncSignatureRef.current) return;
     if (nextSignature === lastPushedSyncSignatureRef.current) return;
@@ -5580,28 +6782,20 @@ const App: React.FC = () => {
         const chipRoot = vars.chips && typeof vars.chips === 'object' && !Array.isArray(vars.chips) ? vars.chips : {};
         const coreStatusRaw = player.core_status;
         const coreStatus =
-          coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw)
-            ? coreStatusRaw
-            : {};
+          coreStatusRaw && typeof coreStatusRaw === 'object' && !Array.isArray(coreStatusRaw) ? coreStatusRaw : {};
         const statusRaw = player.status;
         const status = statusRaw && typeof statusRaw === 'object' && !Array.isArray(statusRaw) ? statusRaw : {};
         const psionic = player.psionic && typeof player.psionic === 'object' ? player.psionic : {};
         const assets = player.assets && typeof player.assets === 'object' ? player.assets : {};
         const identityRaw = player.identity;
         const identity =
-          identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw)
-            ? identityRaw
-            : {};
+          identityRaw && typeof identityRaw === 'object' && !Array.isArray(identityRaw) ? identityRaw : {};
         const chipStateRaw = player.chip;
         const chipState =
-          chipStateRaw && typeof chipStateRaw === 'object' && !Array.isArray(chipStateRaw)
-            ? chipStateRaw
-            : {};
+          chipStateRaw && typeof chipStateRaw === 'object' && !Array.isArray(chipStateRaw) ? chipStateRaw : {};
         const residenceRaw = player.residence;
         const residenceState =
-          residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw)
-            ? residenceRaw
-            : {};
+          residenceRaw && typeof residenceRaw === 'object' && !Array.isArray(residenceRaw) ? residenceRaw : {};
         const lcoin = assets.lcoin && typeof assets.lcoin === 'object' ? assets.lcoin : {};
         const normalizeRateField = (rawRate: unknown, current: number) => {
           const nextCurrent = runtimePercentToStatRate(current);
@@ -5639,7 +6833,8 @@ const App: React.FC = () => {
             burglaryTargets: Array.isArray(residenceState.burglary_targets) ? residenceState.burglary_targets : [],
             burglaryHistory: Array.isArray(residenceState.burglary_history) ? residenceState.burglary_history : [],
             burglaryLevel: toFiniteNumber(residenceState.burglary_level) ?? playerResidence.burglaryLevel,
-            burglaryExperience: toFiniteNumber(residenceState.burglary_experience) ?? playerResidence.burglaryExperience,
+            burglaryExperience:
+              toFiniteNumber(residenceState.burglary_experience) ?? playerResidence.burglaryExperience,
           },
         );
         const nextPlayer: Record<string, any> = {
@@ -5647,6 +6842,7 @@ const App: React.FC = () => {
           name: playerName,
           display_name: playerName,
           gender: playerGender,
+          race: playerRace,
           region: nextNarrativeLocation || player.region || world.current_location || '未知区域',
           faction: playerFaction.name || player.faction || world.current_faction || '未知势力',
           occupation: player.occupation || '未定',
@@ -5654,6 +6850,7 @@ const App: React.FC = () => {
             ...identity,
             citizen_id: betaStatus.citizenId,
             neural_protocol: playerNeuralProtocol,
+            race: playerRace,
           },
           neural_protocol: playerNeuralProtocol,
           citizen_id: betaStatus.citizenId,
@@ -5676,8 +6873,16 @@ const App: React.FC = () => {
             ...coreStatus,
             hp: { ...(coreStatus.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
             mp: { ...(coreStatus.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
-            stamina: { ...(((coreStatus as Record<string, any>).stamina || {})), current: playerStats.stamina.current, max: playerStats.stamina.max },
-            satiety: { ...(((coreStatus as Record<string, any>).satiety || {})), current: playerStats.satiety.current, max: playerStats.satiety.max },
+            stamina: {
+              ...((coreStatus as Record<string, any>).stamina || {}),
+              current: playerStats.stamina.current,
+              max: playerStats.stamina.max,
+            },
+            satiety: {
+              ...((coreStatus as Record<string, any>).satiety || {}),
+              current: playerStats.satiety.current,
+              max: playerStats.satiety.max,
+            },
             sanity: { ...(coreStatus.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
             reputation: { ...(coreStatus.reputation || {}), current: betaStatus.creditScore, max: 120 },
           },
@@ -5685,13 +6890,23 @@ const App: React.FC = () => {
             ...status,
             hp: { ...(status.hp || {}), current: playerStats.hp.current, max: playerStats.hp.max },
             mp: { ...(status.mp || {}), current: playerStats.mp.current, max: playerStats.mp.max },
-            stamina: { ...(((status as Record<string, any>).stamina || {})), current: playerStats.stamina.current, max: playerStats.stamina.max },
-            satiety: { ...(((status as Record<string, any>).satiety || {})), current: playerStats.satiety.current, max: playerStats.satiety.max },
+            stamina: {
+              ...((status as Record<string, any>).stamina || {}),
+              current: playerStats.stamina.current,
+              max: playerStats.stamina.max,
+            },
+            satiety: {
+              ...((status as Record<string, any>).satiety || {}),
+              current: playerStats.satiety.current,
+              max: playerStats.satiety.max,
+            },
             sanity: { ...(status.sanity || {}), current: playerStats.sanity.current, max: playerStats.sanity.max },
             reputation: { ...(status.reputation || {}), current: betaStatus.creditScore, max: 120 },
           },
           six_dim: {
-            ...((player.six_dim && typeof player.six_dim === 'object' && !Array.isArray(player.six_dim)) ? player.six_dim : {}),
+            ...(player.six_dim && typeof player.six_dim === 'object' && !Array.isArray(player.six_dim)
+              ? player.six_dim
+              : {}),
             ...playerStats.sixDim,
           },
           psionic: {
@@ -5699,7 +6914,9 @@ const App: React.FC = () => {
             rank: playerStats.psionic.level,
             density_level: rankToLevel(playerStats.psionic.level),
             energy_value: {
-              ...((psionic.energy_value && typeof psionic.energy_value === 'object' && !Array.isArray(psionic.energy_value))
+              ...(psionic.energy_value &&
+              typeof psionic.energy_value === 'object' &&
+              !Array.isArray(psionic.energy_value)
                 ? psionic.energy_value
                 : {}),
               current: playerStats.mp.current,
@@ -5709,7 +6926,9 @@ const App: React.FC = () => {
             conversion_rate: normalizeRateField(psionic.conversion_rate, playerStats.psionic.conversionRate),
             recovery_rate: normalizeRateField(psionic.recovery_rate, playerStats.psionic.recoveryRate),
             base_daily_recovery: {
-              ...((psionic.base_daily_recovery && typeof psionic.base_daily_recovery === 'object' && !Array.isArray(psionic.base_daily_recovery))
+              ...(psionic.base_daily_recovery &&
+              typeof psionic.base_daily_recovery === 'object' &&
+              !Array.isArray(psionic.base_daily_recovery)
                 ? psionic.base_daily_recovery
                 : {}),
               male: 120,
@@ -5742,7 +6961,7 @@ const App: React.FC = () => {
             switch_cooldown_round: toFiniteNumber(chipState.switch_cooldown_round) ?? 0,
           },
           flags: {
-            ...((player.flags && typeof player.flags === 'object' && !Array.isArray(player.flags)) ? player.flags : {}),
+            ...(player.flags && typeof player.flags === 'object' && !Array.isArray(player.flags) ? player.flags : {}),
             opening_locked: false,
             narration_owner: 'player',
             allow_auto_opening: false,
@@ -5754,6 +6973,7 @@ const App: React.FC = () => {
         };
 
         const nextVars = { ...vars };
+        npcRuntimeStateRef.current = nextNpcRuntime;
         nextVars.stat_data = {
           ...root,
           world: {
@@ -5785,13 +7005,16 @@ const App: React.FC = () => {
               ...worldExchangeRules,
               region_modifier: {
                 ...DEFAULT_STAT_EXCHANGE_RULES.region_modifier,
-                ...((worldExchangeRules.region_modifier && typeof worldExchangeRules.region_modifier === 'object' && !Array.isArray(worldExchangeRules.region_modifier))
+                ...(worldExchangeRules.region_modifier &&
+                typeof worldExchangeRules.region_modifier === 'object' &&
+                !Array.isArray(worldExchangeRules.region_modifier)
                   ? worldExchangeRules.region_modifier
                   : {}),
               },
             },
           },
           player: nextPlayer,
+          npc_runtime: nextNpcRuntime,
         };
         nextVars.chips = {
           ...chipRoot,
@@ -5835,6 +7058,7 @@ const App: React.FC = () => {
     playerStats.psionic.conversionRate,
     playerStats.psionic.recoveryRate,
     playerGender,
+    playerRace,
     playerNeuralProtocol,
     betaStatus.citizenId,
     betaStatus.creditScore,
@@ -5882,6 +7106,9 @@ const App: React.FC = () => {
     playerCoreAffixes,
     playerLingshu,
     playerSoulLedger,
+    npcs,
+    effectiveElapsedMinutes,
+    npcRuntimeRevision,
   ]);
   const visibleMessages = messages;
   const visibleLayerMessages = useMemo(
@@ -5899,14 +7126,16 @@ const App: React.FC = () => {
 
   const pushFinanceLedgerEntry = useCallback(
     (entry: Omit<FinanceLedgerEntry, 'id' | 'timestamp'> & Partial<Pick<FinanceLedgerEntry, 'id' | 'timestamp'>>) => {
-      setFinanceLedger(prev => [
-        {
-          id: entry.id || `ledger_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          timestamp: entry.timestamp || new Date().toISOString(),
-          ...entry,
-        },
-        ...prev,
-      ].slice(0, 80));
+      setFinanceLedger(prev =>
+        [
+          {
+            id: entry.id || `ledger_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            timestamp: entry.timestamp || new Date().toISOString(),
+            ...entry,
+          },
+          ...prev,
+        ].slice(0, 80),
+      );
     },
     [],
   );
@@ -5925,6 +7154,7 @@ const App: React.FC = () => {
     messages,
     playerStats,
     playerGender,
+    playerRace,
     playerSkills,
     npcs,
     contactGroups,
@@ -5979,20 +7209,39 @@ const App: React.FC = () => {
     setPlayerName(payload.playerName?.trim() || LN_DEFAULT_PLAYER_NAME);
     setPlayerStats(ensurePlayerStatsSixDim(payload.playerStats || MOCK_PLAYER_STATS));
     setPlayerGender(payload.playerGender || 'male');
-    setPlayerSkills(payload.playerSkills || []);
+    setPlayerRace(payload.playerRace?.trim() || DEFAULT_PLAYER_RACE);
+    setPlayerSkills(sanitizeRuntimeSpiritSkillList(payload.playerSkills || []));
     setNpcs(normalizeNpcListForUi(payload.npcs || []));
     setContactGroups(payload.contactGroups || []);
     setPlayerChips(payload.playerChips || MOCK_CHIPS);
     setStorageChips(payload.storageChips || MOCK_STORAGE_CHIPS);
     setPlayerInventory(payload.playerInventory || MOCK_INVENTORY);
-    setPlayerLingshu(payload.playerLingshu || []);
-    setPlayerSoulLedger(payload.playerSoulLedger || { [Rank.Lv1]: 0, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 });
+    setPlayerLingshu(sanitizeRuntimeLingshuParts(payload.playerLingshu || []));
+    setPlayerSoulLedger(
+      payload.playerSoulLedger || { [Rank.Lv1]: 0, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 },
+    );
     setCoinVault(payload.coinVault || { [Rank.Lv1]: 0, [Rank.Lv2]: 0, [Rank.Lv3]: 0, [Rank.Lv4]: 0, [Rank.Lv5]: 0 });
     setPlayerCoreAffixes(
       payload.playerCoreAffixes ||
         (payload.playerGender === 'male'
-          ? [{ id: 'core_affix_m_1', name: '状态：压制残响', description: '承压后短时抑制外泄。', type: 'debuff', source: '初始' }]
-          : [{ id: 'core_affix_f_1', name: '状态：奇点凝附', description: '提升灵海稳定与吸附能力。', type: 'buff', source: '初始' }]),
+          ? [
+              {
+                id: 'core_affix_m_1',
+                name: '状态：压制残响',
+                description: '承压后短时抑制外泄。',
+                type: 'debuff',
+                source: '初始',
+              },
+            ]
+          : [
+              {
+                id: 'core_affix_f_1',
+                name: '状态：奇点凝附',
+                description: '提升灵海稳定与吸附能力。',
+                type: 'buff',
+                source: '初始',
+              },
+            ]),
     );
     setPlayerFaction(payload.playerFaction || MOCK_PLAYER_FACTION);
     setLeftModuleTab(
@@ -6005,7 +7254,9 @@ const App: React.FC = () => {
         : 'chips',
     );
     setPlayerNeuralProtocol(payload.playerNeuralProtocol === 'beta' ? 'beta' : 'none');
-    setCareerTracks(payload.careerTracks?.length ? cloneCareerTracks(payload.careerTracks) : cloneCareerTracks(DEFAULT_CAREER_TRACKS));
+    setCareerTracks(
+      payload.careerTracks?.length ? cloneCareerTracks(payload.careerTracks) : cloneCareerTracks(DEFAULT_CAREER_TRACKS),
+    );
     const loadedStatus = payload.betaStatus || MOCK_PLAYER_STATUS;
     setBetaStatus({
       ...loadedStatus,
@@ -6027,9 +7278,8 @@ const App: React.FC = () => {
     setPendingUpgradeEvaluation(!!payload.pendingUpgradeEvaluation);
     setSelectedBetaProfessionId(payload.selectedBetaProfessionId || null);
     const fallbackFocus =
-      [...normalizedMessages]
-        .reverse()
-        .find(msg => msg.sender === 'System' && hasPseudoLayer(msg.content || ''))?.id || null;
+      [...normalizedMessages].reverse().find(msg => msg.sender === 'System' && hasPseudoLayer(msg.content || ''))?.id ||
+      null;
     setFocusedLayerId(payload.focusedLayerId || fallbackFocus);
     setWorldNodeMap(normalizeWorldNodeMap(payload.worldNodeMap) || createEmptyWorldMap());
     setMapRuntime(
@@ -6042,7 +7292,9 @@ const App: React.FC = () => {
     );
     setCityRuntime(normalizeCityRuntime(payload.cityRuntime) || createEmptyCityRuntime());
     setMonthlySettlementLog(payload.monthlySettlementLog || []);
-    setSettlementCheckpointMonth(payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0));
+    setSettlementCheckpointMonth(
+      payload.settlementCheckpointMonth || getMonthKeyFromElapsedMinutes(payload.mapRuntime?.elapsedMinutes || 0),
+    );
     setFinanceLedger(payload.financeLedger || []);
     setBlackRaceMarket(payload.blackRaceMarket || buildBlackRaceMarket());
     setBlackRaceHistory(payload.blackRaceHistory || []);
@@ -6073,7 +7325,8 @@ const App: React.FC = () => {
     const now = Date.now();
     const trimmedName = archiveNameInput.trim();
     const fallbackName = playerName.trim() || new Date(now).toLocaleString('zh-CN');
-    const manualSelectedArchiveId = selectedArchiveId && selectedArchiveId !== LN_AUTO_ARCHIVE_ID ? selectedArchiveId : '';
+    const manualSelectedArchiveId =
+      selectedArchiveId && selectedArchiveId !== LN_AUTO_ARCHIVE_ID ? selectedArchiveId : '';
     const targetId = manualSelectedArchiveId || `archive_${now}_${Math.random().toString(36).slice(2, 8)}`;
     const nextName = trimmedName || archiveSlots.find(slot => slot.id === targetId)?.name || `档案 ${fallbackName}`;
     const existing = archiveSlots.find(slot => slot.id === targetId);
@@ -6174,6 +7427,202 @@ const App: React.FC = () => {
     }
   };
 
+  type LingnetRefreshDraft = {
+    content: string;
+    location?: string;
+    visibility?: SocialPost['visibility'];
+    unlockPrice?: number;
+  };
+
+  const LINGNET_REFRESH_RESPONSE_RULES = [
+    '只输出一个 <social_posts> JSON 数组块。',
+    '数组中的每项只允许包含: content, location, visibility, unlockPrice。',
+    'content 必填，写成适合公开发布在灵网上的动态文案。',
+    '不要输出解释，不要输出 Markdown，不要输出多余文本。',
+    '如果当前没有合适的公开动态，就输出空数组。',
+  ].join('\n');
+
+  const buildNpcRuntimeMemoryExcerpt = (value: string, limit = 48): string => {
+    const normalized = sanitizeAiMaintext(value).replace(/\s+/g, ' ').trim();
+    if (!normalized) return '';
+    if (normalized.length <= limit) return normalized;
+    return `${normalized.slice(0, limit - 1).trim()}…`;
+  };
+
+  const parseLingnetRefreshPostsFromText = (
+    raw: string,
+  ): { found: boolean; error?: string; posts: LingnetRefreshDraft[] } => {
+    const text = sanitizeAiMaintext(raw);
+    const blockMatch = text.match(/<social_posts>([\s\S]*?)<\/social_posts>/i);
+    const jsonText = blockMatch?.[1]?.trim();
+    if (!jsonText) {
+      return { found: false, error: '模型没有返回 <social_posts> 结构。', posts: [] };
+    }
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!Array.isArray(parsed)) {
+        return { found: true, error: 'social_posts 必须是 JSON 数组。', posts: [] };
+      }
+      const posts = (
+        parsed
+          .map(item => {
+            const content = `${item?.content ?? ''}`.trim();
+            if (!content) return null;
+            const visibilityRaw = `${item?.visibility ?? ''}`.trim().toLowerCase();
+            const visibility: SocialPost['visibility'] =
+              visibilityRaw === 'premium' || visibilityRaw === 'mutual' || visibilityRaw === 'public'
+                ? (visibilityRaw as SocialPost['visibility'])
+                : 'public';
+            const unlockPrice = toFiniteNumber(item?.unlockPrice);
+            return {
+              content,
+              location: `${item?.location ?? ''}`.trim() || undefined,
+              visibility,
+              unlockPrice: visibility === 'premium' && unlockPrice !== undefined ? Math.max(1, unlockPrice) : undefined,
+            } satisfies LingnetRefreshDraft;
+          })
+          .filter(Boolean) as LingnetRefreshDraft[]
+      ).slice(0, 3);
+      return { found: true, posts };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '未知错误';
+      return { found: true, error: `social_posts 解析失败：${message}`, posts: [] };
+    }
+  };
+
+  const buildLingnetRefreshPosts = (npc: NPC, drafts: LingnetRefreshDraft[], nowMs: number): SocialPost[] => {
+    const existingKeys = new Set(
+      (npc.socialFeed || []).map(post =>
+        [sanitizeAiMaintext(post.content).replace(/\s+/g, ' ').trim(), `${post.location || ''}`.trim()].join('|'),
+      ),
+    );
+    return drafts
+      .map((draft, index) => {
+        const normalizedContent = sanitizeAiMaintext(draft.content).replace(/\s+/g, ' ').trim();
+        if (!normalizedContent) return null;
+        const location = `${draft.location || ''}`.trim() || npc.location || undefined;
+        const dedupeKey = [normalizedContent, `${location || ''}`].join('|');
+        if (existingKeys.has(dedupeKey)) return null;
+        existingKeys.add(dedupeKey);
+        return {
+          id: `social_refresh_${npc.id}_${nowMs}_${index}`,
+          content: normalizedContent,
+          timestamp: new Date(nowMs - index * 60_000).toISOString(),
+          comments: [],
+          visibility: draft.visibility || 'public',
+          unlockPrice: draft.visibility === 'premium' ? draft.unlockPrice || 88 : undefined,
+          unlockedByPlayer: draft.visibility === 'premium' ? false : true,
+          location,
+        } satisfies SocialPost;
+      })
+      .filter(Boolean) as SocialPost[];
+  };
+
+  const requestApiText = async (
+    input: string,
+    context: {
+      systemPrompt?: string;
+      dialogueContext?: string;
+    } = {},
+    signal?: AbortSignal,
+  ): Promise<string> => {
+    const runtimeMode = resolveApiRuntimeMode(apiConfig);
+    if (runtimeMode === 'disabled') return '';
+    const endpoint = resolveApiEndpoint(apiConfig.endpoint);
+    const systemPrompt = context.systemPrompt?.trim() || '';
+    const dialogueContext = context.dialogueContext?.trim() || '';
+
+    if (runtimeMode === 'tavern') {
+      const tavernGenerateList = resolveTavernGenerateList();
+      if (tavernGenerateList.length === 0) {
+        throw new Error('未找到酒馆生成接口（generate / generateRaw），请检查酒馆助手加载状态。');
+      }
+      const userInput = [systemPrompt, dialogueContext, input].filter(Boolean).join('\n\n');
+      const runWithAbort = async (fn: TavernGenerateFn, shouldSilence?: boolean): Promise<string> => {
+        const args: TavernGenerateArgs =
+          typeof shouldSilence === 'boolean'
+            ? { user_input: userInput, should_silence: shouldSilence }
+            : { user_input: userInput };
+        const genPromise = fn(args);
+        const result = signal
+          ? await Promise.race<unknown>([
+              genPromise,
+              new Promise<never>((_, reject) => {
+                if (signal.aborted) {
+                  reject(new DOMException('Aborted', 'AbortError'));
+                  return;
+                }
+                const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));
+                signal.addEventListener('abort', onAbort, { once: true });
+              }),
+            ])
+          : await genPromise;
+        return sanitizeAiMaintext(coerceGenerateResultToText(result));
+      };
+
+      let text = '';
+      for (const silenceMode of [false, true] as const) {
+        for (const generateFn of tavernGenerateList) {
+          text = await runWithAbort(generateFn, silenceMode);
+          if (text) break;
+        }
+        if (text) break;
+      }
+      if (!text) {
+        throw new Error('酒馆生成接口返回空文本。');
+      }
+      return text;
+    }
+
+    const externalConfigError = validateExternalApiConfig(apiConfig);
+    if (externalConfigError) {
+      throw new Error(externalConfigError);
+    }
+
+    const requestMessages: Array<{ role: 'system' | 'user'; content: string }> = [];
+    if (systemPrompt || dialogueContext) {
+      requestMessages.push({
+        role: 'system',
+        content: [systemPrompt, dialogueContext].filter(Boolean).join('\n\n'),
+      });
+    }
+    requestMessages.push({ role: 'user', content: input });
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (apiConfig.apiKey.trim()) {
+      headers.Authorization = `Bearer ${apiConfig.apiKey.trim()}`;
+    }
+
+    const requestBody = isResponsesApiEndpoint(endpoint)
+      ? {
+          model: apiConfig.model.trim(),
+          input: buildResponsesApiInput(requestMessages),
+          temperature: 0.85,
+        }
+      : {
+          model: apiConfig.model.trim(),
+          messages: requestMessages,
+          temperature: 0.85,
+        };
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      signal,
+      body: JSON.stringify(requestBody),
+    });
+    if (!response.ok) {
+      const errorText = sanitizeAiMaintext(await response.text().catch(() => ''));
+      const summary = errorText ? `: ${errorText.slice(0, 180)}` : '';
+      throw new Error(`HTTP ${response.status}${summary}`);
+    }
+    const contentType = `${response.headers.get('content-type') || ''}`.toLowerCase();
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+    return sanitizeAiMaintext(coerceGenerateResultToText(payload));
+  };
+
   const requestApiMaintext = async (
     input: string,
     context?: {
@@ -6219,9 +7668,7 @@ const App: React.FC = () => {
             .join('\n')
             .concat('\n')
         : `${PSEUDO_LAYER_RESPONSE_RULES}\n`;
-      const dialoguePrefix = context?.dialogueContext?.trim()
-        ? `${context.dialogueContext.trim()}\n`
-        : '';
+      const dialoguePrefix = context?.dialogueContext?.trim() ? `${context.dialogueContext.trim()}\n` : '';
       const userInput = `${contextPrefix}${dialoguePrefix}${input}`.trim();
       const runWithAbort = async (fn: TavernGenerateFn, shouldSilence?: boolean): Promise<string> => {
         const args: TavernGenerateArgs =
@@ -6266,7 +7713,7 @@ const App: React.FC = () => {
       throw new Error(externalConfigError);
     }
 
-    const requestMessages = context
+    const requestMessages: Array<{ role: 'system' | 'user'; content: string }> = context
       ? [
           {
             role: 'system',
@@ -6325,9 +7772,7 @@ const App: React.FC = () => {
       throw new Error(`HTTP ${response.status}${summary}`);
     }
     const contentType = `${response.headers.get('content-type') || ''}`.toLowerCase();
-    const payload = contentType.includes('application/json')
-      ? await response.json()
-      : await response.text();
+    const payload = contentType.includes('application/json') ? await response.json() : await response.text();
     return parseApiOutputPayload(sanitizeAiMaintext(coerceGenerateResultToText(payload)));
   };
 
@@ -6335,12 +7780,136 @@ const App: React.FC = () => {
     setNpcs(prev => prev.map(n => (n.id === npcId ? normalizeNpcForUi({ ...n, ...updates }) : n)));
   };
 
+  const handleRefreshLingnetNpc = useCallback(
+    async (npcId: string): Promise<{ ok: boolean; message: string; postCount?: number }> => {
+      if (isApiSending || lingnetRefreshingNpcId) {
+        return { ok: false, message: '当前已有生成请求正在进行，请稍后再补灵网近况。' };
+      }
+
+      const targetNpc = npcs.find(npc => npc.id === npcId);
+      if (!targetNpc) return { ok: false, message: '目标账号不存在。' };
+
+      const runtimeHint = getNpcLingnetRuntimeHint(npcRuntimeStateRef.current, targetNpc, effectiveElapsedMinutes);
+      if (!runtimeHint) {
+        return { ok: false, message: '当前没有需要补写的灵网近况。' };
+      }
+
+      const latestPostsDigest =
+        targetNpc.socialFeed.length > 0
+          ? targetNpc.socialFeed
+              .slice(0, 3)
+              .map((post, index) => `${index + 1}. ${post.content}${post.location ? ` @${post.location}` : ''}`)
+              .join('\n')
+          : '暂无公开动态。';
+      const systemPrompt = [
+        '【运行上下文（仅用于内部推理，不要原样复述）】',
+        `time=${effectiveGameTimeText}${effectiveGameDayPhase ? ` (${effectiveGameDayPhase})` : ''}`,
+        `location=${currentNarrativeLocation || targetNpc.location || '未知区域'}`,
+        runtimeHint.detail ? `lingnet_hint=${runtimeHint.detail}` : '',
+        '不要生成图片，只补写灵网公开文本动态；默认玩家稍后可自行配图。',
+        LINGNET_REFRESH_RESPONSE_RULES,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      const dialogueContext = [
+        '【目标账号隐藏参考】',
+        buildNpcDirectorPrompt(targetNpc),
+        buildNpcRuntimePromptSupplement(npcRuntimeStateRef.current, targetNpc),
+        `【最近已有灵网公开内容】\n${latestPostsDigest}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const requestInput = `请只为角色「${targetNpc.name}」补写最近一段时间内适合公开出现在灵网上的近况动态。优先生成 1~3 条无图动态；若当前不适合公开发动态，则输出空数组。`;
+
+      setLingnetRefreshingNpcId(npcId);
+      try {
+        const text = await requestApiText(
+          requestInput,
+          {
+            systemPrompt,
+            dialogueContext,
+          },
+          undefined,
+        );
+        if (!text) {
+          return { ok: false, message: '本次补写没有拿到可用输出。' };
+        }
+
+        const parsed = parseLingnetRefreshPostsFromText(text);
+        if (!parsed.found) {
+          return { ok: false, message: parsed.error || '模型没有返回可识别的灵网动态块。' };
+        }
+        if (parsed.error) {
+          return { ok: false, message: parsed.error };
+        }
+
+        const nowMs = Date.now();
+        let appendedCount = 0;
+
+        setNpcs(prev =>
+          normalizeNpcListForUi(
+            prev.map(npc => {
+              if (npc.id !== npcId) return npc;
+              const freshPosts = buildLingnetRefreshPosts(npc, parsed.posts, nowMs);
+              appendedCount = freshPosts.length;
+              if (freshPosts.length === 0) return npc;
+              return normalizeNpcForUi({
+                ...npc,
+                socialFeed: [...freshPosts, ...(npc.socialFeed || [])],
+              });
+            }),
+          ),
+        );
+
+        consumeNpcLingnetRefresh([npcId]);
+        rememberNpcRuntimeDigest([
+          {
+            npcId,
+            digest:
+              appendedCount > 0
+                ? `玩家刚刚手动同步了她的灵网近况；最近新增 ${appendedCount} 条公开动态，最新一条是“${buildNpcRuntimeMemoryExcerpt(parsed.posts[0]?.content || '')}”。`
+                : '玩家刚刚手动同步了她的灵网近况；本轮没有新增公开动态。',
+          },
+        ]);
+        return {
+          ok: true,
+          message:
+            appendedCount > 0
+              ? `已为 ${targetNpc.name} 补写 ${appendedCount} 条最近动态。`
+              : `已同步 ${targetNpc.name} 的近况，本轮没有新增公开动态。`,
+          postCount: appendedCount,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '未知错误';
+        return { ok: false, message: `补写灵网近况失败：${message}` };
+      } finally {
+        setLingnetRefreshingNpcId(null);
+      }
+    },
+    [
+      consumeNpcLingnetRefresh,
+      currentNarrativeLocation,
+      effectiveElapsedMinutes,
+      effectiveGameDayPhase,
+      effectiveGameTimeText,
+      isApiSending,
+      lingnetRefreshingNpcId,
+      npcs,
+      rememberNpcRuntimeDigest,
+    ],
+  );
+
   const handleToggleSocialFollow = (npcId: string) => {
+    const currentNpc = npcs.find(npc => npc.id === npcId);
+    const nextFollow = !currentNpc?.playerFollows;
     setNpcs(prev =>
       prev.map(npc => {
         if (npc.id !== npcId) return npc;
         const nextFollow = !npc.playerFollows;
-        const autoMutual = nextFollow && (npc.isContact || (npc.affection || npc.trust || 0) >= 45 || hashText(`${npc.id}_mutual`) % 3 === 0);
+        const autoMutual =
+          nextFollow &&
+          (npc.isContact || (npc.affection || npc.trust || 0) >= 45 || hashText(`${npc.id}_mutual`) % 3 === 0);
         return normalizeNpcForUi({
           ...npc,
           playerFollows: nextFollow,
@@ -6369,6 +7938,13 @@ const App: React.FC = () => {
         });
       }),
     );
+    markNpcLingnetRuntimeDirty([npcId], '玩家刚刚调整了对她的关注状态，适合按需补最近动态或公开反馈。');
+    rememberNpcRuntimeDigest([
+      {
+        npcId,
+        digest: nextFollow ? '玩家刚刚开始关注她的灵网主页。' : '玩家刚刚取消关注她的灵网主页。',
+      },
+    ]);
   };
 
   const handleAddSocialComment = (npcId: string, postId: string, content: string) => {
@@ -6399,6 +7975,13 @@ const App: React.FC = () => {
         });
       }),
     );
+    markNpcLingnetRuntimeDirty([npcId], '玩家刚刚在她的公开动态下发表评论，可能引发后续公开互动。');
+    rememberNpcRuntimeDigest([
+      {
+        npcId,
+        digest: `玩家刚刚在她的动态下评论：“${buildNpcRuntimeMemoryExcerpt(trimmed)}”。`,
+      },
+    ]);
   };
 
   const handleSendSocialDm = (
@@ -6459,6 +8042,15 @@ const App: React.FC = () => {
         return normalizeNpcForUi({ ...npc, dmThread: nextThread });
       }),
     );
+    markNpcLingnetRuntimeDirty([npcId], '玩家刚刚通过灵网私信联系她，可能影响她后续公开动态。');
+    rememberNpcRuntimeDigest([
+      {
+        npcId,
+        digest: todoResult
+          ? `玩家刚刚通过灵网私信她：“${buildNpcRuntimeMemoryExcerpt(trimmed)}”；并触发了待办「${todoResult.todo.title}」。`
+          : `玩家刚刚通过灵网私信她：“${buildNpcRuntimeMemoryExcerpt(trimmed)}”。`,
+      },
+    ]);
     return {
       ok: true,
       todoTitle: todoResult?.todo.title,
@@ -6504,7 +8096,9 @@ const App: React.FC = () => {
           {
             id: `dm_pay_${Date.now()}`,
             sender: 'system',
-            content: note?.trim() || (kind === 'unlock' ? '已完成内容解锁。' : kind === 'tip' ? '已完成动态打赏。' : '已完成转账。'),
+            content:
+              note?.trim() ||
+              (kind === 'unlock' ? '已完成内容解锁。' : kind === 'tip' ? '已完成动态打赏。' : '已完成转账。'),
             timestamp: new Date().toISOString(),
             amount,
             kind,
@@ -6516,8 +8110,12 @@ const App: React.FC = () => {
             ...npc.stats,
             credits: (npc.stats?.credits || 0) + amount,
           },
-          affection: npc.gender === 'female' ? Math.min(100, (npc.affection || 0) + Math.max(1, Math.floor(amount / 40))) : npc.affection,
-          trust: npc.gender === 'male' ? Math.min(100, (npc.trust || 0) + Math.max(1, Math.floor(amount / 40))) : npc.trust,
+          affection:
+            npc.gender === 'female'
+              ? Math.min(100, (npc.affection || 0) + Math.max(1, Math.floor(amount / 40)))
+              : npc.affection,
+          trust:
+            npc.gender === 'male' ? Math.min(100, (npc.trust || 0) + Math.max(1, Math.floor(amount / 40))) : npc.trust,
           unlockState: {
             ...(npc.unlockState || {}),
             dossierLevel: Math.max(kind === 'unlock' ? 4 : 3, npc.unlockState?.dossierLevel || 0),
@@ -6529,6 +8127,23 @@ const App: React.FC = () => {
         });
       }),
     );
+    markNpcLingnetRuntimeDirty(
+      [npcId],
+      kind === 'unlock'
+        ? '玩家刚刚支付了解锁费用，适合按需补她后续的公开灵网动态。'
+        : '玩家刚刚发生了一笔灵网相关支付，适合按需补她后续的公开反馈。',
+    );
+    rememberNpcRuntimeDigest([
+      {
+        npcId,
+        digest:
+          kind === 'unlock'
+            ? '玩家刚刚为她支付了一笔解锁费用。'
+            : kind === 'tip'
+              ? '玩家刚刚向她进行了一笔打赏。'
+              : '玩家刚刚向她进行了一笔转账。',
+      },
+    ]);
     setMessages(prev => [
       ...prev,
       {
@@ -6711,7 +8326,9 @@ const App: React.FC = () => {
     );
     return {
       ok: true,
-      message: isWin ? `押中 ${targetOption.label}，到账 ${payout} 灵币。` : `${targetOption.label} 未能打穿盘口，本注落空。`,
+      message: isWin
+        ? `押中 ${targetOption.label}，到账 ${payout} 灵币。`
+        : `${targetOption.label} 未能打穿盘口，本注落空。`,
       outcome: isWin ? 'win' : 'lose',
       payout,
       net,
@@ -6805,7 +8422,9 @@ const App: React.FC = () => {
     );
     return {
       ok: true,
-      message: isWin ? `押中 ${targetRunner.label}，到账 ${payout} 灵能币。` : `${targetRunner.label} 没能冲线，本注落空。`,
+      message: isWin
+        ? `押中 ${targetRunner.label}，到账 ${payout} 灵能币。`
+        : `${targetRunner.label} 没能冲线，本注落空。`,
       outcome: isWin ? 'win' : 'lose',
       payout,
       net,
@@ -6840,7 +8459,9 @@ const App: React.FC = () => {
     const matchedSymbol = SLOT_SYMBOL_POOL.find(symbol => symbol.label === topMatch?.[0]) || reels[0];
     const outcome: SlotSpinRecord['outcome'] =
       topMatch?.[1] === 3
-        ? matchedSymbol.matchThree >= 12 ? 'jackpot' : 'match_three'
+        ? matchedSymbol.matchThree >= 12
+          ? 'jackpot'
+          : 'match_three'
         : topMatch?.[1] === 2
           ? 'match_two'
           : 'miss';
@@ -7072,16 +8693,12 @@ const App: React.FC = () => {
     return { ok: true, message: `已完成一轮上工，入账 ${payout} 灵能币。`, net: payout };
   };
 
-  const handleBuyBlackMarketListing = ({
-    listingId,
-  }: {
-    listingId: string;
-  }): { ok: boolean; message?: string } => {
+  const handleBuyBlackMarketListing = ({ listingId }: { listingId: string }): { ok: boolean; message?: string } => {
     const location = currentNarrativeLocation || playerFaction.headquarters || '';
     const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
     const venue =
-      blackMarketVenue
-      || buildBlackMarketVenue({
+      blackMarketVenue ||
+      buildBlackMarketVenue({
         locationLabel: location || '诺丝区·烬梦针市',
         districtId,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
@@ -7114,19 +8731,21 @@ const App: React.FC = () => {
     });
     const resolvedAt = new Date().toISOString();
     const detail = `你在 ${venue.backroomLabel} 入手了 ${listing.label}，支出 ${listing.price} 灵能币。${listing.summary}`;
-    setBlackMarketHistory(prev => [
-      {
-        id: `black_market_purchase_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        venueId: venue.id,
-        venueTitle: venue.title,
-        kind: 'purchase',
-        title: listing.label,
-        amount: -listing.price,
-        resolvedAt,
-        detail,
-      },
-      ...prev,
-    ].slice(0, 24));
+    setBlackMarketHistory(prev =>
+      [
+        {
+          id: `black_market_purchase_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          venueId: venue.id,
+          venueTitle: venue.title,
+          kind: 'purchase',
+          title: listing.label,
+          amount: -listing.price,
+          resolvedAt,
+          detail,
+        } satisfies BlackMarketRecord,
+        ...prev,
+      ].slice(0, 24),
+    );
     setMessages(prev => [
       ...prev,
       {
@@ -7149,8 +8768,8 @@ const App: React.FC = () => {
     const location = currentNarrativeLocation || playerFaction.headquarters || '';
     const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
     const venue =
-      blackMarketVenue
-      || buildBlackMarketVenue({
+      blackMarketVenue ||
+      buildBlackMarketVenue({
         locationLabel: location || '诺丝区·岚针诊台',
         districtId,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
@@ -7192,19 +8811,21 @@ const App: React.FC = () => {
     });
     const resolvedAt = new Date().toISOString();
     const detail = `你在 ${venue.doctorLabel} 接了「${treatment.label}」，支出 ${treatment.price} 灵能币。${treatment.summary}`;
-    setBlackMarketHistory(prev => [
-      {
-        id: `black_market_treatment_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        venueId: venue.id,
-        venueTitle: venue.title,
-        kind: 'treatment',
-        title: treatment.label,
-        amount: -treatment.price,
-        resolvedAt,
-        detail,
-      },
-      ...prev,
-    ].slice(0, 24));
+    setBlackMarketHistory(prev =>
+      [
+        {
+          id: `black_market_treatment_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          venueId: venue.id,
+          venueTitle: venue.title,
+          kind: 'treatment',
+          title: treatment.label,
+          amount: -treatment.price,
+          resolvedAt,
+          detail,
+        } satisfies BlackMarketRecord,
+        ...prev,
+      ].slice(0, 24),
+    );
     setMessages(prev => [
       ...prev,
       {
@@ -7219,18 +8840,14 @@ const App: React.FC = () => {
     return { ok: true, message: `${treatment.label} 已处理完毕。` };
   };
 
-  const handleSubmitBlackMarketCommission = ({
-    request,
-  }: {
-    request: string;
-  }): { ok: boolean; message?: string } => {
+  const handleSubmitBlackMarketCommission = ({ request }: { request: string }): { ok: boolean; message?: string } => {
     const trimmed = request.trim();
     if (!trimmed) return { ok: false, message: '先把代办内容写清楚。' };
     const location = currentNarrativeLocation || playerFaction.headquarters || '';
     const districtId = cityRuntime.currentDistrictId || resolveDistrictProfileFromLocation(location).id;
     const venue =
-      blackMarketVenue
-      || buildBlackMarketVenue({
+      blackMarketVenue ||
+      buildBlackMarketVenue({
         locationLabel: location || '诺丝区·盲签屋',
         districtId,
         elapsedMinutes: mapRuntime.elapsedMinutes || 0,
@@ -7277,19 +8894,21 @@ const App: React.FC = () => {
     });
     const resolvedAt = new Date().toISOString();
     const detail = `你在 ${venue.commissionLabel} 登记了「${trimmed}」，先付 ${fee} 灵能币作为渠道费。`;
-    setBlackMarketHistory(prev => [
-      {
-        id: `black_market_commission_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        venueId: venue.id,
-        venueTitle: venue.title,
-        kind: 'commission',
-        title: trimmed,
-        amount: -fee,
-        resolvedAt,
-        detail,
-      },
-      ...prev,
-    ].slice(0, 24));
+    setBlackMarketHistory(prev =>
+      [
+        {
+          id: `black_market_commission_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          venueId: venue.id,
+          venueTitle: venue.title,
+          kind: 'commission',
+          title: trimmed,
+          amount: -fee,
+          resolvedAt,
+          detail,
+        } satisfies BlackMarketRecord,
+        ...prev,
+      ].slice(0, 24),
+    );
     setMessages(prev => [
       ...prev,
       {
@@ -7323,16 +8942,17 @@ const App: React.FC = () => {
     const maxLocks = resolveForgeLockSlots(forgeWorkshopState.level);
     const targetChip =
       kind === 'chip' && targetId
-        ? [...playerChips, ...storageChips].find(chip => chip.id === targetId && chip.forgeProfile?.kind === 'chip') || null
+        ? [...playerChips, ...storageChips].find(chip => chip.id === targetId && chip.forgeProfile?.kind === 'chip') ||
+          null
         : null;
     const targetCyberware =
       kind === 'cyberware' && targetId
         ? playerInventory.find(item => item.id === targetId && item.forgeProfile?.kind === 'cyberware') || null
         : null;
     const lockedAffixes =
-      (kind === 'chip' ? targetChip?.forgeProfile?.affixes : targetCyberware?.forgeProfile?.affixes)?.filter(affix =>
-        lockedAffixIds.includes(affix.id),
-      ).slice(0, maxLocks) || [];
+      (kind === 'chip' ? targetChip?.forgeProfile?.affixes : targetCyberware?.forgeProfile?.affixes)
+        ?.filter(affix => lockedAffixIds.includes(affix.id))
+        .slice(0, maxLocks) || [];
 
     const resolution = resolveForgeOutcome(
       blueprint,
@@ -7368,7 +8988,13 @@ const App: React.FC = () => {
         : null;
     const resultCyberware =
       kind === 'cyberware'
-        ? createForgedCyberware(blueprint, resolution.quality, resolution.affixes, forgeWorkshopState.level, targetCyberware)
+        ? createForgedCyberware(
+            blueprint,
+            resolution.quality,
+            resolution.affixes,
+            forgeWorkshopState.level,
+            targetCyberware,
+          )
         : null;
 
     if (resultChip) {
@@ -7383,7 +9009,9 @@ const App: React.FC = () => {
 
     if (resultCyberware) {
       if (targetCyberware) {
-        setPlayerInventory(prev => prev.map(item => (item.id === targetCyberware.id ? { ...resultCyberware, quantity: item.quantity } : item)));
+        setPlayerInventory(prev =>
+          prev.map(item => (item.id === targetCyberware.id ? { ...resultCyberware, quantity: item.quantity } : item)),
+        );
       } else {
         addInventoryItem(resultCyberware);
       }
@@ -7438,9 +9066,15 @@ const App: React.FC = () => {
 
   const handleImportSocialPost = (draft: SocialImportDraft) => {
     const now = new Date().toISOString();
-    const existingTarget = draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
+    const existingTarget =
+      draft.targetNpcId && draft.targetNpcId !== '__new__' ? npcs.find(npc => npc.id === draft.targetNpcId) : null;
     const displayName = draft.localName.trim() || existingTarget?.name || '新导入账号';
-    const importDarknetRecord = buildImportedDarknetRecord(draft, displayName, now, currentNarrativeLocation || '灵网镜像节点');
+    const importDarknetRecord = buildImportedDarknetRecord(
+      draft,
+      displayName,
+      now,
+      currentNarrativeLocation || '灵网镜像节点',
+    );
     const importedPost: SocialPost = {
       id: `social_import_${Date.now()}`,
       content: draft.caption.trim(),
@@ -7507,13 +9141,18 @@ const App: React.FC = () => {
               handle: npc.darknetProfile?.handle || `dn://${buildSocialHandleSeed({ ...npc, name: displayName })}`,
               alias: npc.darknetProfile?.alias || `${displayName} / 镜像账号`,
               summary:
-                npc.darknetProfile?.summary
-                || `${displayName} 已建立公开素材来源映射档。公开入口仍走灵网，但情报留痕、来源核验与后续扩写统一沉淀到暗网侧。`,
+                npc.darknetProfile?.summary ||
+                `${displayName} 已建立公开素材来源映射档。公开入口仍走灵网，但情报留痕、来源核验与后续扩写统一沉淀到暗网侧。`,
               accessTier: npc.darknetProfile?.accessTier || '镜像归档节点',
               marketVector: npc.darknetProfile?.marketVector || `${draft.platform.toUpperCase()} 来源镜像 / 灵网导流`,
               riskRating: Math.max(2, npc.darknetProfile?.riskRating || 0),
               bounty: npc.darknetProfile?.bounty || '未挂牌',
-              tags: normalizeUniqueStrings([...(npc.darknetProfile?.tags || []), draft.platform.toUpperCase(), '来源映射', '公开素材导入']),
+              tags: normalizeUniqueStrings([
+                ...(npc.darknetProfile?.tags || []),
+                draft.platform.toUpperCase(),
+                '来源映射',
+                '公开素材导入',
+              ]),
               knownAssociates: normalizeUniqueStrings([
                 ...(npc.darknetProfile?.knownAssociates || []),
                 draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim(),
@@ -7528,7 +9167,10 @@ const App: React.FC = () => {
               socialUnlocked: true,
               darknetLevel: Math.max(4, npc.unlockState?.darknetLevel || 0),
               darknetUnlocked: true,
-              intelUnlockedCount: Math.max((npc.darknetProfile?.intelRecords || []).length + 1, npc.unlockState?.intelUnlockedCount || 0),
+              intelUnlockedCount: Math.max(
+                (npc.darknetProfile?.intelRecords || []).length + 1,
+                npc.unlockState?.intelUnlockedCount || 0,
+              ),
             },
             socialFeed: [importedPost, ...npc.socialFeed],
           });
@@ -7560,7 +9202,13 @@ const App: React.FC = () => {
         followsPlayer: false,
         followerCount: 400 + (hashText(displayName) % 1800),
         followingCount: 12 + (hashText(`${displayName}_f`) % 90),
-        walletTag: `LPAY-${displayName.trim().replace(/[^\w\u4e00-\u9fa5]+/g, '').slice(0, 10).toUpperCase() || 'IMPORT'}`,
+        walletTag: `LPAY-${
+          displayName
+            .trim()
+            .replace(/[^\w\u4e00-\u9fa5]+/g, '')
+            .slice(0, 10)
+            .toUpperCase() || 'IMPORT'
+        }`,
         clueNotes: [
           `来自 ${draft.platform.toUpperCase()} 公开主页的素材映射账号。`,
           '当前已本土化为 LN 灵网人物，可继续解锁人物志与相册。',
@@ -7586,7 +9234,13 @@ const App: React.FC = () => {
             ]
           : [],
         darknetProfile: {
-          handle: `dn://${displayName.trim().replace(/[^\w\u4e00-\u9fa5]+/g, '').toLowerCase().slice(0, 18) || npcId}`,
+          handle: `dn://${
+            displayName
+              .trim()
+              .replace(/[^\w\u4e00-\u9fa5]+/g, '')
+              .toLowerCase()
+              .slice(0, 18) || npcId
+          }`,
           alias: `${displayName} / 镜像账号`,
           summary: `该人物通过 ${draft.platform.toUpperCase()} 公开素材导入，公开互动留在灵网，来源映射与后续扩写则统一沉淀到暗网侧。`,
           accessTier: '镜像归档节点',
@@ -7594,7 +9248,9 @@ const App: React.FC = () => {
           riskRating: draft.visibility === 'premium' ? 3 : 2,
           bounty: '未挂牌',
           tags: normalizeUniqueStrings([draft.platform.toUpperCase(), '来源映射', '导入账号']),
-          knownAssociates: normalizeUniqueStrings([draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim()]),
+          knownAssociates: normalizeUniqueStrings([
+            draft.originalAuthorName.trim() || draft.originalAuthorHandle.trim(),
+          ]),
           lastSeen: currentNarrativeLocation || '灵网镜像节点',
           intelRecords: [importDarknetRecord],
         },
@@ -7642,9 +9298,11 @@ const App: React.FC = () => {
       window.alert('共鸣失败：背包中没有可消耗素材（人体部位/灵核/灵魂）。');
       return;
     }
+    const skillNamePool = ['感知强化', '动作增幅', '抗压护体', '灵压增幅', '恢复共鸣'];
+    const pickedName = skillNamePool[Math.floor(Math.random() * skillNamePool.length)];
     const newSkill: Skill = {
       id: `ps_${Date.now()}`,
-      name: `灵弦：随机突变${Math.floor(Math.random() * 100)}`,
+      name: pickedName,
       level: 1,
       description: `通过灵弦共鸣形成的新回路（消耗：${material.name}）。`,
     };
@@ -7694,7 +9352,9 @@ const App: React.FC = () => {
     setPlayerInventory(prev => {
       const existing = prev.find(item => item.id === nextItem.id);
       if (existing) {
-        return prev.map(item => (item.id === nextItem.id ? { ...item, quantity: item.quantity + nextItem.quantity } : item));
+        return prev.map(item =>
+          item.id === nextItem.id ? { ...item, quantity: item.quantity + nextItem.quantity } : item,
+        );
       }
       return [...prev, nextItem];
     });
@@ -7705,46 +9365,51 @@ const App: React.FC = () => {
     return {
       ownedCount: state.records.length,
       currentLabel: current ? `${current.name} · ${current.profile.categoryLabel}` : '未设当前穿搭',
-      note: current ? `${current.profile.quality} / ${current.profile.sceneTags.slice(0, 2).join('、') || '日常出行'}` : '购入衣物后会自动写入衣柜。',
+      note: current
+        ? `${current.profile.quality} / ${current.profile.sceneTags.slice(0, 2).join('、') || '日常出行'}`
+        : '购入衣物后会自动写入衣柜。',
     };
   }, []);
 
-  const registerWardrobeItem = useCallback((item: Item, shopLabel: string, shopId?: string) => {
-    if (!item.clothingProfile) {
-      return {
-        nextState: playerWardrobe,
-        summary: wardrobeSummary,
-        currentRecord: currentWardrobeRecord,
-        added: false,
-        autoEquipped: false,
+  const registerWardrobeItem = useCallback(
+    (item: Item, shopLabel: string, shopId?: string) => {
+      if (!item.clothingProfile) {
+        return {
+          nextState: playerWardrobe,
+          summary: wardrobeSummary,
+          currentRecord: currentWardrobeRecord,
+          added: false,
+          autoEquipped: false,
+        };
+      }
+      const record: WardrobeRecord = {
+        id: `wardrobe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        itemId: item.id,
+        name: item.name,
+        icon: item.icon,
+        description: item.description,
+        profile: item.clothingProfile,
+        sourceShopId: shopId,
+        sourceShopLabel: shopLabel,
+        acquiredAt: new Date().toISOString(),
       };
-    }
-    const record: WardrobeRecord = {
-      id: `wardrobe_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      itemId: item.id,
-      name: item.name,
-      icon: item.icon,
-      description: item.description,
-      profile: item.clothingProfile,
-      sourceShopId: shopId,
-      sourceShopLabel: shopLabel,
-      acquiredAt: new Date().toISOString(),
-    };
-    const nextState: PlayerWardrobeState = {
-      currentOutfitId: playerWardrobe.currentOutfitId || record.id,
-      records: [record, ...playerWardrobe.records].slice(0, 80),
-    };
-    const summary = buildWardrobeSummaryFromState(nextState);
-    const currentRecord = nextState.records.find(entry => entry.id === nextState.currentOutfitId) || null;
-    setPlayerWardrobe(nextState);
-    return {
-      nextState,
-      summary,
-      currentRecord,
-      added: true,
-      autoEquipped: !playerWardrobe.currentOutfitId,
-    };
-  }, [buildWardrobeSummaryFromState, currentWardrobeRecord, playerWardrobe, wardrobeSummary]);
+      const nextState: PlayerWardrobeState = {
+        currentOutfitId: playerWardrobe.currentOutfitId || record.id,
+        records: [record, ...playerWardrobe.records].slice(0, 80),
+      };
+      const summary = buildWardrobeSummaryFromState(nextState);
+      const currentRecord = nextState.records.find(entry => entry.id === nextState.currentOutfitId) || null;
+      setPlayerWardrobe(nextState);
+      return {
+        nextState,
+        summary,
+        currentRecord,
+        added: true,
+        autoEquipped: !playerWardrobe.currentOutfitId,
+      };
+    },
+    [buildWardrobeSummaryFromState, currentWardrobeRecord, playerWardrobe, wardrobeSummary],
+  );
 
   const handleTriggerSceneAction = (action: SceneActionDescriptor) => {
     if (action.route === 'black_race_bet') {
@@ -7754,7 +9419,8 @@ const App: React.FC = () => {
     }
 
     if (action.route === 'shop' && sceneActionState.shop) {
-      const locationLabel = currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel;
+      const locationLabel =
+        currentNarrativeLocation || playerFaction.headquarters || sceneActionState.shop.locationLabel;
       const registered = ensureRuntimeShop(cityRuntime, {
         locationLabel,
         suggestedName: sceneActionState.shop.title,
@@ -7857,7 +9523,9 @@ const App: React.FC = () => {
     if (purchasedItem) {
       addInventoryItem(purchasedItem);
     }
-    const wardrobeWriteback = purchasedItem?.clothingProfile ? registerWardrobeItem(purchasedItem, shop.title, shop.shopId || shop.id) : null;
+    const wardrobeWriteback = purchasedItem?.clothingProfile
+      ? registerWardrobeItem(purchasedItem, shop.title, shop.shopId || shop.id)
+      : null;
     pushFinanceLedgerEntry({
       kind: 'system',
       title: '场景购物',
@@ -7872,7 +9540,9 @@ const App: React.FC = () => {
     const runtimeShopId = shop.shopId || shop.id;
     const runtimeShop = cityRuntime.shops.find(entry => entry.id === runtimeShopId);
     if (runtimeShop) {
-      const purchase = isRestaurant ? applyRuntimeRestaurantVisit(runtimeShop) : applyRuntimeShopPurchase(runtimeShop, target.id);
+      const purchase = isRestaurant
+        ? applyRuntimeRestaurantVisit(runtimeShop)
+        : applyRuntimeShopPurchase(runtimeShop, target.id);
       if (purchase.changed) {
         const nextRuntime = {
           ...cityRuntime,
@@ -7885,7 +9555,8 @@ const App: React.FC = () => {
                 mode: 'shop',
                 shop: {
                   ...buildRuntimeShopView(purchase.shop, shop.locationLabel, mapRuntime.elapsedMinutes || 0),
-                  wardrobeSummary: purchase.shop.type === 'clothing' ? wardrobeWriteback?.summary || wardrobeSummary : undefined,
+                  wardrobeSummary:
+                    purchase.shop.type === 'clothing' ? wardrobeWriteback?.summary || wardrobeSummary : undefined,
                 },
               }
             : prev,
@@ -7910,8 +9581,7 @@ const App: React.FC = () => {
     const isRestaurant = shop?.shopMode === 'restaurant' || shop?.type === 'restaurant';
     const trimmed = request.trim();
     const dueAtMinutes =
-      (mapRuntime.elapsedMinutes || 0) +
-      (isRestaurant && shop ? 12 * 60 : shop?.hasBackroom ? 2 * 24 * 60 : 24 * 60);
+      (mapRuntime.elapsedMinutes || 0) + (isRestaurant && shop ? 12 * 60 : shop?.hasBackroom ? 2 * 24 * 60 : 24 * 60);
     if (!shop || !trimmed) {
       return { ok: false, message: '当前店铺委托接口未就绪。' };
     }
@@ -7926,16 +9596,14 @@ const App: React.FC = () => {
       createdAtMinutes: mapRuntime.elapsedMinutes || 0,
       summary: `已向 ${shop.title} 提交代办/进货请求，货架会在后续周期尝试回填。`,
       detail: `店铺：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n渠道：${shop.hasBackroom ? '含暗柜渠道' : '普通货架渠道'}`,
-      ...(
-        isRestaurant
-          ? {
-              title: `订座：${trimmed}`,
-              category: 'meeting' as const,
-              summary: `已向 ${shop.title} 登记订座/留菜请求，约定会在更短时间内进入待赴约状态。`,
-              detail: `餐厅：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n形式：订座 / 留菜 / 留包厢`,
-            }
-          : {}
-      ),
+      ...(isRestaurant
+        ? {
+            title: `订座：${trimmed}`,
+            category: 'meeting' as const,
+            summary: `已向 ${shop.title} 登记订座/留菜请求，约定会在更短时间内进入待赴约状态。`,
+            detail: `餐厅：${shop.title}\n地点：${shop.locationLabel}\n请求内容：${trimmed}\n形式：订座 / 留菜 / 留包厢`,
+          }
+        : {}),
       routeHint: 'shop',
     };
     const todoResult = upsertRuntimeTodo(cityRuntime, draft);
@@ -8005,7 +9673,8 @@ const App: React.FC = () => {
       return { ok: false, message: `余额不足，当前车费需要 ${option.fare} 灵能币。` };
     }
 
-    const primaryLine = metro.lines.find(line => option.lineIds.includes(line.id))?.name || option.lineIds[0]?.toUpperCase() || '线路';
+    const primaryLine =
+      metro.lines.find(line => option.lineIds.includes(line.id))?.name || option.lineIds[0]?.toUpperCase() || '线路';
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + option.minutes;
     const nextTimeLabel = formatGameTime(nextElapsedMinutes);
     const layerId = `metro_arrival_${Date.now()}`;
@@ -8112,9 +9781,12 @@ const App: React.FC = () => {
     setCityRuntime(prev => markTodoRead(prev, todoId));
   }, []);
 
-  const handleUpdateCityTodoStatus = useCallback((todoId: string, status: 'active' | 'ready' | 'completed' | 'failed' | 'cancelled') => {
-    setCityRuntime(prev => updateTodoStatus(prev, todoId, status));
-  }, []);
+  const handleUpdateCityTodoStatus = useCallback(
+    (todoId: string, status: 'active' | 'ready' | 'completed' | 'failed' | 'cancelled') => {
+      setCityRuntime(prev => updateTodoStatus(prev, todoId, status));
+    },
+    [],
+  );
 
   const openCityLedger = useCallback(
     (consumeUnread = true) => {
@@ -8149,12 +9821,11 @@ const App: React.FC = () => {
         .filter(item => item.quantity > 0),
     );
     const lv = rankToLevel(material.rank);
-    const skillNamePool = ['潮汐回响', '静默针刺', '压缩共振', '裂解回环', '奇点导向'];
+    const skillNamePool = ['感知强化', '动作增幅', '抗压护体', '环境适应', '灵压稳流'];
     const pickedName = skillNamePool[Math.floor(Math.random() * skillNamePool.length)];
-    const skillName = `灵弦：${pickedName}`;
     const newSkill: Skill = {
       id: `ls_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      name: skillName,
+      name: pickedName,
       level: lv,
       description: `由 ${material.name} 共鸣生成的回路，强化部位输出与稳定。`,
     };
@@ -8337,21 +10008,31 @@ const App: React.FC = () => {
       recovery += parsed.recovery || 0;
       charisma += parsed.charisma || 0;
       canFly = canFly || !!parsed.canFly;
-      (Object.entries(parsed.sixDim || {}) as Array<['力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number]>).forEach(([k, v]) => {
+      (
+        Object.entries(parsed.sixDim || {}) as Array<['力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number]>
+      ).forEach(([k, v]) => {
         sixDim[k] = (sixDim[k] || 0) + (v || 0);
       });
     };
     playerSkills.forEach(skill => {
       conversion += skill.conversionRateBonus || 0;
       recovery += skill.recoveryRateBonus || 0;
-      mergeParsed(parseRuntimeBonusFromText(`${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`));
+      mergeParsed(
+        parseRuntimeBonusFromText(
+          `${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`,
+        ),
+      );
     });
     playerLingshu.forEach(part => {
       const skills = part.spiritSkills ?? (part.spiritSkill ? [part.spiritSkill] : []);
       skills.forEach(skill => {
         conversion += skill.conversionRateBonus || 0;
         recovery += skill.recoveryRateBonus || 0;
-        mergeParsed(parseRuntimeBonusFromText(`${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`));
+        mergeParsed(
+          parseRuntimeBonusFromText(
+            `${skill.name || ''} ${skill.description || ''} ${(skill.effectLines || []).join(' ')}`,
+          ),
+        );
       });
       const equips = part.equippedItems ?? (part.equippedItem ? [part.equippedItem] : []);
       equips.forEach(item => {
@@ -8361,7 +10042,18 @@ const App: React.FC = () => {
       });
     });
     playerChips.forEach(chip => {
-      mergeParsed(parseRuntimeBonusFromText(`${chip.name || ''} ${chip.description || ''}`));
+      conversion += chip.conversionRateBonus || 0;
+      recovery += chip.recoveryRateBonus || 0;
+      (
+        Object.entries(chip.sixDimBonuses || {}) as Array<['力量' | '敏捷' | '体质' | '感知' | '意志' | '魅力', number]>
+      ).forEach(([k, v]) => {
+        sixDim[k] = (sixDim[k] || 0) + (v || 0);
+      });
+      mergeParsed(
+        parseRuntimeBonusFromText(
+          `${chip.name || ''} ${chip.description || ''} ${(chip.effectLines || []).join(' ')}`,
+        ),
+      );
     });
     return { conversion, recovery, charisma, sixDim, canFly };
   }, [playerSkills, playerLingshu, playerChips]);
@@ -8381,7 +10073,10 @@ const App: React.FC = () => {
       意志: Math.min(cap, Math.max(1, (six.意志 || 8) + (sixDimBonus.意志 || 0))),
       魅力: Math.min(cap, Math.max(1, (six.魅力 || 8) + (sixDimBonus.魅力 || 0))),
     };
-    const nextCharismaCurrent = Math.min(playerStats.charisma.max, Math.max(0, playerStats.charisma.current + rateBonus.charisma));
+    const nextCharismaCurrent = Math.min(
+      playerStats.charisma.max,
+      Math.max(0, playerStats.charisma.current + rateBonus.charisma),
+    );
     return {
       ...playerStats,
       sixDim: nextSix,
@@ -8573,7 +10268,12 @@ const App: React.FC = () => {
             id: `af_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             name,
             description,
-            type: rawType.includes('debuff') || rawType.includes('减益') ? 'debuff' : rawType.includes('buff') || rawType.includes('增益') ? 'buff' : 'neutral',
+            type:
+              rawType.includes('debuff') || rawType.includes('减益')
+                ? 'debuff'
+                : rawType.includes('buff') || rawType.includes('增益')
+                  ? 'buff'
+                  : 'neutral',
             source: '对话结算',
             stacks: 1,
           };
@@ -8599,7 +10299,12 @@ const App: React.FC = () => {
             id: `core_af_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             name,
             description,
-            type: rawType.includes('debuff') || rawType.includes('减益') ? 'debuff' : rawType.includes('buff') || rawType.includes('增益') ? 'buff' : 'neutral',
+            type:
+              rawType.includes('debuff') || rawType.includes('减益')
+                ? 'debuff'
+                : rawType.includes('buff') || rawType.includes('增益')
+                  ? 'buff'
+                  : 'neutral',
             source: '对话结算',
             stacks: 1,
           });
@@ -8614,7 +10319,9 @@ const App: React.FC = () => {
 
   type IntentScene = 'combat_melee' | 'combat_ranged' | 'psionic_control' | 'stealth' | 'social_charm' | 'research';
   const isActionIntent = (text: string) =>
-    /(攻击|战斗|击杀|斩杀|处决|冲刺|潜行|调查|追踪|搜查|交涉|谈判|说服|魅惑|施法|灵能|共鸣|抽取|压制|执行|破坏|闯入|夺取|偷袭|射击)/i.test(text);
+    /(攻击|战斗|击杀|斩杀|处决|冲刺|潜行|调查|追踪|搜查|交涉|谈判|说服|魅惑|施法|灵能|共鸣|抽取|压制|执行|破坏|闯入|夺取|偷袭|射击)/i.test(
+      text,
+    );
   const inferIntentScene = (text: string): IntentScene => {
     if (/(谈判|说服|魅惑|交流|交涉|哄|聊天|社交)/i.test(text)) return 'social_charm';
     if (/(潜行|隐蔽|暗杀|偷袭|躲避)/i.test(text)) return 'stealth';
@@ -8670,11 +10377,7 @@ const App: React.FC = () => {
           return name.length > 0 && text.includes(name);
         })
         .map(npc => npc.id);
-      const targetIds = selectedTargetId
-        ? [selectedTargetId]
-        : nameMatchedIds.length > 0
-          ? [nameMatchedIds[0]]
-          : [];
+      const targetIds = selectedTargetId ? [selectedTargetId] : nameMatchedIds.length > 0 ? [nameMatchedIds[0]] : [];
 
       if (targetIds.length > 0) {
         setNpcs(prev =>
@@ -8751,7 +10454,11 @@ const App: React.FC = () => {
       if (playerStats.mp.current < amount) return;
       const coinsGained = Math.floor(amount * rate * (regionFactor || 1));
       if (coinsGained <= 0) return;
-      setPlayerStats(prev => ({ ...prev, mp: { ...prev.mp, current: prev.mp.current - amount }, credits: prev.credits + coinsGained }));
+      setPlayerStats(prev => ({
+        ...prev,
+        mp: { ...prev.mp, current: prev.mp.current - amount },
+        credits: prev.credits + coinsGained,
+      }));
       pushFinanceLedgerEntry({
         kind: 'exchange',
         title: '灵压兑换灵币',
@@ -8857,12 +10564,13 @@ const App: React.FC = () => {
     const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     const actionMinutes = appendPlayerMessage && visibleInput ? estimateActionMinutes(visibleInput) : 0;
     const actionLifeMode = visibleInput ? inferActionLifeMode(visibleInput) : 'dialogue';
-    const actionLifeResult = actionMinutes > 0
-      ? applyLifeAdvance(playerStats, {
-          mode: actionLifeMode,
-          minutes: actionMinutes,
-        })
-      : null;
+    const actionLifeResult =
+      actionMinutes > 0
+        ? applyLifeAdvance(playerStats, {
+            mode: actionLifeMode,
+            minutes: actionMinutes,
+          })
+        : null;
     const requestLifeStateDigest = actionLifeResult?.digest || lifeStateDigest;
     const nextElapsedMinutes = (mapRuntime.elapsedMinutes || 0) + actionMinutes;
     const nextGameTimeText = formatGameTime(nextElapsedMinutes);
@@ -8914,13 +10622,16 @@ const App: React.FC = () => {
     const dialogueContextTimeline = appendPlayerMessage && visibleInput ? baseTimeline : requestTimeline;
     const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
     const npcDirectorContextForRequest = buildNpcDirectorContextForRequest(requestInput, dialogueContextForRequest);
-    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest].filter(Boolean).join('\n\n');
+    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest]
+      .filter(Boolean)
+      .join('\n\n');
 
     let aborted = false;
     let requestSeq = 0;
     let apiPatchResult: PatchApplyResult | null = null;
     let apiPatchParseError: string | null = null;
     let apiNpcDataParseError: string | null = null;
+    let apiRequestSucceeded = false;
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       requestSeq = ++apiRequestSeqRef.current;
       const controller = new AbortController();
@@ -8928,19 +10639,23 @@ const App: React.FC = () => {
       setIsApiSending(true);
       setApiError('');
       try {
-        const apiPayload = await requestApiMaintext(requestInput, {
-          gameTime: nextGameTimeText,
-          dayPhase: nextGameDayPhase,
-          location: currentNarrativeLocation || '未知区域',
-          sceneHint: nextGameSceneHint,
-          dialogueContext: requestSupportContext,
-          localMapDigest,
-          taskLayerDigest,
-          eventLayerDigest,
-          travelRuleDigest,
-          lifeStateDigest: requestLifeStateDigest,
-          forgeDigest,
-        }, controller.signal);
+        const apiPayload = await requestApiMaintext(
+          requestInput,
+          {
+            gameTime: nextGameTimeText,
+            dayPhase: nextGameDayPhase,
+            location: currentNarrativeLocation || '未知区域',
+            sceneHint: nextGameSceneHint,
+            dialogueContext: requestSupportContext,
+            localMapDigest,
+            taskLayerDigest,
+            eventLayerDigest,
+            travelRuleDigest,
+            lifeStateDigest: requestLifeStateDigest,
+            forgeDigest,
+          },
+          controller.signal,
+        );
         if (apiPayload?.maintext) {
           layerContent = replaceMaintext(layerContent, apiPayload.maintext);
         } else {
@@ -8964,6 +10679,7 @@ const App: React.FC = () => {
         if (apiPayload?.patchOperations?.length) {
           apiPatchResult = applyApiPatchToChatVariables(apiPayload.patchOperations);
         }
+        apiRequestSucceeded = true;
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           aborted = true;
@@ -8971,6 +10687,7 @@ const App: React.FC = () => {
           const message = error instanceof Error ? error.message : '未知错误';
           setApiError(`API 调用失败: ${message}`);
         }
+        npcRuntimeConsumedIdsRef.current = [];
       } finally {
         if (apiRequestSeqRef.current === requestSeq) {
           setIsApiSending(false);
@@ -8978,8 +10695,12 @@ const App: React.FC = () => {
         }
       }
     }
+    if (!(apiConfig.enabled || apiConfig.useTavernApi)) {
+      npcRuntimeConsumedIdsRef.current = [];
+    }
 
     if (aborted) {
+      npcRuntimeConsumedIdsRef.current = [];
       setMessages(prev => [
         ...prev,
         {
@@ -8991,6 +10712,16 @@ const App: React.FC = () => {
         },
       ]);
       return;
+    }
+
+    if (apiRequestSucceeded) {
+      consumeNpcRuntimePendingPrompts({
+        timeLabel: nextGameTimeText,
+        location: currentNarrativeLocation,
+        elapsedMinutes: nextElapsedMinutes,
+      });
+    } else {
+      npcRuntimeConsumedIdsRef.current = [];
     }
 
     const systemLayerMsg: Message = {
@@ -9029,7 +10760,9 @@ const App: React.FC = () => {
       ...(appendPlayerMessage && visibleInput ? settleIntentCostDeterministic(visibleInput) : []),
       ...(settleSource ? settleKillFromText(settleSource) : []),
       ...(settleSource ? settleStatusFromText(settleSource) : []),
-      ...(actionLifeResult && buildLifeChangeSummary(actionLifeResult) ? [`生理消耗：${buildLifeChangeSummary(actionLifeResult)}`] : []),
+      ...(actionLifeResult && buildLifeChangeSummary(actionLifeResult)
+        ? [`生理消耗：${buildLifeChangeSummary(actionLifeResult)}`]
+        : []),
       ...patchLines,
     ];
 
@@ -9090,7 +10823,9 @@ const App: React.FC = () => {
         : rerollTimeline;
     const dialogueContextForRequest = buildDialogueContextFromMessages(dialogueContextTimeline);
     const npcDirectorContextForRequest = buildNpcDirectorContextForRequest(requestInput, dialogueContextForRequest);
-    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest].filter(Boolean).join('\n\n');
+    const requestSupportContext = [dialogueContextForRequest, npcDirectorContextForRequest]
+      .filter(Boolean)
+      .join('\n\n');
 
     if (apiConfig.enabled || apiConfig.useTavernApi) {
       setApiError('');
@@ -9122,12 +10857,20 @@ const App: React.FC = () => {
           nextLayer = replaceNpcData(nextLayer, serializeNearbyNpcRecords(apiPayload.npcDataRecords));
         }
         // reroll 仅改写文本楼层，不重复执行增量变量补丁，避免重复累加。
+        consumeNpcRuntimePendingPrompts({
+          timeLabel: gameTimeText,
+          location: currentNarrativeLocation,
+          elapsedMinutes: mapRuntime.elapsedMinutes || 0,
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : '未知错误';
         setApiError(`重roll 调用失败: ${message}`);
+        npcRuntimeConsumedIdsRef.current = [];
       } finally {
         setIsApiSending(false);
       }
+    } else {
+      npcRuntimeConsumedIdsRef.current = [];
     }
 
     const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -9178,11 +10921,10 @@ const App: React.FC = () => {
     if (!targetLayer) return;
     const layerIdx = messages.findIndex(msg => msg.id === targetLayer.id);
     if (layerIdx < 0) return;
-    const latestPlayerMessage =
-      [...messages]
-        .slice(0, layerIdx)
-        .reverse()
-        .find(msg => msg.sender === 'Player');
+    const latestPlayerMessage = [...messages]
+      .slice(0, layerIdx)
+      .reverse()
+      .find(msg => msg.sender === 'Player');
     const latestPlayerInput = latestPlayerMessage?.content || '';
     void rerollLayerWithApi(targetLayer.id, latestPlayerInput, latestPlayerMessage?.id);
   };
@@ -9195,7 +10937,9 @@ const App: React.FC = () => {
     const playerIdx = messages.findIndex(msg => msg.id === messageId && msg.sender === 'Player');
     if (playerIdx < 0) return;
     const playerInput = messages[playerIdx]?.content || '';
-    const targetLayer = messages.slice(playerIdx + 1).find(msg => msg.sender === 'System' && hasPseudoLayer(msg.content));
+    const targetLayer = messages
+      .slice(playerIdx + 1)
+      .find(msg => msg.sender === 'System' && hasPseudoLayer(msg.content));
     if (!targetLayer) {
       return;
     }
@@ -9432,10 +11176,10 @@ const App: React.FC = () => {
     }
   };
 
-
   const handleSetupComplete = async (config: GameConfig) => {
     const nextPlayerName = config.name.trim() || LN_DEFAULT_PLAYER_NAME;
     const nextProtocol = config.neuralProtocol || (config.installBetaChip ? 'beta' : 'none');
+    const initialCoreSkills = sanitizeRuntimeSpiritSkillList(config.selectedCoreSkills || []);
     const initialResidenceBinding =
       nextProtocol === 'beta' && isAirelaResidenceZone(config.startingLocation)
         ? resolveAirelaFacilityBinding({
@@ -9469,8 +11213,9 @@ const App: React.FC = () => {
     setPlayerName(nextPlayerName);
     setPlayerStats(newStats);
     setPlayerGender(config.gender);
+    setPlayerRace(`${config.race || ''}`.trim() || DEFAULT_PLAYER_RACE);
     setPlayerNeuralProtocol(nextProtocol);
-    setPlayerSkills([]);
+    setPlayerSkills(initialCoreSkills);
     setNpcs([]);
     setContactGroups([]);
     setCoinVault({
@@ -9489,8 +11234,24 @@ const App: React.FC = () => {
     });
     setPlayerCoreAffixes(
       config.gender === 'male'
-        ? [{ id: 'core_affix_m_1', name: '状态：压制残响', description: '承压后短时抑制外泄。', type: 'debuff', source: '初始' }]
-        : [{ id: 'core_affix_f_1', name: '状态：奇点凝附', description: '提升灵海稳定与吸附能力。', type: 'buff', source: '初始' }],
+        ? [
+            {
+              id: 'core_affix_m_1',
+              name: '状态：压制残响',
+              description: '承压后短时抑制外泄。',
+              type: 'debuff',
+              source: '初始',
+            },
+          ]
+        : [
+            {
+              id: 'core_affix_f_1',
+              name: '状态：奇点凝附',
+              description: '提升灵海稳定与吸附能力。',
+              type: 'buff',
+              source: '初始',
+            },
+          ],
     );
 
     const baseBoard = config.selectedBoard || MOCK_CHIPS.find(c => c.type === 'board');
@@ -9572,9 +11333,10 @@ const App: React.FC = () => {
 
     if (config.gender === 'male' && config.hasRedString) {
       setPlayerSkills([
+        ...initialCoreSkills,
         {
           id: 'ps_special_1',
-          name: '灵弦：【本命】皇权回响',
+          name: '【本命】皇权回响',
           level: 5,
           description: '领袖级特质，转化效率锁定为 300%。',
           rankColor: 'red',
@@ -9828,11 +11590,11 @@ const App: React.FC = () => {
     const taskPassKeywords = ['完成', '已执行', '通过', '达标', '合格'];
     const passSignal = taskPassKeywords.some(k => text.includes(k));
     if (passSignal) {
-      const accepted = betaTasks.filter(t => acceptedBetaTaskIds.includes(t.id) && !claimableBetaTaskIds.includes(t.id));
+      const accepted = betaTasks.filter(
+        t => acceptedBetaTaskIds.includes(t.id) && !claimableBetaTaskIds.includes(t.id),
+      );
       if (accepted.length > 0) {
-        const matched =
-          accepted.find(t => text.includes(t.title) || text.includes(t.title.slice(0, 3))) ||
-          accepted[0];
+        const matched = accepted.find(t => text.includes(t.title) || text.includes(t.title.slice(0, 3))) || accepted[0];
         setClaimableBetaTaskIds(prev => (prev.includes(matched.id) ? prev : [...prev, matched.id]));
       }
     }
@@ -10227,14 +11989,17 @@ const App: React.FC = () => {
       };
       return normalizeResidenceState({
         ...prev,
-        stashRecords: prev.stashRecords.map(record => (record.residenceId === currentResidenceProfile.id ? nextRecord : record)),
+        stashRecords: prev.stashRecords.map(record =>
+          record.residenceId === currentResidenceProfile.id ? nextRecord : record,
+        ),
       });
     });
     return { ok: true, message: `已从 ${currentResidenceProfile.label} 取出「${extracted.unitItem.name}」。` };
   };
 
   const handleAttemptResidenceBurglary = (targetId: string): { ok: boolean; message?: string } => {
-    const location = currentNarrativeLocation || playerFaction.headquarters || currentResidenceProfile?.label || '未知区域';
+    const location =
+      currentNarrativeLocation || playerFaction.headquarters || currentResidenceProfile?.label || '未知区域';
     const target = currentDistrictBurglaryTargets.find(entry => entry.id === targetId);
     if (!target) {
       return { ok: false, message: '当前片区没有找到这个目标。' };
@@ -10311,11 +12076,17 @@ const App: React.FC = () => {
       elapsedMinutes: nextElapsedMinutes,
       logs: [...(prev.logs || []), `入室行动 ${target.label} -> ${result.outcome} -> ${nextGameTimeText}`].slice(-30),
     }));
-    if (result.outcome === 'spotted' && (currentDistrictProfile.regionKey === 'airela' || currentDistrictProfile.regionKey === 'holy')) {
+    if (
+      result.outcome === 'spotted' &&
+      (currentDistrictProfile.regionKey === 'airela' || currentDistrictProfile.regionKey === 'holy')
+    ) {
       setBetaStatus(prev => ({
         ...prev,
         creditScore: Math.max(0, prev.creditScore - 2),
-        warnings: [`入室失手 / ${target.label}`, ...(prev.warnings || []).filter(warning => warning !== `入室失手 / ${target.label}`)].slice(0, 8),
+        warnings: [
+          `入室失手 / ${target.label}`,
+          ...(prev.warnings || []).filter(warning => warning !== `入室失手 / ${target.label}`),
+        ].slice(0, 8),
       }));
     }
     pushFinanceLedgerEntry({
@@ -10371,7 +12142,10 @@ const App: React.FC = () => {
       netDelta: monthlySettlementPreview.netDelta,
       status: shortfall > 0 ? 'arrears' : 'processed',
       processedAt,
-      notes: shortfall > 0 ? [...monthlySettlementPreview.notes, `本次仍有 ${shortfall.toLocaleString()} 灵能币未能完成缴付。`] : monthlySettlementPreview.notes,
+      notes:
+        shortfall > 0
+          ? [...monthlySettlementPreview.notes, `本次仍有 ${shortfall.toLocaleString()} 灵能币未能完成缴付。`]
+          : monthlySettlementPreview.notes,
     };
 
     setPlayerStats(prev => ({
@@ -10383,8 +12157,19 @@ const App: React.FC = () => {
     setBetaStatus(prev => {
       const filteredWarnings = (prev.warnings || []).filter(warning => !warning.startsWith('月结欠缴情形'));
       const nextWarnings =
-        shortfall > 0 ? [`月结欠缴情形 · 缺口 ${shortfall.toLocaleString()} 灵能币`, ...filteredWarnings].slice(0, 8) : filteredWarnings;
-      const nextScore = Math.max(0, Math.min(120, prev.creditScore + (shortfall > 0 ? -Math.max(8, monthlySettlementPreview.pendingMonths * 6) : Math.min(3, monthlySettlementPreview.pendingMonths))));
+        shortfall > 0
+          ? [`月结欠缴情形 · 缺口 ${shortfall.toLocaleString()} 灵能币`, ...filteredWarnings].slice(0, 8)
+          : filteredWarnings;
+      const nextScore = Math.max(
+        0,
+        Math.min(
+          120,
+          prev.creditScore +
+            (shortfall > 0
+              ? -Math.max(8, monthlySettlementPreview.pendingMonths * 6)
+              : Math.min(3, monthlySettlementPreview.pendingMonths)),
+        ),
+      );
       return {
         ...prev,
         creditScore: nextScore,
@@ -10395,10 +12180,13 @@ const App: React.FC = () => {
           ...(prev.deductionHistory || []),
           {
             id: `monthly_log_${Date.now()}`,
-            reason: shortfall > 0 ? `月结欠缴情形 (${monthlySettlementPreview.cycleLabel})` : `月结完成 (${monthlySettlementPreview.cycleLabel})`,
+            reason:
+              shortfall > 0
+                ? `月结欠缴情形 (${monthlySettlementPreview.cycleLabel})`
+                : `月结完成 (${monthlySettlementPreview.cycleLabel})`,
             amount: monthlySettlementPreview.netDelta,
             timestamp: processedAt,
-            type: shortfall > 0 ? 'shame' : 'fine',
+            type: shortfall > 0 ? ('shame' as const) : ('fine' as const),
           },
         ].slice(-30),
       };
@@ -10462,7 +12250,7 @@ const App: React.FC = () => {
             reason: remainingArrears > 0 ? '补缴情税款（部分）' : '补缴情税款（结清）',
             amount: -paidAmount,
             timestamp: processedAt,
-            type: 'fine',
+            type: 'fine' as const,
           },
           ...(prev.deductionHistory || []),
         ].slice(0, 30),
@@ -10692,7 +12480,15 @@ const App: React.FC = () => {
       });
     }
     lastProtocolRef.current = currentProtocol;
-  }, [gameStage, playerNeuralProtocol, hasBetaChip, hasOfficialBetaControl, betaStatus.taxOfficerBoundId, betaStatus.taxOfficerUnlocked, betaStatus.citizenId]);
+  }, [
+    gameStage,
+    playerNeuralProtocol,
+    hasBetaChip,
+    hasOfficialBetaControl,
+    betaStatus.taxOfficerBoundId,
+    betaStatus.taxOfficerUnlocked,
+    betaStatus.citizenId,
+  ]);
 
   const toggleFullscreen = async () => {
     try {
@@ -10753,6 +12549,7 @@ const App: React.FC = () => {
       id: 'player_female_nexus',
       name: '玩家灵枢',
       gender: playerGender,
+      race: playerRace,
       group: '',
       position: '灵枢操作者',
       affiliation: playerFaction.name,
@@ -10767,7 +12564,15 @@ const App: React.FC = () => {
       inventory: playerInventory,
       socialFeed: [],
     };
-  }, [playerGender, playerLingshu, playerFaction.headquarters, playerFaction.name, playerInventory, playerStats]);
+  }, [
+    playerGender,
+    playerLingshu,
+    playerFaction.headquarters,
+    playerFaction.name,
+    playerInventory,
+    playerRace,
+    playerStats,
+  ]);
 
   const moduleTabs: { id: LeftModuleTab; label: string }[] = [
     { id: 'chips', label: '芯片模组' },
@@ -10788,9 +12593,12 @@ const App: React.FC = () => {
   const tavernGenerateReady = apiRuntimeMode === 'tavern' ? resolveTavernGenerateList().length > 0 : false;
   const apiRuntimeDetail =
     apiRuntimeMode === 'external'
-      ? externalApiConfigError || `${normalizedApiEndpoint || '未配置 endpoint'} · ${apiConfig.model.trim() || '未填写 model'}`
+      ? externalApiConfigError ||
+        `${normalizedApiEndpoint || '未配置 endpoint'} · ${apiConfig.model.trim() || '未填写 model'}`
       : apiRuntimeMode === 'tavern'
-        ? (tavernGenerateReady ? '已检测到 generate / generateRaw' : '未检测到 generate / generateRaw')
+        ? tavernGenerateReady
+          ? '已检测到 generate / generateRaw'
+          : '未检测到 generate / generateRaw'
         : '发送后仅使用伪0层模板，不请求任何接口';
   const setApiMode = (mode: ApiRuntimeMode) => {
     setApiConfig(prev => ({
@@ -10802,13 +12610,24 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (gameStage === 'start') return <StartScreen onStart={() => setGameStage('splash')} />;
-    if (gameStage === 'splash') return <SplashScreen onNewGame={handleNewGame} onContinue={handleContinueGame} canContinue={hasExistingPseudoProgress || archiveSlots.length > 0} />;
+    if (gameStage === 'splash')
+      return (
+        <SplashScreen
+          onNewGame={handleNewGame}
+          onContinue={handleContinueGame}
+          canContinue={hasExistingPseudoProgress || archiveSlots.length > 0}
+        />
+      );
     if (gameStage === 'setup') return <GameSetup onComplete={handleSetupComplete} />;
 
     return (
       <>
         {floatingTexts.map(ft => (
-          <div key={ft.id} className={`fixed pointer-events-none z-[100] animate-float-up text-lg font-bold ${ft.color}`} style={{ left: `${ft.x}%`, top: `${ft.y}%` }}>
+          <div
+            key={ft.id}
+            className={`fixed pointer-events-none z-[100] animate-float-up text-lg font-bold ${ft.color}`}
+            style={{ left: `${ft.x}%`, top: `${ft.y}%` }}
+          >
             {ft.text}
           </div>
         ))}
@@ -10854,7 +12673,10 @@ const App: React.FC = () => {
               : 'w-0 -translate-x-full md:translate-x-0 md:w-0 overflow-hidden border-none'
           }`}
         >
-          <button onClick={() => setLeftOpen(false)} className="md:hidden absolute top-2 right-2 p-2 text-slate-500 z-50">
+          <button
+            onClick={() => setLeftOpen(false)}
+            className="md:hidden absolute top-2 right-2 p-2 text-slate-500 z-50"
+          >
             <X className="w-5 h-5" />
           </button>
 
@@ -10868,6 +12690,7 @@ const App: React.FC = () => {
                 hasBetaChip={hasBetaChip}
                 onOpenSpiritCore={() => setIsSpiritCoreModalOpen(true)}
                 gender={playerGender}
+                race={playerRace}
                 statusTags={runtimeStatusTags}
                 chipCount={chipCount}
                 spiritStringCount={spiritStringCount}
@@ -10949,7 +12772,10 @@ const App: React.FC = () => {
                 stats={effectivePlayerStats}
                 currentLocation={currentNarrativeLocation || playerFaction.headquarters || '未知区域'}
                 gender={playerGender}
-                regionFactor={getExchangeRegionFactor(currentNarrativeLocation || playerFaction.headquarters || '', playerGender)}
+                regionFactor={getExchangeRegionFactor(
+                  currentNarrativeLocation || playerFaction.headquarters || '',
+                  playerGender,
+                )}
                 coinVault={coinVault}
                 soulLedger={playerSoulLedger}
                 nextRankCoin={nextRankCoin}
@@ -10983,7 +12809,14 @@ const App: React.FC = () => {
 
             {leftModuleTab === 'inventory' && (
               <CyberPanel title="物品栏" className="flex-1 min-h-[150px] border-t-0" allowExpand collapsible>
-                {selectedItem && <ItemDetailView item={selectedItem} onClose={() => setSelectedItem(null)} onUse={handleUseItem} />}
+                {selectedItem && (
+                  <ItemDetailView
+                    item={selectedItem}
+                    onClose={() => setSelectedItem(null)}
+                    onUse={handleUseItem}
+                    locationLabel={currentNarrativeLocation || playerFaction.headquarters || ''}
+                  />
+                )}
                 <div className="p-3 bg-black/50 min-h-full">
                   <div className="grid grid-cols-4 gap-2">
                     {playerInventory.slice(0, 8).map(item => (
@@ -10997,7 +12830,10 @@ const App: React.FC = () => {
                       </div>
                     ))}
                     {Array.from({ length: Math.max(0, 8 - playerInventory.length) }).map((_, i) => (
-                      <div key={i} className="aspect-square border border-slate-800/30 border-dashed rounded-lg bg-white/5 opacity-30" />
+                      <div
+                        key={i}
+                        className="aspect-square border border-slate-800/30 border-dashed rounded-lg bg-white/5 opacity-30"
+                      />
                     ))}
                   </div>
                   <div
@@ -11022,11 +12858,12 @@ const App: React.FC = () => {
                 </div>
               </CyberPanel>
             )}
-
           </div>
         </aside>
 
-        <main className={`flex-1 min-w-0 flex flex-col relative z-0 h-full w-full ${currentLocationVisualTheme.mainClass}`}>
+        <main
+          className={`flex-1 min-w-0 flex flex-col relative z-0 h-full w-full ${currentLocationVisualTheme.mainClass}`}
+        >
           <div className={`border-b px-4 py-3 shrink-0 backdrop-blur-sm ${currentLocationVisualTheme.headerClass}`}>
             <div className="flex items-center justify-between gap-3">
               <div className="md:hidden">
@@ -11043,10 +12880,14 @@ const App: React.FC = () => {
               <div className="flex flex-1 flex-wrap items-center gap-2 text-xs font-mono text-slate-400">
                 <MapIcon className={`w-4 h-4 ${currentLocationVisualTheme.iconClass}`} />
                 <span>区域：</span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${currentLocationVisualTheme.locationPillClass}`}>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 font-semibold ${currentLocationVisualTheme.locationPillClass}`}
+                >
                   {currentNarrativeLocation || '未知区域'}
                 </span>
-                <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${currentLocationVisualTheme.hintClass}`}>
+                <span
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${currentLocationVisualTheme.hintClass}`}
+                >
                   {currentLocationVisualTheme.label}
                 </span>
                 <span className="text-slate-600">|</span>
@@ -11066,7 +12907,9 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
-            <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${currentLocationVisualTheme.hintClass}`}>
+            <div
+              className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-semibold ${currentLocationVisualTheme.hintClass}`}
+            >
               当前区域协议已切换到 {currentLocationVisualTheme.label}
             </div>
             <LocationControlHint
@@ -11163,22 +13006,23 @@ const App: React.FC = () => {
               >
                 工坊
               </button>
-              {visibleLifeActions.length > 0 ? (
-                visibleLifeActions.map(action => (
-                  <button
-                    key={action.id}
-                    type="button"
-                    onClick={() => handleTriggerSceneAction(action)}
-                    className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/18"
-                  >
-                    {action.label}
-                  </button>
-                ))
-              ) : (
-                !canOpenGamblingHub && !canOpenBlackMarketHub && <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
-                  NULL
-                </div>
-              )}
+              {visibleLifeActions.length > 0
+                ? visibleLifeActions.map(action => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => handleTriggerSceneAction(action)}
+                      className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/18"
+                    >
+                      {action.label}
+                    </button>
+                  ))
+                : !canOpenGamblingHub &&
+                  !canOpenBlackMarketHub && (
+                    <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-[11px] font-semibold text-slate-500">
+                      NULL
+                    </div>
+                  )}
               <div className="rounded-full border border-amber-500/15 bg-amber-500/[0.06] px-3 py-1.5 text-[11px] font-semibold text-amber-100">
                 交通层
               </div>
@@ -11224,10 +13068,14 @@ const App: React.FC = () => {
               </button>
             </div>
             <div className="mt-2 flex items-center justify-between gap-3 text-[11px]">
-              <div className={`${apiRuntimeMode === 'disabled' ? 'text-slate-500' : apiRuntimeMode === 'external' ? 'text-cyan-300' : 'text-fuchsia-300'}`}>
+              <div
+                className={`${apiRuntimeMode === 'disabled' ? 'text-slate-500' : apiRuntimeMode === 'external' ? 'text-cyan-300' : 'text-fuchsia-300'}`}
+              >
                 当前请求：{apiRuntimeLabel}
               </div>
-              <div className={`truncate text-right ${apiRuntimeMode === 'external' && externalApiConfigError ? 'text-amber-300' : 'text-slate-500'}`}>
+              <div
+                className={`truncate text-right ${apiRuntimeMode === 'external' && externalApiConfigError ? 'text-amber-300' : 'text-slate-500'}`}
+              >
                 {apiRuntimeDetail}
               </div>
             </div>
@@ -11247,6 +13095,7 @@ const App: React.FC = () => {
             {[
               { id: 'contacts', icon: <Users className="w-4 h-4" />, label: '标记人物' },
               { id: 'phone', icon: <Smartphone className="w-4 h-4" />, label: '手机' },
+              { id: 'map', icon: <MapIcon className="w-4 h-4" />, label: '地图' },
               { id: 'system', icon: <ScrollText className="w-4 h-4" />, label: '档案' },
               { id: 'settings', icon: <Settings className="w-4 h-4" />, label: '设置' },
             ].map(tab => (
@@ -11254,13 +13103,18 @@ const App: React.FC = () => {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as RightPanelTab)}
                 className={`flex min-w-[78px] flex-1 flex-col items-center gap-1 py-3 text-xs font-bold uppercase transition-all md:min-w-0 ${
-                  activeTab === tab.id ? 'text-fuchsia-400 bg-fuchsia-950/20 border-b-2 border-fuchsia-400' : 'text-slate-500 hover:text-slate-300'
+                  activeTab === tab.id
+                    ? 'text-fuchsia-400 bg-fuchsia-950/20 border-b-2 border-fuchsia-400'
+                    : 'text-slate-500 hover:text-slate-300'
                 }`}
               >
                 {tab.icon} {tab.label}
               </button>
             ))}
-            <button onClick={() => setRightOpen(false)} className="md:hidden px-4 text-slate-500 border-l border-white/10">
+            <button
+              onClick={() => setRightOpen(false)}
+              className="md:hidden px-4 text-slate-500 border-l border-white/10"
+            >
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -11283,10 +13137,7 @@ const App: React.FC = () => {
                       currentLocation={currentNarrativeLocation || '未知区域'}
                     />
                   ) : (
-                    <NPCProfile
-                      npc={selectedNPC}
-                      onBack={() => setSelectedNPC(null)}
-                    />
+                    <NPCProfile npc={selectedNPC} onBack={() => setSelectedNPC(null)} />
                   )}
                 </Suspense>
               </div>
@@ -11295,6 +13146,8 @@ const App: React.FC = () => {
               <Suspense fallback={<LazyPanelFallback title="手机" detail="灵网、暗网与钱包模块正在载入。" />}>
                 <LingnetPhonePanel
                   npcs={npcs}
+                  lingnetRuntimeHints={lingnetRuntimeHints}
+                  refreshingLingnetNpcId={lingnetRefreshingNpcId}
                   playerName={playerName}
                   playerCredits={playerStats.credits}
                   currentLocation={currentNarrativeLocation || '未知区域'}
@@ -11312,6 +13165,7 @@ const App: React.FC = () => {
                       monthlySettlementPreview.penaltyCost,
                   }}
                   onToggleFollow={handleToggleSocialFollow}
+                  onRefreshLingnetNpc={handleRefreshLingnetNpc}
                   onAddComment={handleAddSocialComment}
                   onSendDm={handleSendSocialDm}
                   onSpendOnNpc={handleSpendOnSocial}
@@ -11321,10 +13175,24 @@ const App: React.FC = () => {
                 />
               </Suspense>
             )}
+            {activeTab === 'map' && (
+              <NodeMapEditor
+                data={worldNodeMap}
+                onChange={setWorldNodeMap}
+                runtime={mapRuntime}
+                onRuntimeChange={setMapRuntime}
+                onDescribe={appendMapDescriptionToChat}
+                onImportFromChat={importMapFromRecentChat}
+              />
+            )}
             {activeTab === 'system' && (
               <Suspense fallback={<LazyPanelFallback title="档案" detail="月结、住所和税务档案正在载入。" />}>
                 <div className="space-y-4">
-                  <MonthlySettlementPanel preview={monthlySettlementPreview} records={monthlySettlementLog} onSettle={handleRunMonthlySettlement} />
+                  <MonthlySettlementPanel
+                    preview={monthlySettlementPreview}
+                    records={monthlySettlementLog}
+                    onSettle={handleRunMonthlySettlement}
+                  />
                   <ResidencePanel
                     hasOfficialRegistry={hasOfficialBetaControl}
                     residence={playerResidence}
@@ -11384,13 +13252,14 @@ const App: React.FC = () => {
                     </div>
                     <div className="rounded border border-slate-800 bg-black/30 px-3 py-2 space-y-1">
                       <div className="text-xs text-slate-300">当前模式：{apiRuntimeLabel}</div>
-                      <div className={`text-[11px] ${
-                        apiRuntimeMode === 'external' && externalApiConfigError
-                          ? 'text-amber-300'
-                          : apiRuntimeMode === 'tavern' && !tavernGenerateReady
+                      <div
+                        className={`text-[11px] ${
+                          apiRuntimeMode === 'external' && externalApiConfigError
                             ? 'text-amber-300'
-                            : 'text-slate-500'
-                      }`}
+                            : apiRuntimeMode === 'tavern' && !tavernGenerateReady
+                              ? 'text-amber-300'
+                              : 'text-slate-500'
+                        }`}
                       >
                         {apiRuntimeDetail}
                       </div>
@@ -11424,7 +13293,9 @@ const App: React.FC = () => {
                           </div>
                           <button
                             type="button"
-                            onClick={() => setApiConfig(prev => ({ ...prev, endpoint: '', apiKey: '', model: 'gpt-4o-mini' }))}
+                            onClick={() =>
+                              setApiConfig(prev => ({ ...prev, endpoint: '', apiKey: '', model: 'gpt-4o-mini' }))
+                            }
                             className="shrink-0 border border-slate-700 px-2 py-1 text-slate-300 hover:text-white hover:border-fuchsia-700"
                           >
                             清空外部配置
@@ -11434,7 +13305,8 @@ const App: React.FC = () => {
                     )}
                     {apiRuntimeMode === 'tavern' && !tavernGenerateReady && (
                       <div className="text-[11px] text-amber-300">
-                        当前未检测到酒馆的 generate / generateRaw。发送时会直接报错，请检查酒馆助手实时监听或宿主注入状态。
+                        当前未检测到酒馆的 generate /
+                        generateRaw。发送时会直接报错，请检查酒馆助手实时监听或宿主注入状态。
                       </div>
                     )}
                   </div>
@@ -11500,7 +13372,10 @@ const App: React.FC = () => {
                 </CyberPanel>
 
                 <div className="text-[11px] text-slate-500 px-1">
-                  当前档案：{selectedArchiveId ? archiveSlots.find(slot => slot.id === selectedArchiveId)?.name || '未命名' : '未选择'}
+                  当前档案：
+                  {selectedArchiveId
+                    ? archiveSlots.find(slot => slot.id === selectedArchiveId)?.name || '未命名'
+                    : '未选择'}
                 </div>
 
                 <CyberPanel title="显示" noPadding allowExpand collapsible>
@@ -11696,10 +13571,14 @@ const App: React.FC = () => {
                           setIsLayerPickerOpen(false);
                         }}
                         className={`w-full text-left px-3 py-2 border-b border-slate-800 last:border-b-0 ${
-                          focusedLayerId === layer.id ? 'bg-fuchsia-900/20 text-fuchsia-200' : 'text-slate-300 hover:bg-slate-900/50'
+                          focusedLayerId === layer.id
+                            ? 'bg-fuchsia-900/20 text-fuchsia-200'
+                            : 'text-slate-300 hover:bg-slate-900/50'
                         }`}
                       >
-                        <div className="text-xs font-mono">第 {idx + 1} 层 · {layer.id}</div>
+                        <div className="text-xs font-mono">
+                          第 {idx + 1} 层 · {layer.id}
+                        </div>
                         <div className="text-[11px] text-slate-500 truncate">{parsed.sum || '无小结'}</div>
                       </button>
                     );
@@ -11711,8 +13590,14 @@ const App: React.FC = () => {
         )}
 
         {isTaxOfficerPickerOpen && (
-          <div className="fixed inset-0 z-[132] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setIsTaxOfficerPickerOpen(false)}>
-            <div className="w-full max-w-2xl border border-fuchsia-900/60 rounded bg-[#07030b] p-3" onClick={e => e.stopPropagation()}>
+          <div
+            className="fixed inset-0 z-[132] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setIsTaxOfficerPickerOpen(false)}
+          >
+            <div
+              className="w-full max-w-2xl border border-fuchsia-900/60 rounded bg-[#07030b] p-3"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                 <div className="text-sm font-bold text-fuchsia-300">选择税务官</div>
                 <button
@@ -11723,7 +13608,9 @@ const App: React.FC = () => {
                   关闭
                 </button>
               </div>
-              <div className="text-xs text-slate-400 mt-2 mb-3">优先展示夜莺线索与已标记人物。选择后会写入 Beta 税务档案。</div>
+              <div className="text-xs text-slate-400 mt-2 mb-3">
+                优先展示夜莺线索与已标记人物。选择后会写入 Beta 税务档案。
+              </div>
               <div className="max-h-[55vh] overflow-auto border border-slate-800 bg-black/30 custom-scrollbar scrollbar-hidden">
                 {taxOfficerCandidates.length === 0 ? (
                   <div className="text-xs text-slate-500 p-3">暂无可绑定对象。</div>
@@ -11731,9 +13618,14 @@ const App: React.FC = () => {
                   taxOfficerCandidates.map(candidate => {
                     const selected = betaStatus.taxOfficerBoundId === candidate.id;
                     return (
-                      <div key={candidate.id} className="px-3 py-2 border-b border-slate-800 last:border-b-0 flex items-center justify-between gap-3">
+                      <div
+                        key={candidate.id}
+                        className="px-3 py-2 border-b border-slate-800 last:border-b-0 flex items-center justify-between gap-3"
+                      >
                         <div className="min-w-0">
-                          <div className={`text-sm font-bold ${selected ? 'text-fuchsia-300' : 'text-slate-200'}`}>{candidate.name}</div>
+                          <div className={`text-sm font-bold ${selected ? 'text-fuchsia-300' : 'text-slate-200'}`}>
+                            {candidate.name}
+                          </div>
                           <div className="text-[11px] text-slate-500 truncate">
                             {candidate.affiliation} · {candidate.location} · {candidate.group}
                           </div>
@@ -11762,7 +13654,13 @@ const App: React.FC = () => {
         )}
 
         {isInventoryOpen && (
-          <InventoryModal title="物品库" items={playerInventory} onClose={() => setIsInventoryOpen(false)} isOwner={true} />
+          <InventoryModal
+            title="物品库"
+            items={playerInventory}
+            onClose={() => setIsInventoryOpen(false)}
+            isOwner={true}
+            locationLabel={currentNarrativeLocation || playerFaction.headquarters || ''}
+          />
         )}
 
         {isEditLayerOpen && (

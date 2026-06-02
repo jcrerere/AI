@@ -1,5 +1,6 @@
 ﻿import React from 'react';
 import { PlayerStats } from '../../types';
+import { getSpeciesProfile, getSpeciesTraits } from '../../data/speciesCatalog';
 import {
   Activity,
   Brain,
@@ -80,6 +81,8 @@ const PlayerStatePanel: React.FC<Props> = ({
         : '发散型';
   const normalizedStatusTags = (statusTags || []).map(tag => tag.trim()).filter(Boolean);
   const rankText = stats.psionic.level.replace('Lv.', '') + '级';
+  const speciesProfile = getSpeciesProfile(raceText);
+  const speciesTraits = getSpeciesTraits(raceText).slice(0, 3);
   const sixDim = {
     力量: stats.sixDim?.力量 ?? 8,
     敏捷: stats.sixDim?.敏捷 ?? 8,
@@ -248,12 +251,44 @@ const PlayerStatePanel: React.FC<Props> = ({
         </button>
       </div>
 
-      {(raceText || normalizedStatusTags.length > 0 || chipCount > 0 || spiritStringCount > 0) && (
+      {(raceText || normalizedStatusTags.length > 0 || chipCount > 0 || spiritStringCount > 0 || speciesTraits.length > 0) && (
         <div className="mt-3 mb-4 rounded-xl border border-slate-800 bg-black/30 p-2.5 space-y-2">
           <div className="flex items-center justify-between">
             <div className="text-[10px] text-slate-400 font-bold">种族与回路</div>
             <div className="text-[10px] text-cyan-300 font-mono">{raceText || '未标注'}</div>
           </div>
+          {speciesProfile && (
+            <div className="rounded border border-emerald-500/15 bg-emerald-950/10 px-2 py-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-semibold text-emerald-200">种族特性</div>
+                <div className="text-[9px] text-emerald-400/80">{speciesProfile.classLabel}</div>
+              </div>
+              <div className="mt-1 text-[10px] leading-4 text-slate-400">{speciesProfile.summary}</div>
+              <div className="mt-2 space-y-2">
+                {speciesTraits.map(trait => (
+                  <div key={trait.id} className="rounded border border-slate-800/80 bg-black/25 px-2 py-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[10px] font-semibold text-emerald-100">{trait.name}</div>
+                      <div className="text-[9px] text-slate-500">{trait.sourceType}</div>
+                    </div>
+                    <div className="mt-1 text-[10px] leading-4 text-slate-400">{trait.summary}</div>
+                    {!!trait.tags?.length && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {trait.tags.slice(0, 4).map(tag => (
+                          <span
+                            key={tag}
+                            className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[9px] text-emerald-100"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded border border-slate-800 bg-slate-950/40 p-1.5">
               <div className="text-[9px] text-slate-500">灵弦</div>

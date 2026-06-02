@@ -302,15 +302,12 @@ export const advanceRuntimeTodoTimeline = (
       return todo;
     }
 
-    if ((todo.status === 'active' || todo.status === 'ready') && currentElapsedMinutes >= todo.dueAtMinutes + TODO_GRACE_MINUTES) {
-      if (todo.status !== 'failed' || todo.timelineState !== 'missed') {
-        changed = true;
-        const nextTodo = { ...todo, status: 'failed' as const, unread: true, timelineState: 'missed' as const };
-        events.push({ todo: nextTodo, event: 'missed' });
-        return nextTodo;
-      }
-      return todo;
-    }
+  if ((todo.status === 'active' || todo.status === 'ready') && currentElapsedMinutes >= todo.dueAtMinutes + TODO_GRACE_MINUTES) {
+    changed = true;
+    const nextTodo = { ...todo, status: 'failed' as const, unread: true, timelineState: 'missed' as const };
+    events.push({ todo: nextTodo, event: 'missed' });
+    return nextTodo;
+  }
 
     if (todo.status === 'active' && currentElapsedMinutes >= todo.dueAtMinutes) {
       changed = true;

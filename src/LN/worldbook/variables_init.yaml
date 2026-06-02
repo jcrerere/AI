@@ -158,6 +158,10 @@ player:
     Lv.4: 0
     Lv.5: 0
 
+npc_runtime:
+  version: 1
+  registry: {}
+
 chips:
   equipped: []
   storage: []
@@ -167,3 +171,4 @@ career:
   profession_level: 1
   active_tasks: {}
   career_tracks: {}
+
